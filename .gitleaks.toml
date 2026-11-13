@@ -1,0 +1,15 @@
+# gitleaks: secret scanning over the full history, in CI on every pull request and push.
+title = "qrtrmastr"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation placeholders and synthetic test fixtures"
+paths = [
+  '''^\.env\.example$''',
+  '''^tests/fixtures/synthetic/''',
+]
+regexes = [
+  '''<password>''',
+]

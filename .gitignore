@@ -12,3 +12,9 @@ CLAUDE.local.md
 
 # Python bytecode from the docs checker and its tests
 __pycache__/
+
+# Database dumps are treated like the database: the mount point stays, its contents never enter git.
+/backups/*
+!/backups/.gitkeep
+*.dump
+*.sql.gz
