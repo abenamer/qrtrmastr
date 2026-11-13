@@ -1,0 +1,14 @@
+/target
+
+# Secrets and local configuration
+.env
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Real receipts never enter git, even redacted: the repository may become public.
+/tests/fixtures/local/
+*.mbox
+*.eml
+
+# Python bytecode from the docs checker and its tests
+__pycache__/
