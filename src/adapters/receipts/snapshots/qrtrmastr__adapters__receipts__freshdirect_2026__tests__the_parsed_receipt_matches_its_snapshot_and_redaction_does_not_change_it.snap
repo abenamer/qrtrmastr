@@ -1,0 +1,121 @@
+---
+source: src/adapters/receipts/freshdirect_2026.rs
+expression: from_redacted
+---
+order_number: "12345678901"
+delivery_date: 2026-03-03
+delivery_window: "8:00am - 10:00am"
+lines:
+  - line_no: 1
+    department: Dairy
+    raw_name: "Lactaid 100% Lactose-Free Whole Milk, Carton - (1/2 gallon)"
+    product_url_path: /product/dai_lactaid_whl_hg
+    qty_first: "3"
+    qty_second: "3"
+    weight: ~
+    unit_price:
+      amount: "5.79"
+      per: Each
+    options_price: ~
+    final_price: "17.37"
+    flags:
+      taxable: false
+      special: false
+      deposit: false
+  - line_no: 2
+    department: Dairy
+    raw_name: Organic Large Brown Eggs - (12 Count)
+    product_url_path: /product/dai_egg_lg_12
+    qty_first: "1"
+    qty_second: "1"
+    weight: ~
+    unit_price:
+      amount: "6.49"
+      per: Each
+    options_price: ~
+    final_price: "6.49"
+    flags:
+      taxable: false
+      special: false
+      deposit: false
+  - line_no: 3
+    department: Vegetables
+    raw_name: "Beefsteak Tomatoes, Large"
+    product_url_path: /product/veg_tomato_beef_lg
+    qty_first: "2"
+    qty_second: "1.56"
+    weight:
+      value: "1.06"
+      unit: lb
+    unit_price:
+      amount: "2.99"
+      per: Pound
+    options_price: ~
+    final_price: "3.17"
+    flags:
+      taxable: false
+      special: false
+      deposit: false
+  - line_no: 4
+    department: Vegetables
+    raw_name: Ark Foods Green Shishito Peppers - (approx. 8oz)
+    product_url_path: /product/veg_shishito_8oz
+    qty_first: "2"
+    qty_second: "2"
+    weight: ~
+    unit_price:
+      amount: "4.00"
+      per: Each
+    options_price: ~
+    final_price: "8.00"
+    flags:
+      taxable: false
+      special: true
+      deposit: false
+  - line_no: 5
+    department: Beverages
+    raw_name: "Lime Seltzer - (6 pk, 12 fl oz)"
+    product_url_path: /product/bev_seltzer_lime_6pk
+    qty_first: "1"
+    qty_second: "1"
+    weight: ~
+    unit_price:
+      amount: "4.99"
+      per: Each
+    options_price: ~
+    final_price: "4.99"
+    flags:
+      taxable: true
+      special: false
+      deposit: true
+  - line_no: 6
+    department: Deli
+    raw_name: "Oven Roasted Turkey Breast, Sliced"
+    product_url_path: /product/del_turkey_sliced
+    qty_first: "1"
+    qty_second: "1"
+    weight:
+      value: "0.52"
+      unit: lb
+    unit_price:
+      amount: "12.99"
+      per: Pound
+    options_price: "1.00"
+    final_price: "7.75"
+    flags:
+      taxable: false
+      special: false
+      deposit: false
+anomalies:
+  - row_index: 11
+    cells:
+      - Thank you for ordering! Items marked S were on special this week.
+    reason: no rule matched
+totals:
+  subtotal: "47.77"
+  tax: "0.44"
+  bottle_deposit: "0.30"
+  delivery_fee: "5.99"
+  service_fee: "2.00"
+  tip: "6.00"
+  total: "62.50"

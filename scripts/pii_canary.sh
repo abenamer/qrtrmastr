@@ -48,6 +48,9 @@ scan=()
 while IFS= read -r -d '' path; do
   case "$path" in
     *.png|*.jpg|*.gif|*.ico|*.lock) ;;
+    # Synthetic inputs carry fake personal data on purpose; the redactor's outputs, snapshotted
+    # under src/ and tests/, are what the canary guards (docs/concepts/privacy.md).
+    tests/fixtures/synthetic/input/*) ;;
     *) scan+=("$path") ;;
   esac
 done < <(git ls-files -z -- 'tests/fixtures' 'docs' 'src' 'migrations' 'README.md' 'CHANGELOG.md')
@@ -78,14 +81,21 @@ if [ "$mode" = shape ]; then
     '([*xX]{2,}|ending in )[0-9]{4}'
     '\b[0-9]{1,5} ([A-Z][a-z]+ ){1,3}(Street|St\.|Avenue|Ave\.|Road|Rd\.|Boulevard|Blvd\.|Place|Pl\.|Court|Ct\.|Drive|Dr\.|Lane|Ln\.|Parkway|Pkwy\.)(\b|$)'
   )
-  # Addresses in the RFC 2606 reserved domains (.example, .test, .invalid, example.com/net/org)
-  # cannot be real, so a test's fake Message-ID or email in one of them is not a finding.
-  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)'
+  # Shapes that cannot be a person's data and are allowed to appear in tests and documents:
+  #   - addresses in the RFC 2606 reserved domains (.example, .test, .invalid, example.com/net/org);
+  #   - the merchant's own sender addresses at freshdirect.com, which are configuration;
+  #   - phone numbers in 555-0100 to 555-0199, the range reserved for fiction;
+  #   - invented street names ("Imaginary Street", "Example Street") used by the synthetic data.
+  # Anything else of these shapes is a finding, including a real street, a real number, a
+  # personal mail domain.
+  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)|@([A-Za-z0-9.-]+\.)?freshdirect\.com([^A-Za-z0-9]|$)|555[-. ]?01[0-9]{2}|\b(Imaginary|Example|Fictional) (Street|Avenue|Plaza|Road|Place|Lane|Drive)\b'
+  # Each match is judged on its own (grep -o), so a real value cannot hide behind a fictional one
+  # on the same line, and only file and line are printed: a matched value may be the real thing.
   for pattern in "${patterns[@]}"; do
-    if hits=$(scan_for -E "$pattern"); then
-      hits=$(printf '%s\n' "$hits" | grep -Ev -- "$reserved" || true)
+    if hits=$(scan_for -Eo "$pattern"); then
+      hits=$(printf '%s\n' "$hits" | grep -Eiv -- "$reserved" | cut -d: -f1,2 | sort -u || true)
       if [ -n "$hits" ]; then
-        echo "FAIL: personal-data shape /$pattern/ matched:" >&2
+        echo "FAIL: a personal-data shape (/$pattern/) appears at:" >&2
         echo "$hits" >&2
         failed=1
       fi

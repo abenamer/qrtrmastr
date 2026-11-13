@@ -3,4 +3,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod fixtures;
+pub mod mail;
 pub mod postgres;
+pub mod receipts;
