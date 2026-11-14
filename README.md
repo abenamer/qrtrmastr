@@ -12,10 +12,14 @@ Real receipts never enter this repository, even redacted; it may become public. 
 
 ## Quick start
 
-1. Create a database and set `DATABASE_URL` as [Develop](docs/runbooks/develop.md) describes.
-2. `cargo run -- migrate`
+Nothing is installed on the host; the database and the command run as containers.
 
-The import, review and recommendation commands arrive with the next milestones; the [command line reference](docs/reference/cli.md) lists what exists.
+1. `cp .env.example .env` and set `POSTGRES_PASSWORD`.
+2. `docker compose up -d` starts the database; `docker compose build qm` builds the command.
+3. `docker compose run --rm qm migrate`
+4. Export your FreshDirect mail and write your redaction terms as [the runbook](docs/runbooks/takeout-export.md) describes, then `docker compose run --rm qm import --mbox /data/<path>` and `docker compose run --rm qm due`.
+
+The [command line reference](docs/reference/cli.md) lists every command. [Develop and run](docs/runbooks/develop.md) covers the toolchain and the checks.
 
 ## Checks
 

@@ -21,14 +21,20 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Billed quantity | The quantity the receipt charged for: the weight when the item is sold by weight, else the second number of the quantity cell. Stored as `billed_qty`. |
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
 | DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`; a parser refuses a message without it. |
+| Gap rule | The default rule of `qm due`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
 | Local fixture | A real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. Tests use it when present. |
 | Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header when present, else the SHA-256 of the raw bytes. `domain::ids::MessageKey`. |
 | Order number | FreshDirect's identifier of an order: 11 digits until August 2026, 13 after. Text, never a number. The primary key of `grocery_orders`. |
+| Order cadence | The median gap, in days, between all distinct delivery dates: how often you order at all. The horizon of "due soon". |
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |
 | Platform | Where a message came from. `freshdirect` today; the column exists so another source adds a value, not a table. |
 | Purchase | One line of one order, read through its alias to a product: product, delivery date, billed quantity and price. The `purchases` view. |
 | Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
 | Reconciled | The sum of an order's line prices matches its subtotal within one cent. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
+| Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |
 | Synthetic fixture | A receipt built from the real layout with invented products, prices that reconcile, and fake personal data chosen to trip the privacy canary. Committed under `tests/fixtures/synthetic/`. |
+| Takeout export | The file Google Takeout produces for a Gmail label: every message of the label in mbox form. The MVP's mail source. It carries personal data and lives outside the repository. |
+| Typical quantity | The median billed quantity of a product over its purchases; what `qm due` suggests. |
+| Usual gap | The median gap, in days, between a product's distinct purchase dates. |

@@ -3,6 +3,7 @@
 
 use std::fmt;
 
+use serde::Serialize;
 use thiserror::Error;
 
 use super::states::KeyKind;
@@ -20,7 +21,8 @@ pub enum IdError {
 
 /// A FreshDirect order number: eleven digits until August 2026, thirteen after. Text, never a
 /// number, because nobody adds order numbers and a leading zero must survive.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
 pub struct OrderNumber(String);
 
 impl OrderNumber {
@@ -49,7 +51,8 @@ impl fmt::Display for OrderNumber {
 /// What a raw message is stored under, and the key every import path dedupes on. The RFC 5322
 /// `Message-ID` header when the message has one, which a Takeout export and the Gmail API both
 /// carry, so the two paths dedupe against each other; else the SHA-256 of the raw bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(tag = "kind", content = "key", rename_all = "snake_case")]
 pub enum MessageKey {
     MessageId(String),
     Sha256(String),
@@ -97,7 +100,8 @@ impl fmt::Display for MessageKey {
 macro_rules! row_id {
     ($(#[$doc:meta])* $name:ident, $kind:literal) => {
         $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+        #[serde(transparent)]
         pub struct $name(i64);
 
         impl $name {

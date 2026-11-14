@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
+use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -26,7 +27,9 @@ pub enum QuantityError {
 }
 
 /// A dollar amount with two decimal places. Negative amounts exist: credits and discounts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+/// Serializes as the decimal text, never as a float.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize)]
+#[serde(transparent)]
 pub struct Money(Decimal);
 
 impl Money {
@@ -34,6 +37,22 @@ impl Money {
 
     pub fn from_cents(cents: i64) -> Self {
         Self(Decimal::new(cents, 2))
+    }
+
+    /// A stored `numeric(10,2)` read back; more than two decimals is a corrupt row.
+    pub fn from_decimal(value: Decimal) -> Result<Self, MoneyError> {
+        if value.scale() > 2 {
+            return Err(MoneyError::Parse(value.to_string()));
+        }
+        let mut value = value;
+        value.rescale(2);
+        Ok(Self(value))
+    }
+
+    /// Addition that cannot fail for any sum a receipt reaches; saturates at the type's bound
+    /// instead of panicking, so a fold over lines stays total.
+    pub fn saturating_add(self, other: Money) -> Money {
+        Money(self.0.saturating_add(other.0))
     }
 
     /// Reads what a receipt prints: `$17.37`, `-$2.00`, `($2.00)`, `$1,234.56`, `5`.
@@ -110,7 +129,8 @@ impl fmt::Display for Money {
 }
 
 /// A count or a weight: positive, at most three decimals, as the receipt prints them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
 pub struct Quantity(Decimal);
 
 impl Quantity {
