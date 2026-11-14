@@ -1,0 +1,41 @@
+# cargo-deny configuration: the supply-chain half of the security review on every commit.
+# Run `cargo deny check` locally; CI runs it on every pull request and push to main.
+
+[graph]
+all-features = true
+
+[advisories]
+# A known vulnerability fails the check. Unmaintained and unsound crates are reported as
+# warnings so they stay visible in the log without blocking a merge.
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+unmaintained = "workspace"
+yanked = "warn"
+ignore = []
+
+[licenses]
+# Permissive licenses only. Anything else needs a line here with the reason, in a pull request.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+  "Unlicense",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

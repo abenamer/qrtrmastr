@@ -1,0 +1,11 @@
+# cargo-audit configuration. Each ignored advisory states why, and the condition under which
+# the line goes away.
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0459: libsqlite3-sys 0.37.0 (the bundled C SQLite). The crate is in Cargo.lock
+  # through sqlx's optional SQLite driver and is never compiled: this project enables the
+  # PostgreSQL driver only, and `cargo tree -i libsqlite3-sys -e normal,build` prints nothing
+  # (checked 2026-11-13). The fixed version needs a sqlx release that depends on >= 0.39.
+  # Remove this line when Cargo.lock no longer lists libsqlite3-sys < 0.39.
+  "RUSTSEC-2026-0459",
+]
