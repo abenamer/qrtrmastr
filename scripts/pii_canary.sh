@@ -53,7 +53,7 @@ while IFS= read -r -d '' path; do
     tests/fixtures/synthetic/input/*) ;;
     *) scan+=("$path") ;;
   esac
-done < <(git ls-files -z -- 'tests/fixtures' 'docs' 'src' 'migrations' 'README.md' 'CHANGELOG.md')
+done < <(git ls-files -z -- 'tests' 'docs' 'src' 'migrations' 'README.md' 'CHANGELOG.md')
 if [ ${#scan[@]} -eq 0 ]; then
   echo "PASS: nothing to scan"
   exit $failed
@@ -85,11 +85,12 @@ if [ "$mode" = shape ]; then
   #   - addresses in the RFC 2606 reserved domains (.example, .test, .invalid, example.com/net/org);
   #   - the merchant's own sender addresses at freshdirect.com, which are configuration;
   #   - phone numbers in 555-0100 to 555-0199, the range reserved for fiction;
-  #   - the test card 4242 4242 4242 4242, whose last four the synthetic data uses;
+  #   - the test card 4242 4242 4242 4242, whose last four the synthetic data uses: only as a whole
+  #     card-shaped match (the hit is path:line:match, so the mask follows a colon and 4242 ends it);
   #   - invented street names ("Imaginary Street", "Example Street") used by the synthetic data.
   # Anything else of these shapes is a finding, including a real street, a real number, a
   # personal mail domain.
-  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)|@([A-Za-z0-9.-]+\.)?freshdirect\.com([^A-Za-z0-9]|$)|555[-. ]?01[0-9]{2}|([*xX]{2,}|ending in )[^0-9]{0,8}4242|\b(Imaginary|Example|Fictional) (Street|Avenue|Plaza|Road|Place|Lane|Drive)\b'
+  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)|@([A-Za-z0-9.-]+\.)?freshdirect\.com([^A-Za-z0-9]|$)|555[-. ]?01[0-9]{2}|:([*xX]{2,}|ending in )4242$|\b(Imaginary|Example|Fictional) (Street|Avenue|Plaza|Road|Place|Lane|Drive)\b'
   # Each match is judged on its own (grep -o), so a real value cannot hide behind a fictional one
   # on the same line, and only file and line are printed: a matched value may be the real thing.
   for pattern in "${patterns[@]}"; do

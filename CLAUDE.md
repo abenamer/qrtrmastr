@@ -17,7 +17,7 @@ This project follows the [REAS standard](https://github.com/abenamer/reas). Its 
 # Commit protocol (ADR 0002)
 
 1. Work on a branch from `main`. Nothing is committed to `main` directly; branch protection enforces it, and the guard hook refuses the common forms of such a push as a backstop.
-2. Before each commit, run the `/security-review` skill over the pending changes. Record its findings and what was done about them in that day's entry of [docs/log.md](docs/log.md), even when it found nothing.
+2. Before each commit, run the `/security-review` skill over the pending changes and record its findings and what was done about them in that day's entry of [docs/log.md](docs/log.md), even when it found nothing. The rule is literal: every commit, including a one-line follow-up, a documentation-only change and a change to the privacy canary or the hooks. A fix the review asks for goes into the same commit, and a follow-up commit gets its own review. Two commits were made without one: the bootstrap commit that created `main`, before a base existed to review against, and a three-line canary follow-up on 2026-11-13 that was reviewed retroactively the next day; neither is a precedent.
 3. Run every command above that applies to the change, and report only the ones that ran.
 4. Push the branch and open a pull request. Merge only when all CI jobs pass. The seven jobs are required by branch protection.
 

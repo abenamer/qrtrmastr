@@ -27,7 +27,7 @@ The maintainer asked for a security review on every commit, run through GitHub A
 | `docs` | `scripts/check_docs.py` and its tests | a structural error in the bundle |
 | `dependency-review` | GitHub's dependency review on pull requests | a new dependency with a moderate or worse advisory |
 
-* Before each commit, on the maintainer's machine: the Stop hook runs `cargo check`, the docs checker and the privacy canary in both modes; the maintainer or the assistant runs the Claude Code `/security-review` skill over the pending changes and records its findings and their resolution in the day's log entry.
+* Before each commit, on the maintainer's machine: the Stop hook runs `cargo check`, the docs checker and the privacy canary in both modes; the maintainer or the assistant runs the Claude Code `/security-review` skill over the pending changes and records its findings and their resolution in the day's log entry. The rule is literal (decided 2026-11-14 after a three-line follow-up commit went in without one): every commit, including documentation-only changes and changes to the canary or the hooks; a fix the review asks for goes into the same commit; a follow-up commit gets its own review. The bootstrap commit that created `main` is the one commit without a review, because no base existed to review against.
 * Dependabot opens weekly pull requests for Cargo and for the actions. `#![forbid(unsafe_code)]` in the crate root.
 
 ## Consequences
