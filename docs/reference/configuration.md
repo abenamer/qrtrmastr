@@ -23,7 +23,7 @@ sources:
 | `DB_MAX_CONNECTIONS` | no | `4` | Pool size. Must be a positive whole number. |
 | `RUST_LOG` | no | `info` | Log filter, in `tracing` syntax, for example `info,sqlx=warn`. |
 
-The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `QM_DB_PORT` from the same `.env` to create the database service; see [Develop](/runbooks/develop.md).
+The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `QM_DB_PORT` from the same `.env` to create the database service, and `QM_DATA_DIR` (default `~/qm-data`) and `QM_CONFIG_DIR` (default `~/.config/qrtrmastr`) to mount your exports and your configuration into the `qm` container as `/data` and `/config`, both read-only; see [Develop and run](/runbooks/develop.md). Inside the container `DATABASE_URL` and `QM_CONFIG` are set by the Compose file.
 
 ## The configuration file
 

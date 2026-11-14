@@ -29,7 +29,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 
 # Runbooks
 
-* [Develop](runbooks/develop.md) - Toolchain, database, checks, and the pull-request flow.
+* [Develop and run](runbooks/develop.md) - Running qm through Docker Compose, the toolchain, the database options, the checks, and the pull-request flow.
 * [Export your FreshDirect mail and import it](runbooks/takeout-export.md) - The Takeout export, the redaction terms, and the import.
 
 # Decisions

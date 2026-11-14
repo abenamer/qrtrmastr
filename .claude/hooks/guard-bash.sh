@@ -6,9 +6,10 @@
 # command and sends the message to Claude as the reason.
 #   - `docker compose down -v` and `docker volume rm` delete the data volume (REAS-DATA-003).
 #   - A forced push, or any push whose refspec lands on main, bypasses the pull-request flow.
+#   - A different entrypoint on the qm container would read the mounted export or configuration.
 #   - Any command that names a mail export (.mbox, .eml, the takeout directory) other than the
-#     import tooling and plain file management would put the maintainer's address and phone
-#     into the transcript.
+#     import tooling, natively or through Compose, and plain file management would put the
+#     maintainer's address and phone into the transcript.
 # A pattern matches in command position (the start of a line, or after ; && || | or an opening
 # parenthesis), after an optional sudo, env, command, nice, time or nohup prefix and an optional
 # backslash escape, so a commit message or an echo that mentions the command passes.
@@ -38,8 +39,13 @@ if echo "$COMMAND" | grep -Eq "${PUSH}[^|;&]*([[:space:]]|:)(refs/heads/)?main([
   exit 2
 fi
 
+if echo "$COMMAND" | grep -Eq "${AT_COMMAND}docker([[:space:]]+compose|-compose)[^|;&]*[[:space:]]run[^|;&]*--entrypoint"; then
+  echo "Blocked: a different entrypoint on the qm container reads the mounted export or configuration. Use the qm commands." >&2
+  exit 2
+fi
+
 if echo "$COMMAND" | grep -Eq '(\.mbox|\.eml|qm-data/takeout)' \
-   && ! echo "$COMMAND" | grep -Eq "^[[:space:]]*(qm|cargo[[:space:]]+run|ls|du|stat|file|unzip|mkdir|mv|rm|sha256sum|wc)[[:space:]]"; then
+   && ! echo "$COMMAND" | grep -Eq "^[[:space:]]*(qm|cargo[[:space:]]+run|docker[[:space:]]+compose[[:space:]]+run([[:space:]]+--rm)?[[:space:]]+qm|ls|du|stat|file|unzip|mkdir|mv|rm|sha256sum|wc)[[:space:]]"; then
   echo "Blocked: raw mail exports carry your address and phone. Only 'qm import' and plain file management touch them; inspect redacted rows in the database instead." >&2
   exit 2
 fi

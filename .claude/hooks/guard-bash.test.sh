@@ -50,6 +50,13 @@ ALLOW git push -u origin scaffold
 ALLOW git push
 ALLOW git commit -m "mention of git push origin main in a message"
 ALLOW echo "git push --force is forbidden"
+# The qm container
+BLOCK docker compose run --rm --entrypoint sh qm -c "cat /config/config.toml"
+BLOCK docker compose run --entrypoint cat qm /data/x
+ALLOW docker compose run --rm qm due
+ALLOW docker compose run --rm qm import --mbox /data/takeout-2026-11/Takeout/Mail/FreshDirect.mbox
+ALLOW docker compose run --rm qm fixture add abc@mail.example --dir /fixtures
+ALLOW docker compose build qm
 # Mail exports
 BLOCK cat ~/qm-data/takeout-2026-11/Mail/FreshDirect.mbox
 BLOCK tac ~/qm-data/takeout-2026-11/Mail/FreshDirect.mbox

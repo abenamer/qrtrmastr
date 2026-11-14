@@ -17,6 +17,8 @@ sources:
 
 `qm` reads its settings from the environment and an optional `.env` file ([Configuration](/reference/configuration.md)). Every command exits with status 0 on success and 1 on failure, with the error on standard error (REAS-RUST-005). Logs go to standard error at the level `RUST_LOG` sets.
 
+The command runs as a container: `docker compose run --rm qm <command>` ([Develop and run](/runbooks/develop.md)). Inside it, your exports directory is `/data`, your configuration directory is `/config`, and the local fixtures directory is `/fixtures`; `qm fixture add` needs `--dir /fixtures` there, because the container has no repository root to anchor to.
+
 | Command | What it does | Output |
 | --- | --- | --- |
 | `qm migrate` | Applies the pending migrations. A second run applies nothing. | One line per applied migration, then `N applied now, M already applied`. |
