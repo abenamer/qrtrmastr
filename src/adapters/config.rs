@@ -25,7 +25,17 @@ pub enum ConfigError {
     #[error("cannot read the configuration file {path}: {reason}")]
     File { path: PathBuf, reason: String },
     #[error(
-        "no [redaction] section in {0}; the import refuses to run without your redaction terms"
+        "no [redaction] section in {0}; the import refuses to run without your redaction terms.\n\
+         Through Compose, /config is your configuration directory (QM_CONFIG_DIR, \
+         ~/.config/qrtrmastr by default). Add the section with your own values, as \
+         docs/reference/configuration.md describes, then import again:\n\n\
+         [redaction]\n\
+         names = [\"Your Name\", \"Your\"]\n\
+         emails = [\"you@example.com\"]\n\
+         phones = [\"2125550100\"]\n\
+         address_lines = [\"12 Example Street Apt 3\", \"Exampleville, NY 00000\"]\n\
+         card_last4 = [\"4242\"]\n\n\
+         Put the same terms, one per line, in canary-terms.txt beside it for the local privacy canary."
     )]
     NoRedactionTerms(PathBuf),
     #[error("no configuration directory can be found for this user")]
@@ -193,6 +203,22 @@ mod tests {
         let debug = format!("{parsed:?}");
         assert!(debug.contains("[REDACTED]"));
         assert!(!debug.contains("Pat Example"));
+    }
+
+    #[test]
+    fn the_missing_redaction_error_shows_the_section_to_add_and_where() {
+        let text = ConfigError::NoRedactionTerms(PathBuf::from("/config/config.toml")).to_string();
+        assert!(
+            text.starts_with("no [redaction] section in /config/config.toml"),
+            "{text}"
+        );
+        assert!(text.contains("QM_CONFIG_DIR"), "{text}");
+        for key in ["names", "emails", "phones", "address_lines", "card_last4"] {
+            assert!(
+                text.contains(&format!("\n{key} = [")),
+                "{key} missing in {text}"
+            );
+        }
     }
 
     #[test]

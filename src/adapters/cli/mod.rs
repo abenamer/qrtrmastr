@@ -15,7 +15,14 @@ use crate::domain::recommend::Status;
 #[command(
     name = "qm",
     version,
-    about = "Quartermaster: a grocery order history from receipt emails, and a recommended next cart"
+    about = "Quartermaster: a grocery order history from receipt emails, and a recommended next cart",
+    long_about = "Quartermaster: a grocery order history from receipt emails, and a recommended next cart.\n\n\
+        The tool needs a Google Takeout export of your FreshDirect mail. It talks to no retailer \
+        and reads no mailbox. In Gmail, give the receipts a label with a filter on \
+        from:service@freshdirect.com; at https://takeout.google.com export Mail, that label only, \
+        as a .zip; unzip it under your exports directory (~/qm-data, /data inside the container). \
+        Before the first import, write your redaction terms into config.toml. Both steps, with \
+        the expected output: docs/runbooks/takeout-export.md"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -28,8 +35,13 @@ pub enum Command {
     Migrate,
     /// Import a Google Takeout export of your FreshDirect mail, then parse the new receipts.
     /// Idempotent: messages already stored are skipped.
+    ///
+    /// The export is the file Takeout/Mail/FreshDirect.mbox inside the unzipped archive; through
+    /// Compose its path starts with /data. The command needs the [redaction] section of
+    /// config.toml and refuses to run without it. How to request the export and write the terms:
+    /// docs/runbooks/takeout-export.md
     Import {
-        /// Path to the Takeout export of your FreshDirect label.
+        /// Path to the Takeout export of your FreshDirect label (Takeout/Mail/FreshDirect.mbox).
         #[arg(long, value_name = "PATH")]
         mbox: PathBuf,
     },

@@ -1,8 +1,22 @@
 //! `qm import`, first half: read every message of the source, prepare it, store the new ones.
 
 use serde::Serialize;
+use thiserror::Error;
 
-use super::ports::{InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore};
+use super::ports::{
+    InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore, StoreError,
+};
+
+/// Why an import run stopped. A source that cannot be read at all, or a store that fails, ends
+/// the run with an error; the command then exits with a failure status (REAS-RUST-005). One
+/// message that cannot be parsed or redacted is counted in the report instead, and the run goes on.
+#[derive(Debug, Error)]
+pub enum ImportError {
+    #[error(transparent)]
+    Source(#[from] MailError),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
 
 /// What one import run did. `redaction_failures` is non-empty when a message was refused
 /// because personal data survived; the command then exits with a failure status.
@@ -33,16 +47,11 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
 
     /// Reads the whole source and stores each message once. Idempotent: a key or a source hash
     /// already stored is counted as known and skipped. A malformed message or a redaction
-    /// failure is recorded and the run continues; a store failure stops it.
-    pub async fn run(&self) -> Result<ImportReport, super::ports::StoreError> {
+    /// failure is recorded and the run continues; a source that cannot be read, or a store
+    /// failure, stops it.
+    pub async fn run(&self) -> Result<ImportReport, ImportError> {
         let mut report = ImportReport::default();
-        let raws = match self.source.messages().await {
-            Ok(raws) => raws,
-            Err(error) => {
-                report.malformed.push(error.to_string());
-                return Ok(report);
-            }
-        };
+        let raws = self.source.messages().await?;
         let known = self.store.known_keys().await?;
         for raw in &raws {
             report.read += 1;
@@ -76,7 +85,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::application::ports::{NewRawMessage, PendingMessage, StoreError, StoredBody};
+    use crate::application::ports::{NewRawMessage, PendingMessage, StoredBody};
     use crate::domain::ids::{MessageKey, RawMessageId};
     use crate::domain::states::{MessageKind, Platform};
 
@@ -199,6 +208,28 @@ mod tests {
         let result = ImportMail::new(TwoMails, ByteReader, BrokenStore)
             .run()
             .await;
-        assert!(matches!(result, Err(StoreError::Migration(_))));
+        assert!(matches!(
+            result,
+            Err(ImportError::Store(StoreError::Migration(_)))
+        ));
+    }
+
+    struct MissingExport;
+
+    impl MailSource for MissingExport {
+        async fn messages(&self) -> Result<Vec<RawMail>, MailError> {
+            Err(MailError::Read("/data/missing: no such file".to_owned()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_source_that_cannot_be_read_is_an_error_not_an_empty_report() {
+        let result = ImportMail::new(MissingExport, ByteReader, BrokenStore)
+            .run()
+            .await;
+        assert!(
+            matches!(result, Err(ImportError::Source(MailError::Read(ref text))) if text.contains("/data/missing")),
+            "{result:?}"
+        );
     }
 }

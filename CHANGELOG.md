@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- First run: the README, `qm --help` and `qm import --help` say that the tool needs a Google Takeout export of your FreshDirect mail and how to request one. An export that cannot be opened is now an error with status 1 that names the file to look for and the runbook; before, it was a `malformed` line and status 0. A missing `[redaction]` section prints the section to add and where the file lives.
 - Process: a Dependabot pull request is never merged as it stands; its bump is redone on a reviewed branch by the commit protocol, and Dependabot's version updates arrive grouped per ecosystem once a month. `actions/checkout` moves to 7.0.1 and `gitleaks/gitleaks-action` to 3.0.0 (Node 24 runtime). [ADR 0002](docs/decisions/0002-pull-requests-and-the-security-review-on-every-commit.md).
 - Process: the security review on every commit is literal, including documentation-only, canary and hook changes; recorded in `CLAUDE.md` and [ADR 0002](docs/decisions/0002-pull-requests-and-the-security-review-on-every-commit.md).
 - Run as a container: `Dockerfile` and a `qm` service in `compose.yaml` under a profile, so `docker compose up -d` starts the database and `docker compose run --rm qm <command>` runs the tool with your exports at `/data`, your configuration at `/config` and the local fixtures at `/fixtures`. Nothing is installed on the host.

@@ -40,4 +40,4 @@ The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `
 | `[recommend]` | `lapsed_after_gaps` | `3` | An item not bought for more than this many usual gaps is lapsed. |
 | `[import]` | `senders` | `["service@freshdirect.com"]` | The exact From addresses that are FreshDirect's. |
 
-`qm import` refuses to run without a `[redaction]` section. The section is personal data: the file is outside the repository and denied to the assistant. The same terms, one per line, belong in `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
+`qm import` refuses to run without a `[redaction]` section; its error prints the section with placeholder values and names the file it looked for. The section is personal data: the file is outside the repository and denied to the assistant. The same terms, one per line, belong in `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
