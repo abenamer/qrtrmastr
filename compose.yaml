@@ -1,5 +1,10 @@
-# Quartermaster: the PostgreSQL service. The qm binary runs natively and connects over the
-# published loopback port.
+# Quartermaster: the PostgreSQL service and the `qm` command as a container beside it.
+#
+#   docker compose up -d                       starts the database (the qm service has a profile,
+#                                              so it does not start on its own)
+#   docker compose run --rm qm migrate         runs one command and removes the container
+#   docker compose run --rm qm import --mbox /data/<export path>
+#   docker compose run --rm qm due
 #
 # The named volume below holds the data. Normal operations (stop, start, restart, down, up,
 # host reboots) keep it. `docker compose down -v` DELETES it. Do not use -v (REAS-DATA-003).
@@ -28,6 +33,38 @@ services:
       retries: 10
       start_period: 20s
     shm_size: 128mb
+    security_opt:
+      - no-new-privileges:true
+
+  qm:
+    build: .
+    image: qrtrmastr:latest
+    # A profile keeps `docker compose up` from starting it; `docker compose run qm ...` still works.
+    profiles: ["tool"]
+    depends_on:
+      qm-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-qm}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@qm-postgres:5432/${POSTGRES_DB:-qrtrmastr}
+      QM_CONFIG: /config/config.toml
+      RUST_LOG: ${RUST_LOG:-warn}
+      # "Today" for `qm due` without --as-of is the day in this zone.
+      TZ: ${TZ:-UTC}
+    volumes:
+      # The Takeout exports, read-only. The export carries personal data and never leaves this mount.
+      - ${QM_DATA_DIR:-${HOME}/qm-data}:/data:ro
+      # The configuration file with the redaction terms, read-only.
+      - ${QM_CONFIG_DIR:-${HOME}/.config/qrtrmastr}:/config:ro
+      # Where `qm fixture add --dir /fixtures` writes; gitignored on the host.
+      - ./tests/fixtures/local:/fixtures
+    # Runs as your host user so files it writes under /fixtures are yours; set QM_UID and QM_GID in
+    # .env if `id -u` and `id -g` are not 1000.
+    user: "${QM_UID:-1000}:${QM_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 

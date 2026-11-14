@@ -1,0 +1,6 @@
+# Only what the build needs reaches the image context. Nothing personal, nothing local.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!migrations/

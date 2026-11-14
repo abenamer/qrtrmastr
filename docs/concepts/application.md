@@ -55,4 +55,4 @@ Every later command (`import`, `due`, `cart`) follows the same five steps with i
 
 ## Where it runs
 
-On the maintainer's machine. PostgreSQL runs in Docker Compose (`compose.yaml`) with a named volume, or in a local server for development ([Develop](/runbooks/develop.md)). Nothing runs in the cloud except GitHub Actions, which runs the checks.
+On the maintainer's machine, as two containers: PostgreSQL with a named volume, and the `qm` command, run with `docker compose run --rm qm ...` ([Develop and run](/runbooks/develop.md)). Nothing of the project is installed on the host. Nothing runs in the cloud except GitHub Actions, which runs the checks.
