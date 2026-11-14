@@ -1,15 +1,28 @@
+# Dependabot proposes version updates grouped per ecosystem once a month, and a security update
+# on its own as soon as the advisory is published. A Dependabot pull request is never merged as
+# it stands: the bump is redone on a reviewed branch by the commit protocol (ADR 0002), and
+# Dependabot closes its pull request when main carries the version.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      images:
+        patterns: ["*"]
