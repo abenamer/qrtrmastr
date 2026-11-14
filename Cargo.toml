@@ -21,6 +21,7 @@ chrono-tz = "0.10.4"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 directories = "6.0.0"
 dotenvy = "0.15.7"
+ego-tree = "0.11"
 figment = { version = "0.10.19", features = ["toml", "env"] }
 hex = "0.4.3"
 mail-parser = "1.0.1"
@@ -40,9 +41,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.26"
 
 [dev-dependencies]
-insta = "1.49.0"
+insta = { version = "1.49.0", features = ["yaml"] }
 proptest = "1.12.0"
 rstest = "0.28.0"
+tempfile = "3.27.0"
+toml = "1.2.1"
 
 [profile.release]
 opt-level = 3
