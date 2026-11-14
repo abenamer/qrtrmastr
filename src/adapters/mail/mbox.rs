@@ -20,8 +20,15 @@ impl MboxFile {
     }
 
     fn read_all(path: &Path) -> Result<Vec<RawMail>, MailError> {
-        let file =
-            File::open(path).map_err(|e| MailError::Read(format!("{}: {e}", path.display())))?;
+        let file = File::open(path).map_err(|e| {
+            MailError::Read(format!(
+                "{}: {e}. qm reads a Google Takeout export of your FreshDirect mail: the file \
+                 Takeout/Mail/FreshDirect.mbox inside the unzipped archive. Through Compose, your \
+                 exports directory (QM_DATA_DIR) is /data inside the container. How to request \
+                 the export: docs/runbooks/takeout-export.md",
+                path.display()
+            ))
+        })?;
         let mut messages = Vec::new();
         for message in MessageIterator::new(BufReader::new(file)) {
             let message =
@@ -71,8 +78,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_file_is_a_read_error_not_a_panic() {
+    async fn a_missing_file_is_a_read_error_that_says_how_to_get_an_export() {
         let result = MboxFile::new("/nonexistent/export").messages().await;
-        assert!(matches!(result, Err(MailError::Read(_))));
+        let Err(MailError::Read(text)) = result else {
+            panic!("expected a read error, got {result:?}");
+        };
+        assert!(text.contains("/nonexistent/export"), "{text}");
+        assert!(text.contains("Google Takeout"), "{text}");
+        assert!(text.contains("docs/runbooks/takeout-export.md"), "{text}");
     }
 }

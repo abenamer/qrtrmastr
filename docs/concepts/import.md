@@ -25,7 +25,7 @@ sources:
 
 ## Storing messages
 
-For each message of the export, in order:
+An export that cannot be opened or read ends the run with an error and a failure exit status; nothing is counted, and the parse step does not run, so messages an earlier import stored stay in `fetched` until the next successful import (REAS-RUST-005). For each message of a readable export, in order:
 
 1. The MIME parts and a few headers are read: `Message-ID`, `Date`, `Subject`, `From`, `Authentication-Results`, the HTML body, the text body.
 2. The message key is the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing. A key already stored is skipped and counted as known. The source hash is stored too and is unique, so a message that arrives under a new header is still stored once.

@@ -45,7 +45,7 @@ The checks below ran on the scaffold worktree before its first commit, with Rust
 | Rule | Evidence |
 | --- | --- |
 | REAS-RUST-001 | `src/domain/ids.rs`, `src/domain/money.rs`, `src/domain/states.rs`: private fields, smart constructors, exhaustive matches; their unit tests. |
-| REAS-RUST-005 | `src/main.rs` returns a failure exit status; `Settings::from_env` has no default for `DATABASE_URL`. |
+| REAS-RUST-005 | `src/main.rs` returns a failure exit status; `Settings::load` has no default for `DATABASE_URL`; `ImportError` makes an unreadable export an error, not an empty report (`a_source_that_cannot_be_read_is_an_error_not_an_empty_report`, 2026-11-14). |
 | REAS-RUST-006 | The commands in `CLAUDE.md`; the Stop hook runs `cargo check` before a turn ends. |
 | REAS-STATE-001 | `ParseState::first_parse` and `reparse` with `TransitionError`; tests per transition. |
 | REAS-STATE-003 | `PostgresStore::finish_parse`: the transition is `update ... where id = $3 and parse_state = $4 and version = $5`, success only when one row changed, else `StoreError::Conflict` and the transaction rolls back; `a_stale_version_changes_no_row` proves it. |
