@@ -40,7 +40,7 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 
 ## Develop: toolchain
 
-* Rust stable with `rustfmt` and `clippy` (`rustup component add rustfmt clippy`).
+* Rust, in the version that `rust-toolchain.toml` names, with `rustfmt` and `clippy`. rustup reads the file and installs that version when you run `cargo` in the repository. CI uses the same version and fails when the workflow and the file differ. The image in the `Dockerfile` is the same minor version. To move to a newer Rust, change the file, the workflow and the image in one pull request; a newer Clippy can report findings that the old one did not.
 * `cargo install sqlx-cli --no-default-features --features postgres,rustls --locked`, `cargo install cargo-audit cargo-deny --locked`: toolchain utilities, not project binaries.
 * Python 3 with `pip install -r requirements-docs.txt` for the docs checker.
 * The project's own binary is never installed on the host: `cargo build` puts it under `target/`, and `docker compose run --rm qm` runs it.
