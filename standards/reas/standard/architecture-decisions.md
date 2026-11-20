@@ -3,6 +3,7 @@ type: Navigation
 title: Architecture decisions
 description: Links to decisions that explain REAS architecture and standards.
 tags: [architecture, decisions]
+updated: 2026-11-20
 ---
 
 # Architecture decisions

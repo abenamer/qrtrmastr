@@ -3,6 +3,7 @@ type: Technical Reference
 title: Documentation checker
 description: Supported syntax and limits of the REAS documentation checker.
 tags: [documentation, validation, tooling]
+updated: 2026-11-20
 ---
 
 # Documentation checker
@@ -36,6 +37,10 @@ Code blocks and code spans do not declare links or rules.
 | Local fragments | A referenced Markdown heading or explicit HTML anchor exists. |
 | Event metadata | `generated` and `verified` events have an actor and a datetime with a UTC offset. |
 | Source metadata | Each `sources` entry has a non-empty `resource` string. |
+| Rule shape | In an `Engineering Standard` concept, each rule is a level-two heading followed by level-three sections Intent, Enforcement, Scope, Rules, optional Allowances, and Verification, in that order and non-empty. Enforcement is `Required.` or `Advisory.` |
+| Quality test | Each `Engineering Standard` concept ends with a non-empty `## Quality test` section. |
+| Retired terms | `standard/terminology.md` has a non-empty `## Retired terms` table. No document outside the exempt list uses a retired term in prose; code spans and code blocks are not scanned. |
+| Freshness | An `updated` date is a valid `YYYY-MM-DD` date and not in the future. A concept older than the threshold for its type is a warning; `--strict-freshness` makes it an error. |
 
 For a directory link, fragment and navigation checks use `index.md`, then `README.md`, if either exists.
 Heading fragments use lowercase text, hyphens for spaces, and numeric suffixes for duplicate headings.
@@ -44,6 +49,10 @@ Punctuation does not become part of the heading fragment.
 In bundle documents, a path that starts with `/` is relative to `standard/`.
 In documents outside the bundle, that path is relative to the repository root.
 A path must remain inside the repository after resolution.
+
+The exempt documents for retired terms are the terminology table, the identifier policy, `CHANGELOG.md`, and the language-review record.
+The freshness thresholds are 90 days for `Audit Report`, 180 days for `Technical Reference` and `Review Procedure`, and 365 days for other types.
+Run `python scripts/check_docs.py --strict-freshness` to fail on a stale concept.
 
 ## Limits
 
@@ -58,3 +67,5 @@ Use explicit HTML anchors for stable rule links.
 The checker does not fetch external URLs, including URLs in metadata.
 It does not compare rule identifiers with repository history.
 It does not validate the full STE vocabulary, grammar, or technical meaning.
+It matches retired terms as plain text, so it cannot tell a quoted mention from a use; keep quoted mentions in the exempt documents.
+It checks that a Verification section exists; it does not run the checks the section names.

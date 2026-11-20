@@ -1,24 +1,113 @@
 ---
 type: Audit Report
 title: REAS self-audit
-description: Revision-specific validation evidence and remaining limitations.
+description: Each rule of REAS 1.6.0-draft with its status in this project, the evidence for each result, and the limits of the audit.
 tags: [quality, documentation, audit]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: reas
     resource: https://github.com/abenamer/reas
-    title: REAS engineering standard, 1.4.0-draft
+    title: REAS engineering standard, 1.6.0-draft
 ---
 
 # REAS self-audit
 
-**Recorded validation: Actions run [43492663243](https://github.com/abenamer/qrtrmastr/actions/runs/43492663243) passed all seven jobs for the scaffold commit `85bcbc0` on pull request #1 (2026-11-13). Milestone 1 (`import-freshdirect`) has local evidence below; its pull request supplies the remote run.**
+**Recorded validation: Actions run [44821890273](https://github.com/abenamer/qrtrmastr/actions/runs/44821890273) on 2026-11-20 for commit `534da18` on `main`. Six jobs passed: `rust`, `audit`, `deny`, `docs`, `privacy`, `secrets`. The job `dependency-review` was skipped: it runs on a pull request only, and this run was a push. That run does not cover the change that vendored REAS 1.6.0-draft; the log entry of that change records its checks.**
 
-The project was made against REAS 1.4.0-draft, the version vendored at `standards/reas/`. The language review does not establish ASD-STE100 compliance; see the [STE review](/ste-review.md).
+The project was made against REAS 1.4.0-draft. On 2026-11-20 the vendored copy at `standards/reas/` changed to 1.6.0-draft, and the audit below was done against it. The project does not meet every rule of that version: the table says which, and [ADR 0015](/decisions/0015-reas-1-6-0-draft-and-the-order-of-its-gaps.md) gives the order in which the gaps close. The language review does not establish ASD-STE100 compliance; see the [STE review](/ste-review.md).
 
-## Local evidence: 2026-11-13
+## Audit against REAS 1.6.0-draft: 2026-11-20
 
-The checks below ran on the scaffold worktree before its first commit, with Rust 1.99.1 and a user-owned PostgreSQL 15.16 on port 5433 as `DATABASE_URL`. A local result has no immutable source commit and is not release evidence; the pull request's Actions run replaces this table.
+Method: the audit read the rules in `standards/reas/standard/` and the code at commit `534da18`. A count of lint findings is the number of lines that `cargo clippy --locked --lib --bins --message-format=short -- -W <lint>` printed for `src/` on 2026-11-20 with Rust 1.99.1; test code is not in a count. A status is one of four words:
+
+* Met: the audit found the evidence that the rule's Verification section names.
+* Partly met: the code follows the rule's text in the places the audit read, and a named part is absent.
+* Not met: the rule applies and the audit found a gap in most of what it asks.
+* Not applicable: the rule's Scope excludes this project; the row gives the reason.
+
+A status is the result of a reading, not of a tool, except where the row names a command. A row that says "not examined" is not a pass.
+
+### Core Rust
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-RUST-001 | Partly met | Newtypes with private fields and smart constructors in `src/domain/ids.rs`, `money.rs`, `states.rs`, `list.rs`; `text_enum!` deserializes through `FromStr`. Gaps: `clippy::wildcard_enum_match_arm` is not set (1 finding); a rejection test through the deserializer for each invariant was not examined. `cargo semver-checks` is not applicable: the package is not published. |
+| REAS-RUST-002 | Met, by reading | Advisory. Use cases take adapters as type parameters; no benchmark is cited as a reason for a choice. |
+| REAS-RUST-003 | Partly met | No blanket implementation and no generic repository. Gap: `clippy::same_name_method` is not set (0 findings). |
+| REAS-RUST-004 | Partly met | No `Arc<Mutex<T>>` outside test code. Gaps: `clippy::needless_pass_by_value` (3 findings) and `clippy::redundant_clone` (0 findings) are not set. |
+| REAS-RUST-005 | Partly met | Typed errors with `thiserror` in the library; `anyhow` only in `src/main.rs`; a failure exit status; `clippy::unwrap_used` gives 0 findings. Gaps: the two lints are not set; 39 `expect` calls outside tests carry a message and no `#[expect]`; a test that produces each error variant was not examined. |
+| REAS-RUST-006 | Partly met | The commands in `CLAUDE.md`; the Stop hook; the `rust` job. Gaps: no `[lints]` table in `Cargo.toml`; 5 `#[allow]` attributes (`async_fn_in_trait` in `src/application/ports.rs`) in place of `#[expect]` with a reason; the documentation build with warnings denied is in no hook and no job. |
+| REAS-RUST-007 | Partly met | Blocking readers run in `spawn_blocking` (`takeout.rs`, `gmail.rs`, `main.rs`), one at a time for a command. Gaps: no shutdown test; cancellation is recorded for the mail readers (the receiver is gone) and not for a shutdown deadline. |
+| REAS-RUST-008 | Partly met | `Money` over `rust_decimal`, two decimals, `numeric(10,2)` in PostgreSQL, `checked_add` with `MoneyError::Overflow`, no float. Gaps: the type carries no currency (every amount is a US dollar amount, and the type's comment says so; no check refuses another currency); `Money::saturating_add` saturates and returns no error; `clippy::float_arithmetic` is not set for the module (0 findings); the three tests the rule names were not examined. |
+| REAS-RUST-009 | Not met | 405 public items without a doc comment (`missing_docs`), 38 fallible public functions without an `# Errors` section, 6 without a `# Panics` section. The three lints are not set. No documentation build in CI. |
+
+### State machines
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-STATE-001 | Met, by reading | `ParseState::first_parse` and `reparse` with `TransitionError`; `text_enum!` in `src/domain/states.rs`; tests per transition. |
+| REAS-STATE-002 | Partly met | Advisory. Persisted state is a runtime enum, which the rule asks for. Gap: the sender check (the From mailbox and the DKIM pass) is a value on the message, `SenderCheck`, and not a state type that the parser's parameter requires; [ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md) parses a receipt without a DKIM pass on purpose and tags its order. |
+| REAS-STATE-003 | Partly met | `PostgresStore::finish_parse` is a conditional update on identifier, state and version, and reports `StoreError::Conflict` when no row changed; `a_stale_version_changes_no_row` in `tests/database.rs` proves a stale writer changes nothing. Gap: no test in which two writers read the same row and exactly one succeeds. |
+
+### Architecture
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-ARCH-001 | Met, by reading | [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md); `src/main.rs` is the one composition root. |
+| REAS-ARCH-002 | Partly met | `src/domain` imports no SQLx, file, network or clock type. Gaps: the domain derives `serde::Serialize` (see REAS-DATA-001); one package holds all layers, so no dependency-graph check exists, and none is planned ([ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md) rejects a workspace). |
+| REAS-ARCH-003 | Met | The five answers are in [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md); the fifth was added on 2026-11-20. |
+| REAS-ARCH-004 | Partly met | Adapters are named for what they adapt. Gaps: `RawMessageStore::known_keys` and `body_by_key` pass a message key as `String` and `&str` although `MessageKey` exists; `MailSource` passes the bytes of a mail as `RawMail`, which is the transport's shape by design (the reader behind `MailReader` is the trust boundary). |
+| REAS-ARCH-005 | Met, by reading | Advisory. The rules in `src/domain/recommend.rs` take `as_of` and a seed as arguments. |
+| REAS-ARCH-006 | Met, by reading | Advisory. No `dyn Port`. |
+
+### Persistence
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-DATA-001 | Partly met | SQL in `src/adapters/postgres/`; migrations only add; each index names its query; parameterized queries. Gap: domain types carry serde attributes (`#[serde(rename = "product_id")]` in `src/domain/list.rs`, `#[serde(tag, content, rename_all)]` in `src/domain/ids.rs`, `#[serde(transparent)]` on the newtypes) because `qm due --json` serializes them directly. |
+| REAS-DATA-002 | Partly met | `GroceryStore::finish_parse` is one port operation whose adapter owns the transaction; no SQLx type crosses a port; the stale-version test asserts that the attempt row rolled back. Gap: no test that fails a later write inside the transaction for a cause other than the version. |
+| REAS-DATA-003 | Not met | `compose.yaml` has the named volume `qm_postgres_data`. Gaps: no backup procedure, no backup outside the volume, no restore test. The runbook is milestone 3 of the plan. |
+| REAS-DATA-004 | Partly met | `Cargo.lock` committed; `--locked` in CI; `cargo sqlx prepare --check` on a new database in CI; `SQLX_OFFLINE=true`. Gaps: no `rust-toolchain.toml` (the `Dockerfile` pins the image of Rust 1.99; the `rust` job takes the stable toolchain of the day); `rust-version` is not applicable (not published); the package has no Cargo features. |
+| REAS-DATA-005 | Met, by reading | A mail is the event and its message key is the identifier; the insert is keyed by it; `importing_the_same_export_twice_stores_everything_once` in `tests/database.rs`. `qm fetch` uses the same insert; no test delivers one mail twice through the Gmail adapter. |
+
+### Security at seams
+
+The exposure is in [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md), question 5: other parties can supply outside data, through mail. The exception that the standard gives a tool whose only source of outside data is its maintainer does not apply.
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-SEC-001 | Partly met | `SecretString` for the database URL, the OAuth client secret and the Gmail tokens; a filter keeps the HTTP library and the HTML parser from printing bytes of a message or a token ([ADR 0013](/decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md)); a timeout, a size limit for each call and a limit on the messages of a run in the Gmail adapter; `cargo deny check` and `cargo audit` on each pull request and each push to `main`; `deny.toml` admits one registry and no git source; no listener and no endpoint. Gaps: no daily schedule for the scan; no recorded review of the dependencies with a build script (50 packages in the lockfile) or a proc-macro (24); no list of the dependencies that read outside data and contain `unsafe`, and no review of them; no design review recorded in the four terms the rule names for the redactor and the Gmail adapter, which handle personal data and credentials. |
+| REAS-SEC-002 | Partly met | Mail is decoded, the sender is checked, and the text is redacted in `PlatformMail` before the application stores it; the receipt parser turns stored text into domain types (`Money`, `Quantity`, `OrderNumber`) and treats it as outside data. Gaps: a receipt without a DKIM pass is parsed ([ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md)); bare `String` keys cross `RawMessageStore`; the `Deserialize` derives in `src/adapters/config.rs`, `redact.rs` and `gmail.rs` were not examined for invariants or for `deny_unknown_fields`. |
+| REAS-SEC-003 | Not met | The `regex` crate only, which is linear-time; `src/domain/pack.rs` and `stocked_until` use checked arithmetic after the review of 2026-11-20. Gaps: `overflow-checks` is not set for the release profile; 52 findings of `clippy::arithmetic_side_effects` and 28 of `clippy::indexing_slicing` in `src/`, of which 2 and 16 are in the receipt parser and 10 and 2 in the redactor; `size_limit` is set on none of the 31 compiled patterns. |
+| REAS-SEC-004 | Partly met | `#![forbid(unsafe_code)]` in `src/lib.rs` and `src/main.rs`; no unsafe code. Gap: the setting is an attribute in two files and not `unsafe_code = "forbid"` under `[lints.rust]`. |
+| REAS-SEC-005 | Not applicable | No fast path, cache or second implementation of one function. The habit rule and the gap rule are different rules with different results. |
+| REAS-SEC-006 | Partly met | SQL values are parameters; JSON is written by `serde_json`; the page of `qm due --html` encodes element text and attribute values in `src/adapters/cli/page.rs`, with a test; an addition refuses control characters when it is made. Deviation, kept on purpose: the redactor changes a mail before storage ([ADR 0004](/decisions/0004-redaction-before-storage.md)), where the rule says to store a value as it was entered; the reason is privacy, and the stored text is still encoded at each sink. Gaps: the table that `qm due` prints to a terminal writes a product name from a receipt with no encoding of control characters; no list of the sinks with one test for each; the Gmail query and the HTTP headers were not examined. |
+
+### Validation and evidence
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-TEST-001 | Partly met | Unit tests in each module; `tests/database.rs` against PostgreSQL; a failing double in `src/application/migrate.rs` and `import.rs`; one property test in `src/domain/identity.rs`. Gaps: `cargo mutants` has not run; the tests were not examined for the non-vacuity rules or for the three values at each threshold. No sealed state trait exists, so no compile-fail test is due. |
+| REAS-TEST-002 | Partly met | The log and this file name the date and the commit or run of each result. Gap: results before 2026-11-20 use "passed" and "not run" only; the six outcomes are used from this entry on. |
+| REAS-TEST-003 | Not met | No fuzz target. The adapters and parsers that read bytes from another party: the Takeout reader, the MIME reader, the classifier, the redactor, the FreshDirect parser, the size-text reader in `src/domain/pack.rs`, and the JSON of the Gmail adapter. |
+| REAS-TEST-004 | Partly met | The doubles in `src/application/migrate.rs` and `import.rs` stand for the database and the mail source. Gap: `MailReader` and `ReceiptParsing` are traits in front of code this application owns (the classifier with the redactor, and the parser registry), and `ByteReader` in `src/application/import.rs` is a double of the first. |
+| REAS-TEST-005 | Met, by record | No test was skipped, weakened or deleted to pass; the log names each test that a review added. No commit message names a class, because no failing test was changed. |
+
+### Documentation
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-DOC-001 | Partly met | The text targets ASD-STE100. The [STE review](/ste-review.md) says that nobody has checked it against the official rules and dictionary. |
+| REAS-DOC-002 | Partly met | The bundle in `docs/` with its index; `scripts/check_docs.py` checks front matter, links and actors. Gaps: only this file has an `updated` date; the checker does not check that date, reachability from the index, heading fragments or freshness; no file has an authority class. |
+| REAS-DOC-003 | Partly met | [Project terminology](/terminology.md). Gaps: no table of retired terms, and no check for one. |
+| REAS-DOC-004 | Partly met | The log, the changelog and the concept change with the code, by `.claude/rules/docs.md`. Gap: the decisions before ADR 0015 state their requirements as prose, not in the four shapes. |
+| REAS-DOC-005 | Met | `scripts/check_docs.py` and its tests in the `docs` job; the language review has its own record. |
+| REAS-DOC-006 | Not met | The checks are listed in `CLAUDE.md`, in the workflow and in the Stop hook, three lists that can drift. No gate has a floor or a planted-violation test, except the guard hook's own test file. No table of paths to jobs. |
+
+## Checks of 2026-11-13
+
+The checks below ran on the scaffold worktree and on milestone 1 before their commits, with Rust 1.99.1 and a user-owned PostgreSQL 15.16 on port 5433 as `DATABASE_URL`. They are a record of that day against REAS 1.4.0-draft. They do not describe the code of today; the log has the checks of each later change.
 
 | Check | Outcome |
 | --- | --- |
@@ -40,25 +129,6 @@ The checks below ran on the scaffold worktree before its first commit, with Rust
 | `/security-review` over milestone 1 | Ran 2026-11-13: one Medium finding (a redaction bypass), fixed before the commit with regression tests; two filtered candidates fixed as hardening; recorded in the log entry of the day. |
 | Complete STE vocabulary and grammar review | Not run. See the review record. |
 
-## Rules and where their evidence lives
-
-| Rule | Evidence |
-| --- | --- |
-| REAS-RUST-001 | `src/domain/ids.rs`, `src/domain/money.rs`, `src/domain/states.rs`: private fields, smart constructors, exhaustive matches; their unit tests. |
-| REAS-RUST-005 | `src/main.rs` returns a failure exit status; `Settings::load` has no default for `DATABASE_URL`; `ImportError` makes an unreadable export an error, not an empty report (`a_source_that_cannot_be_read_is_an_error_not_an_empty_report`, 2026-11-14). |
-| REAS-RUST-006 | The commands in `CLAUDE.md`; the Stop hook runs `cargo check` before a turn ends. |
-| REAS-STATE-001 | `ParseState::first_parse` and `reparse` with `TransitionError`; tests per transition. |
-| REAS-STATE-003 | `PostgresStore::finish_parse`: the transition is `update ... where id = $3 and parse_state = $4 and version = $5`, success only when one row changed, else `StoreError::Conflict` and the transaction rolls back; `a_stale_version_changes_no_row` proves it. |
-| REAS-ARCH-001 to 006 | [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md); `src/application/ports.rs`; `src/main.rs`. |
-| REAS-DATA-001 | Every index in `migrations/` names the query it serves; constraints named `<table>_<column>_check`. |
-| REAS-DATA-002 | `GroceryStore::finish_parse` is one port operation; the adapter owns the transaction that writes the attempt, the order, its lines and anomalies, and the state. No SQLx type crosses the port. |
-| REAS-DATA-003 | `compose.yaml` with the named volume `qm_postgres_data`; the backup and restore runbook is milestone 3. |
-| REAS-DATA-004 | `Cargo.lock` committed; `--locked` in CI; `cargo sqlx prepare --check` in CI; `SQLX_OFFLINE=true`. |
-| REAS-TEST-001 | `tests/database.rs` against a real PostgreSQL; a failing double in `src/application/migrate.rs`. |
-| REAS-TEST-002 | This file and the log name the date and, once pushed, the commit of each result. |
-| REAS-SEC-001 | `cargo audit` and `cargo deny` in CI; `.env` denied to the assistant; `SecretString` for the database URL, the OAuth client secret and the Gmail tokens; the Gmail adapter is HTTPS only, follows no redirect, and has a timeout and a size limit for each call and a limit on the messages of a run (ADR 0013); `#![forbid(unsafe_code)]`; external mail is validated before the domain sees it (sender, DKIM pass, redaction with an assertion; an order from a receipt without a DKIM pass is tagged `non-verified`, ADR 0008); every query is parameterized. |
-| REAS-DOC-001 to 005 | This bundle; `scripts/check_docs.py` and its tests in CI. |
-
 ## Limits
 
-The checker's metadata checks do not establish the truth of verification claims. Nothing has run in GitHub Actions yet; the first pull request supplies the remote evidence, and this file is updated with its run and commit.
+The checker's metadata checks do not establish the truth of verification claims. The audit of 2026-11-20 is one reading by the assistant that wrote most of the code; nobody else has checked it. A status of "Met, by reading" has no test or lint behind it. The counts of lint findings describe commit `534da18` and change with the code.

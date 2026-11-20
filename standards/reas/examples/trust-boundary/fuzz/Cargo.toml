@@ -1,0 +1,32 @@
+[package]
+name = "reas-trust-boundary-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.reas-trust-boundary]
+path = ".."
+
+[[bin]]
+name = "receive"
+path = "fuzz_targets/receive.rs"
+test = false
+doc = false
+bench = false
+
+# The fuzz crate is its own workspace, so the parent example stays a plain
+# package.
+[workspace]
+members = ["."]
+
+# REAS-TEST-003: overflow checks stay on in the fuzz build. cargo-fuzz also
+# passes -C debug-assertions by default.
+[profile.release]
+overflow-checks = true
+debug-assertions = true

@@ -9,7 +9,8 @@ Read only the rules that apply to the current task.
 ## Rust
 - [Core Rust](core-rust.md)
 - [State machines](state-machines.md)
-- [Validation, security, and evidence](validation.md)
+- [Validation and evidence](validation.md)
+- [Security at seams](security.md)
 
 ## Architecture
 - [Ports and adapters](ports-and-adapters.md)

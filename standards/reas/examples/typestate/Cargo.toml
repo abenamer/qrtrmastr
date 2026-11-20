@@ -2,6 +2,13 @@
 name = "reas-typestate"
 version = "0.1.0"
 edition = "2021"
+# Verified with `cargo +1.88.0 check` (REAS-DATA-004).
+rust-version = "1.88"
 publish = false
 
 [dependencies]
+
+# REAS-SEC-004 and REAS-RUST-009.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
