@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::Datelike;
+use jiff::tz::TimeZone;
 
 use crate::application::ports::StoredBody;
 
@@ -46,7 +46,12 @@ pub fn write_fixture(dir: &Path, body: &StoredBody) -> std::io::Result<Option<Pa
         .collect();
     let target = dir
         .join(body.platform.as_str())
-        .join(body.received_at.year().to_string())
+        .join(
+            body.received_at
+                .to_zoned_datetime(TimeZone::UTC)
+                .year()
+                .to_string(),
+        )
         .join(format!("{safe}.html"));
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;

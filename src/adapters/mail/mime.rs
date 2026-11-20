@@ -1,13 +1,13 @@
 //! MIME reading: the few header fields and the two body parts the importer needs, through
 //! `mail-parser`. Nothing here decides anything; it extracts.
 
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::Timestamp;
 use mail_parser::MessageParser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMail {
     pub message_id: Option<String>,
-    pub date: Option<DateTime<Utc>>,
+    pub date: Option<Timestamp>,
     pub subject: String,
     pub from_address: Option<String>,
     /// Every `Authentication-Results` header, as text.
@@ -26,7 +26,7 @@ pub fn parse(bytes: &[u8]) -> Option<ParsedMail> {
         .collect();
     let date = message
         .date()
-        .and_then(|d| Utc.timestamp_opt(d.to_timestamp(), 0).single());
+        .and_then(|d| Timestamp::from_second(d.to_timestamp()).ok());
     Some(ParsedMail {
         message_id: message.message_id().map(str::to_owned),
         date,
@@ -68,8 +68,8 @@ mod tests {
             Some("service@freshdirect.com")
         );
         assert_eq!(
-            parsed.date.map(|d| d.to_rfc3339()),
-            Some("2026-03-03T11:15:00+00:00".to_owned())
+            parsed.date.map(|d| d.to_string()),
+            Some("2026-03-03T11:15:00Z".to_owned())
         );
         assert_eq!(parsed.authentication_results.len(), 1);
         assert!(parsed.authentication_results[0].contains("dkim=pass"));

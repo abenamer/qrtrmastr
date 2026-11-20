@@ -87,7 +87,6 @@ async fn a_message_with_an_unknown_kind_is_refused_by_the_check_constraint(pool:
 // The import path end to end: raw mail in, redacted rows, orders, aliases and recommendations.
 // ---------------------------------------------------------------------------------------------
 
-use chrono::NaiveDate;
 use qrtrmastr::adapters::mail::FreshDirectMail;
 use qrtrmastr::adapters::mail::redact::{RedactionTerms, Redactor};
 use qrtrmastr::adapters::receipts::registry::Registry;
@@ -264,7 +263,7 @@ async fn the_gap_rule_reads_the_stored_purchases(pool: PgPool) {
         .expect("parse");
 
     let due = Due::new(store, Thresholds::default());
-    let as_of = NaiveDate::from_ymd_opt(2026, 3, 27).expect("date");
+    let as_of = jiff::civil::date(2026, 3, 27);
     let report = due.run(as_of, DueOptions::default()).await.expect("due");
     assert_eq!(report.orders, 3);
     assert_eq!(report.order_cadence_days, Some(7));

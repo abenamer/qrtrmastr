@@ -7,7 +7,6 @@ pub mod mbox;
 pub mod mime;
 pub mod redact;
 
-use chrono::Utc;
 use sha2::{Digest, Sha256};
 
 use crate::application::ports::{MailError, MailReader, NewRawMessage, Prepared, RawMail};
@@ -94,7 +93,7 @@ impl MailReader for FreshDirectMail {
         Ok(Prepared::Message(NewRawMessage {
             platform: Platform::Freshdirect,
             key,
-            received_at: received_at.with_timezone(&Utc),
+            received_at,
             subject,
             kind,
             dkim_pass,
@@ -154,7 +153,7 @@ mod tests {
         assert_eq!(m.key.as_str(), "synthetic-1@mail.example");
         assert_eq!(m.kind, MessageKind::Receipt);
         assert!(m.dkim_pass);
-        assert_eq!(m.received_at.to_rfc3339(), "2026-03-03T11:15:00+00:00");
+        assert_eq!(m.received_at.to_string(), "2026-03-03T11:15:00Z");
         let html = m.body_html.expect("html");
         for leaked in [
             "Imaginary Street",

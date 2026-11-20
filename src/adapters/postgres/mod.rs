@@ -91,7 +91,8 @@ impl SchemaStore for PostgresStore {
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::civil::Date;
+use jiff_sqlx::ToSqlx;
 use rust_decimal::Decimal;
 
 use crate::application::ports::{
@@ -118,7 +119,7 @@ struct PendingRow {
     key_kind: String,
     kind: String,
     dkim_pass: bool,
-    received_at: DateTime<Utc>,
+    received_at: jiff_sqlx::Timestamp,
     body_html: Option<String>,
     parse_state: String,
     version: i32,
@@ -139,7 +140,7 @@ impl PendingRow {
             kind: MessageKind::from_str(&self.kind)
                 .map_err(|e| invalid_row("raw_messages", id, e))?,
             dkim_pass: self.dkim_pass,
-            received_at: self.received_at,
+            received_at: self.received_at.to_jiff(),
             body_html: self.body_html,
             parse_state: ParseState::from_str(&self.parse_state)
                 .map_err(|e| invalid_row("raw_messages", id, e))?,
@@ -154,7 +155,7 @@ struct BodyRow {
     platform: String,
     message_key: String,
     key_kind: String,
-    received_at: DateTime<Utc>,
+    received_at: jiff_sqlx::Timestamp,
     body_html: Option<String>,
 }
 
@@ -179,7 +180,7 @@ impl RawMessageStore for PostgresStore {
                 platform: Platform::from_str(&row.platform)
                     .map_err(|e| invalid_row("raw_messages", id, e))?,
                 key,
-                received_at: row.received_at,
+                received_at: row.received_at.to_jiff(),
                 body_html: row.body_html,
             })
         })
@@ -206,7 +207,7 @@ impl RawMessageStore for PostgresStore {
         .bind(message.platform.as_str())
         .bind(message.key.as_str())
         .bind(message.key.kind().as_str())
-        .bind(message.received_at)
+        .bind(message.received_at.to_sqlx())
         .bind(&message.subject)
         .bind(message.kind.as_str())
         .bind(message.dkim_pass)
@@ -243,7 +244,7 @@ impl RawMessageStore for PostgresStore {
 struct PurchaseRow {
     product_id: i64,
     order_number: String,
-    delivery_date: NaiveDate,
+    delivery_date: jiff_sqlx::Date,
     billed_qty: Decimal,
     final_price: Decimal,
 }
@@ -295,7 +296,7 @@ impl GroceryStore for PostgresStore {
                  values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
             )
             .bind(number)
-            .bind(receipt.delivery_date)
+            .bind(receipt.delivery_date.to_sqlx())
             .bind(&receipt.delivery_window)
             .bind(message_id)
             .bind(finish.attempt.parser.name)
@@ -399,7 +400,7 @@ impl GroceryStore for PostgresStore {
                     product: ProductId::new(id).map_err(|e| invalid_row("purchases", id, e))?,
                     order_number: OrderNumber::parse(&row.order_number)
                         .map_err(|e| invalid_row("purchases", id, e))?,
-                    delivery_date: row.delivery_date,
+                    delivery_date: row.delivery_date.to_jiff(),
                     quantity: Quantity::new(row.billed_qty)
                         .map_err(|e| invalid_row("purchases", id, e))?,
                     price: Money::from_decimal(row.final_price)
@@ -409,13 +410,13 @@ impl GroceryStore for PostgresStore {
             .collect()
     }
 
-    async fn delivery_dates(&self) -> Result<Vec<NaiveDate>, StoreError> {
-        let rows: Vec<(NaiveDate,)> =
+    async fn delivery_dates(&self) -> Result<Vec<Date>, StoreError> {
+        let rows: Vec<(jiff_sqlx::Date,)> =
             sqlx::query_as("select delivery_date from grocery_orders order by delivery_date")
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| database_error("list delivery dates", e))?;
-        Ok(rows.into_iter().map(|(d,)| d).collect())
+        Ok(rows.into_iter().map(|(d,)| d.to_jiff()).collect())
     }
 
     async fn muted_products(&self) -> Result<HashSet<ProductId>, StoreError> {

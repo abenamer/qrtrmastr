@@ -3,8 +3,8 @@
 
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
+use jiff::civil::Date;
 
 use crate::application::import::ImportReport;
 use crate::application::parse::ParseReport;
@@ -49,7 +49,7 @@ pub enum Command {
     Due {
         /// The day to judge from; today when omitted.
         #[arg(long, value_name = "YYYY-MM-DD")]
-        as_of: Option<NaiveDate>,
+        as_of: Option<Date>,
         /// Also list items bought only twice.
         #[arg(long)]
         include_tentative: bool,
