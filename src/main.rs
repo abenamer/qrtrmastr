@@ -8,6 +8,9 @@ use std::process::ExitCode;
 use clap::Parser;
 use secrecy::ExposeSecret;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::filter_fn;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::{
     Cli, Command, FixtureAction, render_due, render_import, render_simple,
@@ -27,11 +30,27 @@ use qrtrmastr::application::recommend::{Due, DueOptions};
 use qrtrmastr::domain::states::Platform;
 
 fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
+    // html5ever warns once per misplaced node in a mail's tables ("foster parenting not
+    // implemented"); in a whole mailbox that is millions of lines and no defect. The warnings
+    // stay hidden unless RUST_LOG names html5ever itself.
+    let html5ever = if std::env::var("RUST_LOG").is_ok_and(|value| value.contains("html5ever")) {
+        "html5ever=warn"
+    } else {
+        "html5ever=error"
+    };
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .add_directive(html5ever.parse().expect("a constant directive is valid"));
+    // The debug and trace lines of html5ever print the tokens of a mail before redaction. A
+    // directive of RUST_LOG for one of its modules would win over the directive above, so a
+    // second filter holds every target of the crate at warn at most, whatever RUST_LOG asks.
+    let no_mail_text = filter_fn(|meta| {
+        !meta.target().starts_with("html5ever") || *meta.level() <= tracing::Level::WARN
+    });
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(filter)
+        .with(no_mail_text)
         .init();
     let cli = Cli::parse();
     let runtime = match tokio::runtime::Builder::new_multi_thread()

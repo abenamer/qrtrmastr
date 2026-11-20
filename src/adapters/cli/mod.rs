@@ -90,6 +90,8 @@ pub enum FixtureAction {
     },
 }
 
+const MAX_REFUSED_LINES: usize = 20;
+
 pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -107,8 +109,14 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     for m in &import.malformed {
         out.push_str(&format!("malformed: {m}\n"));
     }
-    for r in &import.redaction_failures {
-        out.push_str(&format!("REFUSED, personal data survived redaction: {r}\n"));
+    // One line per message up to a screenful; beyond that the causes say more than the keys.
+    if import.redaction_failures.len() <= MAX_REFUSED_LINES {
+        for r in &import.redaction_failures {
+            out.push_str(&format!("REFUSED, personal data survived redaction: {r}\n"));
+        }
+    }
+    for (cause, count) in &import.refused_by_cause {
+        out.push_str(&format!("REFUSED {count}: {cause}\n"));
     }
     out.push_str(&format!(
         "freshdirect receipts parsed {}, partial {}, failed {}, unsupported {}, left for later {}, anomalies {}",

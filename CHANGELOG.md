@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm import` reports refusals by cause: one `REFUSED <count>: <cause>` line for each cause (platform, message kind, part, kind of term, the check that found it), and the line per message only for twenty refusals or fewer. A cause never carries the text.
 - Restaurant mail is stored at import: besides FreshDirect, `qm import` stores the redacted order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash, found by exact sender address (`[import.restaurant_senders]` in the configuration). No parser reads it yet. The report has a line of new messages by platform. Migration `0003_restaurant_platforms.sql`. [ADR 0007](docs/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md).
 - Import a folder of Takeout archives: `qm import --takeout <path>` takes a folder of the `.zip` files as Google delivers them, one archive, or one mailbox file. Archives are read in place, nothing is extracted, and one message is in memory at a time, so an export of the whole mailbox works. `--mbox` stays as an alias. New dependency: `zip`, inflate only. [ADR 0003](docs/decisions/0003-one-time-takeout-import-with-the-gmail-api-deferred.md).
 - Dependencies: `jiff` replaces `chrono` for every date and time, and the unused `chrono-tz` is gone. Two advisories report both crates as unmaintained, and the `deny` job failed on them. Nothing changes in the commands or in the stored data. [ADR 0014](docs/decisions/0014-dates-and-times-with-jiff-not-chrono.md).
