@@ -292,8 +292,8 @@ impl GroceryStore for PostgresStore {
             sqlx::query(
                 "insert into grocery_orders \
                    (order_number, delivery_date, delivery_window, receipt_raw_message_id, parser_name, parser_version, \
-                    subtotal, tax, bottle_deposit, delivery_fee, service_fee, tip, total, reconciled) \
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+                    subtotal, tax, bottle_deposit, delivery_fee, service_fee, tip, total, reconciled, sender_check) \
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
             )
             .bind(number)
             .bind(receipt.delivery_date.to_sqlx())
@@ -309,6 +309,7 @@ impl GroceryStore for PostgresStore {
             .bind(receipt.totals.tip.map(Money::as_decimal))
             .bind(receipt.totals.total.as_decimal())
             .bind(order.reconciled)
+            .bind(order.sender_check.as_str())
             .execute(&mut *tx)
             .await
             .map_err(|e| database_error("insert order", e))?;

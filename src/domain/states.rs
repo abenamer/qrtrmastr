@@ -121,6 +121,25 @@ text_enum!(
 );
 
 text_enum!(
+    /// Whether Gmail recorded a DKIM pass for the sender of the receipt an order came from.
+    /// A receipt without one is parsed all the same; its order carries the tag (ADR 0008).
+    SenderCheck {
+        Verified => "verified",
+        NonVerified => "non-verified",
+    }
+);
+
+impl SenderCheck {
+    pub fn from_dkim_pass(passed: bool) -> Self {
+        if passed {
+            SenderCheck::Verified
+        } else {
+            SenderCheck::NonVerified
+        }
+    }
+}
+
+text_enum!(
     /// How an alias came to point at its product.
     AliasSource {
         Auto => "auto",
@@ -218,6 +237,8 @@ mod tests {
         assert_round_trip!(ParseState);
         assert_round_trip!(ParseOutcome);
         assert_round_trip!(AliasSource);
+        assert_round_trip!(SenderCheck);
+        assert_eq!(SenderCheck::from_dkim_pass(false).as_str(), "non-verified");
         assert_round_trip!(SoldBy);
     }
 

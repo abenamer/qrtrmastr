@@ -41,6 +41,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0005](decisions/0005-product-identity-through-aliases.md) - Product identity through aliases.
 * [ADR 0006](decisions/0006-recommendation-by-usual-gap-with-a-simple-rule-beside-it.md) - Recommendation by usual gap, with a simple rule beside it.
 * [ADR 0007](decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md) - Restaurant mail is stored at import and parsed later.
+* [ADR 0008](decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md) - Receipts without a DKIM pass are parsed and tagged.
 * [ADR 0014](decisions/0014-dates-and-times-with-jiff-not-chrono.md) - Dates and times with jiff, not chrono.
 
 # Log
