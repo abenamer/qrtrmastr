@@ -28,6 +28,10 @@ Every FreshDirect mail carries the maintainer's name, email, delivery address, p
 * The first security review of this code found that the assertion reused the passes' own patterns and so could not catch what they missed: a term split by an inline tag, or a phone number with a non-breaking space inside it, was stored. Redaction version 2 normalizes the markup, lets tags sit between the words of a term, and asserts over the text view independently; the three cases are regression tests. An assertion that cannot be stronger than its passes is not an assertion.
 * Construction errors name the kind and position of a bad term, never its value, and configuration errors name the key, never the value.
 
+* 2026-11-18, redaction version 3: a sequence pass was added after the first import of real mail refused 1,979 messages for one cause, a long term without a word boundary or with other punctuation in a text body. The pass replaces what the assertion refuses; the assertion is unchanged. The same import showed a term the configuration lacked (a family name beside a middle initial) in a stored row: the assertion checks the configured terms only, so a missing term is not found.
+
+* 2026-11-20, redaction version 7: the security review of versions 3 to 6 ran the old and the new redactor side by side and found that a new pass can undo a later one. The sequence pass replaced a name inside an email address that is not a configured term, the email pattern then did not match, and the domain was stored; version 2 removed that address whole. The email pattern now admits a replacement in the local part. The same review found that the optional country code of the phone patterns took the last digit of a ZIP code before a phone number, so the address term did not match and the rest of the ZIP code was stored; the country code now starts at a character that is not a digit. Both cases are regression tests. The order of the passes is part of the rule: a pass that inserts a replacement must be tested against every pass after it.
+
 ## Alternatives
 
 * Store the full MIME and redact on read: rejected; the database would hold personal data.
