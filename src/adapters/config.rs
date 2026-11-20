@@ -5,6 +5,7 @@
 //! reaches a log (REAS-SEC-001). The redaction terms are personal data; they are read, never
 //! printed, and the file that holds them is outside the repository.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use figment::Figment;
@@ -15,6 +16,7 @@ use thiserror::Error;
 
 use super::mail::redact::RedactionTerms;
 use crate::domain::recommend::Thresholds;
+use crate::domain::states::Platform;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -96,15 +98,50 @@ impl RecommendConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ImportConfig {
-    /// The exact From addresses that are FreshDirect's. Anything else in the export is skipped.
+    /// The exact From addresses that are FreshDirect's.
     pub senders: Vec<String>,
+    /// The exact From addresses of each restaurant platform's order mail (ADR 0007). A table in
+    /// the file replaces the whole default. Mail from any other address is counted, not stored.
+    pub restaurant_senders: BTreeMap<Platform, Vec<String>>,
 }
 
 impl Default for ImportConfig {
     fn default() -> Self {
+        let restaurant = |platform, addresses: &[&str]| {
+            (
+                platform,
+                addresses.iter().map(|a| (*a).to_owned()).collect(),
+            )
+        };
         Self {
             senders: vec!["service@freshdirect.com".to_owned()],
+            restaurant_senders: BTreeMap::from([
+                restaurant(Platform::Seamless, &["orders@eat.seamless.com"]),
+                restaurant(
+                    Platform::Grubhub,
+                    &["orders@eat.grubhub.com", "no-reply@grubhub.com"],
+                ),
+                restaurant(Platform::Toast, &["no-reply@toasttab.com"]),
+                restaurant(Platform::Square, &["messenger@messaging.squareup.com"]),
+                restaurant(Platform::Clover, &["app@clover.com"]),
+                restaurant(Platform::Doordash, &["no-reply@doordash.com"]),
+            ]),
         }
+    }
+}
+
+impl ImportConfig {
+    /// Every sender address with its platform, as the mail reader takes them.
+    pub fn sender_platforms(&self) -> Vec<(String, Platform)> {
+        let grocer = self
+            .senders
+            .iter()
+            .map(|address| (address.clone(), Platform::Freshdirect));
+        let restaurants = self
+            .restaurant_senders
+            .iter()
+            .flat_map(|(platform, addresses)| addresses.iter().map(|a| (a.clone(), *platform)));
+        grocer.chain(restaurants).collect()
     }
 }
 
@@ -200,9 +237,36 @@ mod tests {
             parsed.import.senders,
             vec!["service@freshdirect.com".to_owned()]
         );
+        assert!(
+            parsed
+                .import
+                .sender_platforms()
+                .contains(&("orders@eat.seamless.com".to_owned(), Platform::Seamless))
+        );
         let debug = format!("{parsed:?}");
         assert!(debug.contains("[REDACTED]"));
         assert!(!debug.contains("Pat Example"));
+    }
+
+    #[test]
+    fn a_restaurant_senders_table_replaces_the_default_and_refuses_an_unknown_platform() {
+        let parsed: FileConfig = toml::from_str(
+            "[import.restaurant_senders]\nsquare = [\"receipts@messaging.squareup.com\"]\n",
+        )
+        .expect("parses");
+        assert_eq!(
+            parsed.import.sender_platforms(),
+            vec![
+                ("service@freshdirect.com".to_owned(), Platform::Freshdirect),
+                (
+                    "receipts@messaging.squareup.com".to_owned(),
+                    Platform::Square
+                ),
+            ]
+        );
+        assert!(
+            toml::from_str::<FileConfig>("[import.restaurant_senders]\nubereats = []\n").is_err()
+        );
     }
 
     #[test]

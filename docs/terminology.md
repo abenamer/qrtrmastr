@@ -28,7 +28,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Order number | FreshDirect's identifier of an order: 11 digits until August 2026, 13 after. Text, never a number. The primary key of `grocery_orders`. |
 | Order cadence | The median gap, in days, between all distinct delivery dates: how often you order at all. The horizon of "due soon". |
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |
-| Platform | Where a message came from. `freshdirect` today; the column exists so another source adds a value, not a table. |
+| Platform | Where a message came from: `freshdirect`, or a restaurant platform (`seamless`, `grubhub`, `toast`, `square`, `clover`, `doordash`). Found from the exact sender address. Another source adds a value, not a table. |
 | Purchase | One line of one order, read through its alias to a product: product, delivery date, billed quantity and price. The `purchases` view. |
 | Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
 | Reconciled | The sum of an order's line prices matches its subtotal within one cent. Stored as `reconciled` on the order. |

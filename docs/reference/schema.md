@@ -11,11 +11,14 @@ sources:
   - id: m0002
     resource: ../../migrations/0002_grocery.sql
     title: Migration 0002, grocery orders and products
+  - id: m0003
+    resource: ../../migrations/0003_restaurant_platforms.sql
+    title: Migration 0003, restaurant platforms
 ---
 
 # Database schema
 
-Migrations live in `migrations/` and only add. `qm migrate` applies them; SQLx records each in `_sqlx_migrations`. A check constraint that lists values is named `<table>_<column>_check` and matches a `text_enum!` in `src/domain/states.rs`. Every index has a comment in the migration that names the query it serves.
+Migrations live in `migrations/` and only add. `qm migrate` applies them; SQLx records each in `_sqlx_migrations`. A check constraint that lists values is named `<table>_<column>_check` and matches a `text_enum!` in `src/domain/states.rs`. Every index has a comment in the migration that names the query it serves. Migration 0003 adds no table: it replaces `raw_messages_platform_check` with a constraint that admits the six restaurant platforms beside `freshdirect`.
 
 | Table or view | Purpose | Key | Migration |
 | --- | --- | --- | --- |

@@ -39,5 +39,13 @@ The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `
 | `[recommend]` | `min_purchases` | `3` | Purchases needed before an item is recommended. |
 | `[recommend]` | `lapsed_after_gaps` | `3` | An item not bought for more than this many usual gaps is lapsed. |
 | `[import]` | `senders` | `["service@freshdirect.com"]` | The exact From addresses that are FreshDirect's. |
+| `[import.restaurant_senders]` | `seamless` | `["orders@eat.seamless.com"]` | The exact From addresses of Seamless order mail. |
+| `[import.restaurant_senders]` | `grubhub` | `["orders@eat.grubhub.com", "no-reply@grubhub.com"]` | The same for Grubhub. |
+| `[import.restaurant_senders]` | `toast` | `["no-reply@toasttab.com"]` | The same for Toast. |
+| `[import.restaurant_senders]` | `square` | `["messenger@messaging.squareup.com"]` | The same for Square. |
+| `[import.restaurant_senders]` | `clover` | `["app@clover.com"]` | The same for Clover. |
+| `[import.restaurant_senders]` | `doordash` | `["no-reply@doordash.com"]` | The same for DoorDash. |
+
+A `[import.restaurant_senders]` table in the file replaces the whole default: list every platform you want stored. A key that is not one of the six platforms is an error. Mail from an address that is in neither list is counted and not stored ([ADR 0007](/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md)).
 
 `qm import` refuses to run without a `[redaction]` section; its error prints the section with placeholder values and names the file it looked for. The section is personal data: the file is outside the repository and denied to the assistant. The same terms, one per line, belong in `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.

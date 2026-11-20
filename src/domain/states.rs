@@ -51,6 +51,13 @@ macro_rules! text_enum {
             }
         }
 
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+                text.parse().map_err(serde::de::Error::custom)
+            }
+        }
+
         impl serde::Serialize for $name {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_str(self.as_str())
@@ -60,9 +67,17 @@ macro_rules! text_enum {
 }
 
 text_enum!(
-    /// Where a message came from. One value today; the column exists so the restaurant
-    /// platforms of the deferred design add a value, not a table.
-    Platform { Freshdirect => "freshdirect" }
+    /// Where a message came from: the grocer, or one of the restaurant platforms whose receipts
+    /// the import stores (ADR 0007). A new source adds a value, not a table.
+    Platform {
+        Freshdirect => "freshdirect",
+        Seamless => "seamless",
+        Grubhub => "grubhub",
+        Toast => "toast",
+        Square => "square",
+        Clover => "clover",
+        Doordash => "doordash",
+    }
 );
 
 text_enum!(

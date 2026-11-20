@@ -83,14 +83,16 @@ if [ "$mode" = shape ]; then
   )
   # Shapes that cannot be a person's data and are allowed to appear in tests and documents:
   #   - addresses in the RFC 2606 reserved domains (.example, .test, .invalid, example.com/net/org);
-  #   - the merchant's own sender addresses at freshdirect.com, which are configuration;
+  #   - the platforms' own sender addresses (freshdirect.com and the six restaurant platforms of
+  #     ADR 0007), which are configuration; the domain must end the match, so a longer domain
+  #     that only starts with one of them is still a finding;
   #   - phone numbers in 555-0100 to 555-0199, the range reserved for fiction;
   #   - the test card 4242 4242 4242 4242, whose last four the synthetic data uses: only as a whole
   #     card-shaped match (the hit is path:line:match, so the mask follows a colon and 4242 ends it);
   #   - invented street names ("Imaginary Street", "Example Street") used by the synthetic data.
   # Anything else of these shapes is a finding, including a real street, a real number, a
   # personal mail domain.
-  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)|@([A-Za-z0-9.-]+\.)?freshdirect\.com([^A-Za-z0-9]|$)|555[-. ]?01[0-9]{2}|:([*xX]{2,}|ending in )4242$|\b(Imaginary|Example|Fictional) (Street|Avenue|Plaza|Road|Place|Lane|Drive)\b'
+  reserved='@([A-Za-z0-9.-]+\.)?(example|test|invalid|localhost)([^A-Za-z0-9]|$)|@example\.(com|net|org)([^A-Za-z0-9]|$)|@([A-Za-z0-9.-]+\.)?(freshdirect|seamless|grubhub|toasttab|squareup|clover|doordash)\.com$|555[-. ]?01[0-9]{2}|:([*xX]{2,}|ending in )4242$|\b(Imaginary|Example|Fictional) (Street|Avenue|Plaza|Road|Place|Lane|Drive)\b'
   # Each match is judged on its own (grep -o), so a real value cannot hide behind a fictional one
   # on the same line, and only file and line are printed: a matched value may be the real thing.
   for pattern in "${patterns[@]}"; do
