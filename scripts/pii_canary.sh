@@ -68,7 +68,8 @@ scan_for() {
   case $status in
     0) printf '%s\n' "$hits"; return 0 ;;
     1) return 1 ;;
-    *) echo "FAIL: grep could not scan every file (status $status):" >&2; echo "$hits" >&2; return 2 ;;
+    # Only grep's own messages: the output also holds the lines that matched in other files.
+    *) echo "FAIL: grep could not scan every file (status $status):" >&2; printf '%s\n' "$hits" | grep -a '^grep: ' >&2; return 2 ;;
   esac
 }
 
@@ -112,11 +113,31 @@ else
   while IFS= read -r term || [ -n "$term" ]; do
     term=$(printf '%s' "$term" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     [ -n "$term" ] || continue
-    if hits=$(scan_for -Fi "$term"); then
-      # The term itself is personal data: report where, not what.
-      echo "FAIL: a configured personal-data term appears in:" >&2
-      printf '%s\n' "$hits" | cut -d: -f1,2 >&2
-      failed=1
+    # -a: a file with a NUL or a byte that is not UTF-8 is scanned as text. Without it grep
+    # prints "binary file matches" in place of the line, and the filter below would drop it.
+    if hits=$(scan_for -aFi "$term"); then
+      # The owner segment of a GitHub address is a public account name; a family name inside it
+      # (the project's own repository links) is not a leak. The segment is letters, digits and
+      # hyphens only, as GitHub admits; anything else on the line still counts.
+      if ! stripped=$(printf '%s\n' "$hits" | sed -E 's#github\.com/[A-Za-z0-9-]+##g'); then
+        echo "FAIL: could not judge the hits of a term" >&2
+        failed=1
+        continue
+      fi
+      remaining=$(printf '%s\n' "$stripped" | grep -aFi -- "$term")
+      case $? in
+        0)
+          # The term itself is personal data: report where, not what.
+          echo "FAIL: a configured personal-data term appears in:" >&2
+          printf '%s\n' "$remaining" | cut -d: -f1,2 >&2
+          failed=1
+          ;;
+        1) ;;
+        *)
+          echo "FAIL: could not judge the hits of a term" >&2
+          failed=1
+          ;;
+      esac
     elif [ $? -eq 2 ]; then
       failed=1
     fi
