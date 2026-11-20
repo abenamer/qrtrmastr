@@ -1,11 +1,11 @@
-//! Mail adapters: where messages come from (`MboxFile`), how one is read (`mime`), classified
+//! Mail adapters: where messages come from (`TakeoutExport`), how one is read (`mime`), classified
 //! (`classify`) and redacted (`redact`), and the `FreshDirectMail` reader that does the three in
 //! order and hands the use case a message it can store (REAS-ARCH-004).
 
 pub mod classify;
-pub mod mbox;
 pub mod mime;
 pub mod redact;
+pub mod takeout;
 
 use sha2::{Digest, Sha256};
 

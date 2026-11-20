@@ -12,7 +12,7 @@ This project follows the [REAS standard](https://github.com/abenamer/reas). Its 
 - Supply chain: `cargo deny check`, `cargo audit --file Cargo.lock`
 - Privacy canary: `scripts/pii_canary.sh` (shapes), `scripts/pii_canary.sh --terms ~/.config/qrtrmastr/canary-terms.txt` (your real terms)
 - Docs: `python3 scripts/check_docs.py` and `python3 -m unittest discover -s tests/docs -t .`
-- Run: `qm migrate`, later `qm import --mbox <path>`, `qm due`, `qm cart`
+- Run: `qm migrate`, later `qm import --takeout <path>`, `qm due`, `qm cart`
 
 # Commit protocol (ADR 0002)
 

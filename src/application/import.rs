@@ -45,17 +45,18 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
         }
     }
 
-    /// Reads the whole source and stores each message once. Idempotent: a key or a source hash
+    /// Reads the source message by message and stores each message once. Idempotent: a key or a source hash
     /// already stored is counted as known and skipped. A malformed message or a redaction
     /// failure is recorded and the run continues; a source that cannot be read, or a store
     /// failure, stops it.
     pub async fn run(&self) -> Result<ImportReport, ImportError> {
         let mut report = ImportReport::default();
-        let raws = self.source.messages().await?;
         let known = self.store.known_keys().await?;
-        for raw in &raws {
+        let mut stream = self.source.messages();
+        while let Some(raw) = stream.recv().await {
+            let raw = raw?;
             report.read += 1;
-            match self.reader.prepare(raw) {
+            match self.reader.prepare(&raw) {
                 Ok(Prepared::OtherSender { .. }) => report.other_sender += 1,
                 Ok(Prepared::Message(message)) => {
                     if known.contains(message.key.as_str()) {
@@ -91,26 +92,34 @@ mod tests {
 
     struct TwoMails;
 
+    fn stream_of(items: Vec<Result<RawMail, MailError>>) -> MailStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(items.len().max(1));
+        for item in items {
+            tx.try_send(item).expect("the channel holds every item");
+        }
+        rx
+    }
+
     impl MailSource for TwoMails {
-        async fn messages(&self) -> Result<Vec<RawMail>, MailError> {
-            Ok(vec![
-                RawMail {
+        fn messages(&self) -> MailStream {
+            stream_of(vec![
+                Ok(RawMail {
                     bytes: b"a".to_vec(),
-                },
-                RawMail {
+                }),
+                Ok(RawMail {
                     bytes: b"b".to_vec(),
-                },
-                RawMail {
+                }),
+                Ok(RawMail {
                     bytes: b"other".to_vec(),
-                },
-                RawMail {
+                }),
+                Ok(RawMail {
                     bytes: b"leaky".to_vec(),
-                },
+                }),
             ])
         }
     }
 
-    use crate::application::ports::RawMail;
+    use crate::application::ports::{MailStream, RawMail};
 
     struct ByteReader;
 
@@ -217,19 +226,25 @@ mod tests {
     struct MissingExport;
 
     impl MailSource for MissingExport {
-        async fn messages(&self) -> Result<Vec<RawMail>, MailError> {
-            Err(MailError::Read("/data/missing: no such file".to_owned()))
+        fn messages(&self) -> MailStream {
+            stream_of(vec![
+                Ok(RawMail {
+                    bytes: b"b".to_vec(),
+                }),
+                Err(MailError::Read("/data/missing: no such file".to_owned())),
+            ])
         }
     }
 
     #[tokio::test]
     async fn a_source_that_cannot_be_read_is_an_error_not_an_empty_report() {
-        let result = ImportMail::new(MissingExport, ByteReader, BrokenStore)
-            .run()
-            .await;
+        let import = ImportMail::new(MissingExport, ByteReader, MemoryStore::default());
+        let result = import.run().await;
         assert!(
             matches!(result, Err(ImportError::Source(MailError::Read(ref text))) if text.contains("/data/missing")),
             "{result:?}"
         );
+        // The message read before the failure is stored; a second run skips it.
+        assert_eq!(*import.store.inserted.borrow(), vec!["b".to_owned()]);
     }
 }

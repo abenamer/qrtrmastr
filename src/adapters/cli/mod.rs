@@ -20,7 +20,9 @@ use crate::domain::recommend::Status;
         The tool needs a Google Takeout export of your FreshDirect mail. It talks to no retailer \
         and reads no mailbox. In Gmail, give the receipts a label with a filter on \
         from:service@freshdirect.com; at https://takeout.google.com export Mail, that label only, \
-        as a .zip; unzip it under your exports directory (~/qm-data, /data inside the container). \
+        as a .zip; put the archive in your exports directory (~/qm-data, /data inside the container) \
+        and import that folder: archives are read in place, one after the other. An export of \
+        the whole mailbox works too: only mail from FreshDirect is stored. \
         Before the first import, write your redaction terms into config.toml. Both steps, with \
         the expected output: docs/runbooks/takeout-export.md"
 )]
@@ -36,14 +38,15 @@ pub enum Command {
     /// Import a Google Takeout export of your FreshDirect mail, then parse the new receipts.
     /// Idempotent: messages already stored are skipped.
     ///
-    /// The export is the file Takeout/Mail/FreshDirect.mbox inside the unzipped archive; through
-    /// Compose its path starts with /data. The command needs the [redaction] section of
-    /// config.toml and refuses to run without it. How to request the export and write the terms:
-    /// docs/runbooks/takeout-export.md
+    /// The path is a folder that holds the .zip archives as Google delivers them, one archive,
+    /// or an unzipped Takeout/Mail/<label>.mbox file. Archives are read in place, one at a
+    /// time; nothing is extracted. Through Compose the path starts with /data. The command needs the
+    /// [redaction] section of config.toml and refuses to run without it. How to request the
+    /// export and write the terms: docs/runbooks/takeout-export.md
     Import {
-        /// Path to the Takeout export of your FreshDirect label (Takeout/Mail/FreshDirect.mbox).
-        #[arg(long, value_name = "PATH")]
-        mbox: PathBuf,
+        /// A folder of Takeout archives, one archive, or one mailbox file.
+        #[arg(long, visible_alias = "mbox", value_name = "PATH")]
+        takeout: PathBuf,
     },
     /// What you are about to run out of, from your own purchase gaps.
     Due {
@@ -198,8 +201,12 @@ mod tests {
     fn the_commands_parse() {
         let cli = Cli::try_parse_from(["qm", "migrate"]).expect("valid arguments");
         assert!(matches!(cli.command, Command::Migrate));
-        let cli = Cli::try_parse_from(["qm", "import", "--mbox", "/tmp/export"]).expect("valid");
-        assert!(matches!(cli.command, Command::Import { mbox } if mbox == *"/tmp/export"));
+        for flag in ["--takeout", "--mbox"] {
+            let cli = Cli::try_parse_from(["qm", "import", flag, "/tmp/export"]).expect("valid");
+            assert!(
+                matches!(cli.command, Command::Import { takeout } if takeout == *"/tmp/export")
+            );
+        }
         let cli = Cli::try_parse_from(["qm", "fixture", "add", "abc@mail.example"]).expect("valid");
         assert!(matches!(
             cli.command,
