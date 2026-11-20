@@ -13,7 +13,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::{
-    Cli, Command, FixtureAction, render_due, render_habit, render_import, render_simple,
+    Cli, Command, FixtureAction, ask_reason, render_added, render_due, render_habit, render_import,
+    render_simple,
 };
 use qrtrmastr::adapters::config::Settings;
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
@@ -24,9 +25,13 @@ use qrtrmastr::adapters::postgres::PostgresStore;
 use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::fixture::ExportFixture;
 use qrtrmastr::application::import::ImportMail;
+use qrtrmastr::application::list::ManageList;
 use qrtrmastr::application::migrate::Migrate;
 use qrtrmastr::application::parse::ParsePending;
-use qrtrmastr::application::recommend::{Due, DueOptions};
+use qrtrmastr::application::recommend::{Due, DueOptions, HabitOptions};
+use qrtrmastr::domain::ids::AdditionId;
+use qrtrmastr::domain::list::ItemText;
+use qrtrmastr::domain::recommend::days_between;
 use qrtrmastr::domain::states::Platform;
 
 fn main() -> ExitCode {
@@ -127,13 +132,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             json,
             top,
             gap,
+            remember,
+            seed,
         } => {
             let store = connect(&settings).await?;
             let due = Due::new(store, settings.file.recommend.thresholds());
             let as_of = as_of.unwrap_or_else(|| jiff::ZonedDateTime::now().date());
             if !simple && !gap {
                 // The habit rule is the default (ADR 0009).
-                let report = due.run_habit(top, as_of).await?;
+                // The shuffle of the reminders is fixed for a day unless a seed is given.
+                let options = HabitOptions {
+                    extras: top,
+                    remember,
+                    seed: seed.unwrap_or_else(|| {
+                        // The day as a number: the days since the first day of year 1, that day counted.
+                        (days_between(jiff::civil::date(1, 1, 1), as_of) + 1).unsigned_abs()
+                    }),
+                };
+                let report = due.run_habit(options, as_of).await?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
@@ -160,6 +176,34 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 }
             }
             Ok(())
+        }
+        Command::Add { item, reason } => {
+            let item = ItemText::parse(&item.join(" "))?;
+            // Every addition carries its reason (ADR 0011): asked for when it is not given.
+            let reason = match reason {
+                Some(reason) => reason,
+                None if std::io::IsTerminal::is_terminal(&std::io::stdin()) => {
+                    ask_reason(item.as_str(), std::io::stdin().lock(), std::io::stderr())?
+                        .ok_or_else(|| anyhow::anyhow!("no reason given; nothing was added"))?
+                }
+                None => anyhow::bail!(
+                    "say why with --reason: out-of-stock, running-low, recipe, new-food or repeat-favorite"
+                ),
+            };
+            let store = connect(&settings).await?;
+            let today = jiff::ZonedDateTime::now().date();
+            let added = ManageList::new(store).add(item, reason, today).await?;
+            print!("{}", render_added(&added));
+            Ok(())
+        }
+        Command::Drop { id } => {
+            let store = connect(&settings).await?;
+            if ManageList::new(store).drop(AdditionId::new(id)?).await? {
+                println!("dropped {id}");
+                Ok(())
+            } else {
+                anyhow::bail!("no addition has the number {id}")
+            }
         }
         Command::Fixture {
             action: FixtureAction::Add { key, dir },

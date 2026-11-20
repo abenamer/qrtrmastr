@@ -16,11 +16,13 @@ These are project-specific technical terms. They are not a reproduction of the A
 
 | Term | Meaning |
 | --- | --- |
+| Addition | An item the user put on the next order by hand with `qm add`, stored with its reason: `out-of-stock` (none is left at home), `running-low` (almost used up), `recipe`, `new-food` or `repeat-favorite`. Open until an order is delivered after the day it was added. |
 | Alias | One normalized name and size text as a receipt prints a product, pointing at one product. Stored in `product_aliases`; a line stores its alias, so a merge of two products is one update on the alias. |
 | Anomaly | A row of a receipt's item table that no parser rule classified, kept with its raw cells in `order_line_anomalies`. The order is still stored. Nothing is dropped. |
 | Billed quantity | The quantity the receipt charged for: the weight when the item is sold by weight, else the second number of the quantity cell. Stored as `billed_qty`. |
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
 | DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`. An order from a receipt without it is tagged `non-verified`. |
+| Essential | A product in at least a quarter of the latest 20 orders. The other products of the habit rule are extras. |
 | Gap rule | `qm due --gap`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
@@ -34,6 +36,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
 | Reconciled | The sum of an order's line prices matches its subtotal within one cent. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
+| Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |
 | Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |
 | Stock | A last purchase of at least 3 usual amounts. The product is left out of the lists until the stock is expected to run out. |
 | Synthetic fixture | A receipt built from the real layout with invented products, prices that reconcile, and fake personal data chosen to trip the privacy canary. Committed under `tests/fixtures/synthetic/`. |

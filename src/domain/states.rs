@@ -155,6 +155,31 @@ text_enum!(
     }
 );
 
+text_enum!(
+    /// Why the user adds an item to the next order by hand (ADR 0011). `OutOfStock` is the
+    /// user's own stock: none is left at home. `RunningLow`: some is left, not for long.
+    AddReason {
+        OutOfStock => "out-of-stock",
+        RunningLow => "running-low",
+        Recipe => "recipe",
+        NewFood => "new-food",
+        RepeatFavorite => "repeat-favorite",
+    }
+);
+
+impl AddReason {
+    /// The reason as a person says it, for a prompt and a list.
+    pub fn phrase(self) -> &'static str {
+        match self {
+            AddReason::OutOfStock => "ran out, need to replace",
+            AddReason::RunningLow => "almost running out",
+            AddReason::Recipe => "making a recipe",
+            AddReason::NewFood => "new food to try",
+            AddReason::RepeatFavorite => "repeat favorite",
+        }
+    }
+}
+
 /// A transition the current state does not permit (REAS-STATE-001).
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TransitionError {
@@ -240,6 +265,7 @@ mod tests {
         assert_round_trip!(SenderCheck);
         assert_eq!(SenderCheck::from_dkim_pass(false).as_str(), "non-verified");
         assert_round_trip!(SoldBy);
+        assert_round_trip!(AddReason);
     }
 
     #[test]

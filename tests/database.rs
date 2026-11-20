@@ -13,7 +13,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let first = migrate.run().await.expect("first migration run");
     assert_eq!(first.already_applied, 0);
-    assert_eq!(first.applied.len(), 4, "{:?}", first.applied);
+    assert_eq!(first.applied.len(), 6, "{:?}", first.applied);
     assert!(
         first.applied[0].ends_with("raw mail"),
         "{:?}",
@@ -22,7 +22,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let second = migrate.run().await.expect("second migration run");
     assert!(second.applied.is_empty(), "{:?}", second.applied);
-    assert_eq!(second.already_applied, 4);
+    assert_eq!(second.already_applied, 6);
 }
 
 #[sqlx::test(migrations = false)]
@@ -46,6 +46,7 @@ async fn the_schema_has_the_tables_the_mvp_reads(pool: PgPool) {
             "_sqlx_migrations",
             "grocery_order_lines",
             "grocery_orders",
+            "list_additions",
             "order_line_anomalies",
             "parse_attempts",
             "product_aliases",
@@ -448,4 +449,92 @@ async fn a_receipt_without_a_dkim_pass_is_parsed_and_its_order_is_tagged_non_ver
             ("12345678902".to_owned(), "non-verified".to_owned()),
         ]
     );
+}
+
+#[sqlx::test(migrations = false)]
+async fn an_addition_keeps_its_reason_and_is_listed_until_a_later_order(pool: PgPool) {
+    use qrtrmastr::application::list::ManageList;
+    use qrtrmastr::application::recommend::HabitOptions;
+    use qrtrmastr::domain::list::ItemText;
+    use qrtrmastr::domain::states::AddReason;
+
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let mails = Mails(vec![receipt_mail(
+        "12345678901",
+        "Tuesday, March 3, 2026",
+        "r1",
+    )]);
+    ImportMail::new(mails.clone(), reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+
+    let list = ManageList::new(store.clone());
+    let day = |d| jiff::civil::date(2026, 3, d);
+    let text = |t: &str| ItemText::parse(t).expect("text");
+    // Added before the order of March 3 was delivered: that order closed it.
+    list.add(text("old thing"), AddReason::OutOfStock, day(1))
+        .await
+        .expect("add");
+    let miso = list
+        .add(text("miso  paste"), AddReason::NewFood, day(5))
+        .await
+        .expect("add");
+    assert_eq!(miso.product, None);
+    let milk = list
+        .add(text("lactaid"), AddReason::Recipe, day(6))
+        .await
+        .expect("add");
+    assert!(
+        milk.product
+            .as_ref()
+            .is_some_and(|p| p.display_name.starts_with("Lactaid")),
+        "{milk:?}"
+    );
+
+    let due = Due::new(store, Thresholds::default());
+    let options = HabitOptions {
+        extras: 10,
+        remember: 5,
+        seed: 1,
+    };
+    let report = due.run_habit(options, day(7)).await.expect("due");
+    let listed: Vec<(&str, AddReason)> = report
+        .additions
+        .iter()
+        .map(|a| (a.item.as_str(), a.reason))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("miso paste", AddReason::NewFood),
+            ("lactaid", AddReason::Recipe)
+        ]
+    );
+    assert_eq!(report.additions[1].product, milk.product.map(|p| p.id));
+    // One order: every product of it is in a quarter of the latest orders.
+    assert!(!report.essentials.is_empty());
+    assert!(report.extras.is_empty() && report.remember.is_empty());
+
+    assert!(list.drop(miso.id).await.expect("drop"));
+    assert!(!list.drop(miso.id).await.expect("drop again"));
+
+    // Every reason of the enum is one the database admits.
+    for reason in AddReason::ALL {
+        list.add(text("ketchup"), *reason, day(7))
+            .await
+            .expect("add");
+    }
+    // The database refuses a reason the enum does not have.
+    let refused = sqlx::query(
+        "insert into list_additions (item_text, reason, added_on) values ('x', 'whim', '2026-03-07')",
+    )
+    .execute(&pool)
+    .await;
+    assert!(refused.is_err());
 }
