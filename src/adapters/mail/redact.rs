@@ -23,7 +23,12 @@ use thiserror::Error;
 
 /// Bumped whenever a pass changes, so stored rows can be re-imported and re-redacted.
 /// 2: entity and invisible-character normalization, tag-tolerant terms, independent assertion.
-pub const REDACTION_VERSION: i32 = 2;
+/// 3: the sequence pass for a long term. 4 to 6: card digits after a brand, the word "card",
+/// a wallet name. 7: an email address is removed whole when a pass already replaced a term
+/// inside it, in the local part or in the domain; and the terms are replaced before the phone
+/// numbers as well as after, so the optional country code of a phone number does not take the
+/// last digit of an address term.
+pub const REDACTION_VERSION: i32 = 7;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct RedactionTerms {
@@ -91,14 +96,31 @@ static HEADING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(deliver(y|ed)?\s+(address|to|information|details)|ship(ping)?\s+(address|to)|payment|billing|contact\s+(info|information)|phone|tel\.?)\b")
         .expect("regex")
 });
+/// A card brand, or the word "card", before four digits is payment context too: a
+/// point-of-sale receipt prints "MasterCard 4242" and a delivery platform "Credit Card - 4242",
+/// with no mask; a wallet ("Android Pay - 4242") counts the same. No boundary before the word: a text body runs cells together.
+const CARD_BRAND: &str = r"(?:visa|card|amex|american\s+express|discover|diners\s+club|jcb|pay|paypal|venmo)[\s#:\-\x{2013}]*";
+
 static PHONE_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:\+?1[\s.-]*)?\(?[2-9][0-9]{2}\)?[\s.-]+[0-9]{3}[\s.-]+[0-9]{4}\b")
         .expect("regex")
 });
-static EMAIL_SHAPE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}").expect("regex"));
+/// What a pass leaves in place of a term.
+const TOKEN: &str = r"\[REDACTED:[a-z]+\]";
+/// An address may hold a replacement on either side of the `@`: a pass that ran earlier can
+/// have replaced a name inside an address that is not itself a configured term, and the rest
+/// of the address must still go. The domain ends in a top-level name or in a replacement.
+static EMAIL_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"(?:[A-Za-z0-9._%+-]|{TOKEN})+@(?:(?:[A-Za-z0-9.-]|{TOKEN})+\.[A-Za-z]{{2,}}|(?:[A-Za-z0-9.-]|{TOKEN})*{TOKEN})"
+    ))
+    .expect("regex")
+});
 static CARD_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(ending\s+(in|with)|[xX*\u{2022}]{2,})\s*[0-9]{4}\b").expect("regex")
+    Regex::new(&format!(
+        r"(?i)(ending\s+(in|with)|[xX*\u{{2022}}]{{2,}}|{CARD_BRAND})\s*[0-9]{{4}}\b"
+    ))
+    .expect("regex")
 });
 static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("regex"));
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("regex"));
@@ -165,6 +187,9 @@ struct Literal {
     plain: Regex,
     /// Letters and digits only, for the sequence check; empty when too short to be specific.
     alnum: String,
+    /// The same letters and digits with any punctuation or spacing between them and no word
+    /// boundary, inside one run of text; `None` when `alnum` is empty.
+    sequence: Option<Regex>,
     /// Characters in the term, for longest-first ordering.
     length: usize,
 }
@@ -181,6 +206,20 @@ fn flexible_literal(term: &str) -> String {
         .map(regex::escape)
         .collect::<Vec<_>>()
         .join(r"(?:\s|<[^>]*>)+")
+}
+
+/// What may stand between two characters of a term in the sequence pass: anything that is not
+/// a letter or digit, and an entity the text view turns into punctuation. A tag is not allowed,
+/// so the pass never removes markup; a term that a tag splits this way is left to the assertion.
+const SEQUENCE_GAP: &str = r"(?:&(?:amp|lt|gt|quot|#39);|[^A-Za-z0-9<>])*";
+
+/// The pattern of the sequence pass for a term's letters and digits.
+fn sequence_pattern(alnum: &str) -> String {
+    alnum
+        .chars()
+        .map(|c| regex::escape(&c.to_string()))
+        .collect::<Vec<_>>()
+        .join(SEQUENCE_GAP)
 }
 
 fn bounded(core: &str) -> String {
@@ -228,15 +267,25 @@ impl Redactor {
                 let plain = case_insensitive(&bounded(&plain_core))
                     .ok_or(RedactionError::BadTerm { kind, position })?;
                 let alnum = alphanumerics(term);
+                let alnum = if alnum.len() >= 8 {
+                    alnum
+                } else {
+                    String::new()
+                };
+                let sequence = if alnum.is_empty() {
+                    None
+                } else {
+                    Some(
+                        case_insensitive(&sequence_pattern(&alnum))
+                            .ok_or(RedactionError::BadTerm { kind, position })?,
+                    )
+                };
                 literals.push(Literal {
                     kind,
                     regex,
                     plain,
-                    alnum: if alnum.len() >= 8 {
-                        alnum
-                    } else {
-                        String::new()
-                    },
+                    alnum,
+                    sequence,
                     length,
                 });
             }
@@ -271,7 +320,7 @@ impl Redactor {
                 return Err(RedactionError::BadLast4(index + 1));
             }
             let regex = Regex::new(&format!(
-                r"(?i)(ending\s+(in|with)|[xX*\u{{2022}}]{{2,}})\s*{digits}([^0-9]|$)"
+                r"(?i)(ending\s+(in|with)|[xX*\u{{2022}}]{{2,}}|{CARD_BRAND})\s*{digits}([^0-9]|$)"
             ))
             .map_err(|_| RedactionError::BadLast4(index + 1))?;
             last4.push(regex);
@@ -360,7 +409,11 @@ impl Redactor {
     /// Redacts plain text, or already-serialized HTML: normalization, literal terms, shapes, then
     /// the assertion.
     pub fn redact_text(&self, text: &str) -> Result<String, RedactionError> {
-        let mut out = normalize_markup(text);
+        // The terms first, then the phone numbers, then the terms again. A phone pattern takes
+        // an optional country code 1 before the number, and that 1 can be the last digit of
+        // what stands before it. Before the phone pass, an address term claims its own ZIP
+        // code; after it, a term that the country code was glued to has its boundary back.
+        let mut out = self.replace_literals(normalize_markup(text));
         for regex in &self.phones {
             out = regex
                 .replace_all(&out, |caps: &regex::Captures<'_>| {
@@ -368,12 +421,7 @@ impl Redactor {
                 })
                 .into_owned();
         }
-        for literal in &self.literals {
-            let replacement = format!("[REDACTED:{}]", literal.kind);
-            // Twice: adjacent occurrences share a boundary character, which one pass consumes.
-            out = replace_bounded(&literal.regex, &out, &replacement);
-            out = replace_bounded(&literal.regex, &out, &replacement);
-        }
+        out = self.replace_literals(out);
         for regex in &self.last4 {
             out = regex
                 .replace_all(&out, |caps: &regex::Captures<'_>| {
@@ -384,12 +432,38 @@ impl Redactor {
         out = PHONE_SHAPE
             .replace_all(&out, "[REDACTED:phone]")
             .into_owned();
-        out = EMAIL_SHAPE
-            .replace_all(&out, "[REDACTED:email]")
-            .into_owned();
+        // Until nothing changes: "a@b.test@c.test" is an address after its first part is replaced.
+        // Each round removes at least one `@`, so the loop ends.
+        loop {
+            let next = EMAIL_SHAPE.replace_all(&out, "[REDACTED:email]");
+            if next == out {
+                break;
+            }
+            out = next.into_owned();
+        }
         out = CARD_SHAPE.replace_all(&out, "[REDACTED:card]").into_owned();
         self.verify(&out)?;
         Ok(out)
+    }
+
+    /// Replaces every configured term, longest first.
+    fn replace_literals(&self, text: String) -> String {
+        let mut out = text;
+        for literal in &self.literals {
+            let replacement = format!("[REDACTED:{}]", literal.kind);
+            // The sequence pass first: a long term with other punctuation, or with no word
+            // boundary because a text body ran two table cells together. It removes exactly
+            // what the assertion would refuse the message for.
+            if let Some(sequence) = &literal.sequence {
+                out = sequence
+                    .replace_all(&out, regex::NoExpand(&replacement))
+                    .into_owned();
+            }
+            // Twice: adjacent occurrences share a boundary character, which one pass consumes.
+            out = replace_bounded(&literal.regex, &out, &replacement);
+            out = replace_bounded(&literal.regex, &out, &replacement);
+        }
+        out
     }
 
     /// The assertion, independent of the passes: over the text a reader would see, with tags
@@ -559,6 +633,149 @@ mod tests {
             out.contains("href=\"https://x.example/product/milk\""),
             "{out}"
         );
+    }
+
+    #[test]
+    fn a_long_term_is_redacted_without_a_word_boundary_and_with_other_punctuation() {
+        let r = redactor();
+        // A text body made from a table: the cells run together.
+        let cells = r
+            .redact_text("Deliver to:Pat ExampleOrder 12345678901 Beefsteak Tomatoes $3.99")
+            .expect("redacts");
+        assert!(!cells.to_lowercase().contains("example"), "{cells}");
+        assert!(cells.contains("Beefsteak Tomatoes $3.99"), "{cells}");
+        // Other punctuation and spacing than the configured line, and no boundary after it.
+        let address = r
+            .redact_text("123 Imaginary Street, Apt. 4B\r\nBrooklyn NY, 11201Leave at door")
+            .expect("redacts");
+        assert!(!address.contains("Imaginary"), "{address}");
+        assert!(!address.contains("11201"), "{address}");
+        assert!(address.contains("eave at door"), "{address}");
+        // In markup the pass stays inside one run of text and keeps the tags.
+        let html = r
+            .redact_html("<table><tr><td>Pat-Example</td><td>Milk</td></tr></table>")
+            .expect("redacts");
+        assert!(!html.contains("Example"), "{html}");
+        assert!(html.contains("<td>Milk</td>"), "{html}");
+        // A short term has no sequence pass: it would eat parts of ordinary words.
+        assert_eq!(
+            r.redact_text("Patagonia and Spatula are words")
+                .expect("ok"),
+            "Patagonia and Spatula are words"
+        );
+    }
+
+    #[test]
+    fn four_digits_after_a_card_brand_are_redacted_and_a_price_is_not() {
+        let r = redactor();
+        // A configured card and another card, both unmasked, in a text body with no spacing.
+        let out = r
+            .redact_text("TotalMasterCard 4242 (Chip)Visa 1881 $42.42 for 4242 items")
+            .expect("redacts");
+        let platform = r
+            .redact_html("<p>Payment<br>   Credit Card - 4242</p><p>Gift card: 9004</p><p>Android Pay - 7310</p>")
+            .expect("redacts");
+        assert!(!platform.contains("4242"), "{platform}");
+        assert!(!platform.contains("9004"), "{platform}");
+        assert!(!platform.contains("7310"), "{platform}");
+        assert!(!out.contains("MasterCard 4242"), "{out}");
+        assert!(!out.contains("1881"), "{out}");
+        assert!(out.contains("$42.42 for 4242 items"), "{out}");
+    }
+
+    #[test]
+    fn an_address_that_holds_a_replaced_term_is_removed_whole() {
+        let r = redactor();
+        // None of these addresses is a configured term; a term is inside each of them, in the
+        // local part or in the domain.
+        for text in [
+            "Contact: pat.example@workplace-domain.test today",
+            "Contact: patexample@workplace-domain.test today",
+            "mr.pat_example@workplace-domain.test",
+            "Pat Example <pat.example@other.test> wrote",
+            "pat@workplace-domain.test",
+            "jane.roe@patexample.test",
+            "orders+freshdirect@patexample.test today",
+            "jane.roe@mail.patexample.co.test",
+            "jane@pat.test",
+            "jane@card4242.test",
+            "x@212-555-0199.carrier.test",
+            "212-555-0199@txt.carrier.test",
+            // One address after another, with no space between them.
+            "Pat@a.test@d.test",
+            "x@a.test@d.test",
+        ] {
+            let out = r.redact_text(text).expect("redacts");
+            assert!(!out.contains('@'), "{text} -> {out}");
+            for part in [
+                "domain.test",
+                "other.test",
+                "jane",
+                "roe",
+                "carrier",
+                "d.test",
+            ] {
+                assert!(!out.contains(part), "{text} -> {out}");
+            }
+        }
+        let html = r
+            .redact_html("<p>Reply to jane.roe@patexample.test</p>")
+            .expect("redacts");
+        assert!(!html.contains("jane"), "{html}");
+    }
+
+    #[test]
+    fn a_phone_number_after_a_zip_code_leaves_the_address_term_whole() {
+        let r = redactor();
+        // The configured phone and another phone, each right after the ZIP code of the
+        // configured address, which ends in 1.
+        for text in [
+            "Brooklyn, NY 11201\n(212) 555-0199",
+            "Brooklyn, NY 11201 212-555-0199",
+            "Brooklyn, NY 11201\n(718) 555-0123",
+            "Brooklyn, NY 11201(718) 555-0123",
+        ] {
+            let out = r.redact_text(text).expect("redacts");
+            assert!(!out.contains("1120"), "{text} -> {out}");
+            assert!(!out.contains("555"), "{text} -> {out}");
+        }
+        assert_eq!(
+            r.redact_text("call +1 718 555 0123 now").expect("redacts"),
+            "call [REDACTED:phone] now"
+        );
+    }
+
+    /// A message is safe when it is refused, or when nothing of `gone` is left in it.
+    fn refused_or_without(r: &Redactor, text: &str, gone: &[&str]) {
+        if let Ok(out) = r.redact_text(text) {
+            for part in gone {
+                assert!(!out.contains(part), "{text} -> {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_country_code_glued_to_what_stands_before_it_hides_nothing() {
+        let r = redactor();
+        // The configured phone, then a number that starts with the country code, with no
+        // space: the 1 must not become the end of the configured phone.
+        for text in [
+            "Phone:(212) 555-01991-800-555-0100 Customer Service",
+            "Phone: 212-555-01991 (800) 555-0100",
+            "Home (718) 555-01231-212-555-0199 Cell",
+            "call +1 212 555 0199 now",
+            "call 1-212-555-0199 now",
+            "x51 212 555 0199",
+        ] {
+            refused_or_without(&r, text, &["555-01", "555 01"]);
+        }
+        // A short term that ends in a digit, then a phone number with its country code.
+        let mut with_short_terms = terms();
+        with_short_terms.names.push("Unit 12".to_owned());
+        with_short_terms.names.push("11201".to_owned());
+        let r = Redactor::new(with_short_terms).expect("terms");
+        refused_or_without(&r, "Unit 121-212-555-0199", &["Unit 12", "555"]);
+        refused_or_without(&r, "ZIP 112011-212-555-0199", &["11201", "555"]);
     }
 
     #[test]
