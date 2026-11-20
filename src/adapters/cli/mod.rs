@@ -54,6 +54,22 @@ pub enum Command {
         #[arg(long, visible_alias = "mbox", value_name = "PATH")]
         takeout: PathBuf,
     },
+    /// Read the new receipts straight from Gmail, then store and parse them as `qm import`
+    /// does. Needs `qm gmail login` once. Reads the mail of the configured senders received
+    /// since a week before the newest stored message; known messages are skipped.
+    Fetch {
+        /// Read mail received since this day instead.
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        since: Option<Date>,
+        /// The most messages one run reads.
+        #[arg(long, default_value_t = 500, value_name = "N")]
+        max: usize,
+    },
+    /// Sign in to Gmail for `qm fetch`.
+    Gmail {
+        #[command(subcommand)]
+        action: GmailAction,
+    },
     /// What your next order most likely holds: the essentials (in a quarter of your latest
     /// orders), some extras, and a few things you used to buy. `--gap` and `--simple` are the
     /// two older rules.
@@ -118,6 +134,14 @@ pub enum Command {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum GmailAction {
+    /// Give the tool read-only access to your mail. It prints an address to open in a
+    /// browser, you approve, and you paste back the address the browser ends on. The sign-in
+    /// is kept in a file only you can read. Setup: docs/runbooks/gmail-fetch.md
+    Login,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum FixtureAction {
     /// Write the stored, redacted HTML of one message to the local fixtures directory, which
     /// git ignores. The key is the message key `qm import` stored.
@@ -127,6 +151,21 @@ pub enum FixtureAction {
         #[arg(long, default_value = "tests/fixtures/local")]
         dir: PathBuf,
     },
+}
+
+/// Whether a log line of `target` at `level` may be printed, whatever `RUST_LOG` asks for.
+/// Two libraries print what this tool must never log. html5ever prints the tokens of a mail
+/// before redaction at debug and trace. ureq prints every byte it sends and receives at
+/// trace: the Gmail tokens and the raw messages among them. The warnings of html5ever and
+/// the debug lines of ureq carry neither. Every other target follows `RUST_LOG`.
+pub fn log_line_is_safe(target: &str, level: &tracing::Level) -> bool {
+    if target.starts_with("html5ever") {
+        *level <= tracing::Level::WARN
+    } else if target.starts_with("ureq") {
+        *level <= tracing::Level::DEBUG
+    } else {
+        true
+    }
 }
 
 const MAX_REFUSED_LINES: usize = 20;
@@ -378,6 +417,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn no_setting_lets_a_library_print_mail_or_tokens() {
+        use tracing::Level;
+        // The HTML parser: its module targets too, at debug and trace.
+        for target in [
+            "html5ever",
+            "html5ever::tokenizer",
+            "html5ever::tree_builder",
+        ] {
+            assert!(log_line_is_safe(target, &Level::WARN), "{target}");
+            assert!(log_line_is_safe(target, &Level::ERROR), "{target}");
+            assert!(!log_line_is_safe(target, &Level::INFO), "{target}");
+            assert!(!log_line_is_safe(target, &Level::DEBUG), "{target}");
+            assert!(!log_line_is_safe(target, &Level::TRACE), "{target}");
+        }
+        // The HTTP client and its protocol crate: trace is the hex dump of every byte.
+        for target in ["ureq", "ureq::run", "ureq_proto", "ureq_proto::util"] {
+            assert!(log_line_is_safe(target, &Level::DEBUG), "{target}");
+            assert!(!log_line_is_safe(target, &Level::TRACE), "{target}");
+        }
+        for target in [
+            "qrtrmastr",
+            "sqlx::query",
+            "qrtrmastr::adapters::mail::takeout",
+        ] {
+            assert!(log_line_is_safe(target, &Level::TRACE), "{target}");
+        }
+    }
+
+    #[test]
     fn the_commands_parse() {
         let cli = Cli::try_parse_from(["qm", "migrate"]).expect("valid arguments");
         assert!(matches!(cli.command, Command::Migrate));
@@ -392,6 +460,30 @@ mod tests {
             cli.command,
             Command::Fixture {
                 action: FixtureAction::Add { .. }
+            }
+        ));
+        let cli = Cli::try_parse_from(["qm", "gmail", "login"]).expect("valid");
+        assert!(matches!(
+            cli.command,
+            Command::Gmail {
+                action: GmailAction::Login
+            }
+        ));
+        let cli = Cli::try_parse_from(["qm", "fetch"]).expect("valid");
+        assert!(matches!(
+            cli.command,
+            Command::Fetch {
+                since: None,
+                max: 500
+            }
+        ));
+        let cli = Cli::try_parse_from(["qm", "fetch", "--since", "2026-11-01", "--max", "20"])
+            .expect("valid");
+        assert!(matches!(
+            cli.command,
+            Command::Fetch {
+                since: Some(_),
+                max: 20
             }
         ));
         let cli = Cli::try_parse_from(["qm", "due", "--as-of", "2026-03-03", "--simple", "--json"])

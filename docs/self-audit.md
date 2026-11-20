@@ -56,7 +56,7 @@ The checks below ran on the scaffold worktree before its first commit, with Rust
 | REAS-DATA-004 | `Cargo.lock` committed; `--locked` in CI; `cargo sqlx prepare --check` in CI; `SQLX_OFFLINE=true`. |
 | REAS-TEST-001 | `tests/database.rs` against a real PostgreSQL; a failing double in `src/application/migrate.rs`. |
 | REAS-TEST-002 | This file and the log name the date and, once pushed, the commit of each result. |
-| REAS-SEC-001 | `cargo audit` and `cargo deny` in CI; `.env` denied to the assistant; `SecretString` for the database URL; `#![forbid(unsafe_code)]`; external mail is validated before the domain sees it (sender, DKIM pass, redaction with an assertion; an order from a receipt without a DKIM pass is tagged `non-verified`, ADR 0008); every query is parameterized. |
+| REAS-SEC-001 | `cargo audit` and `cargo deny` in CI; `.env` denied to the assistant; `SecretString` for the database URL, the OAuth client secret and the Gmail tokens; the Gmail adapter is HTTPS only, follows no redirect, and has a timeout and a size limit for each call and a limit on the messages of a run (ADR 0013); `#![forbid(unsafe_code)]`; external mail is validated before the domain sees it (sender, DKIM pass, redaction with an assertion; an order from a receipt without a DKIM pass is tagged `non-verified`, ADR 0008); every query is parameterized. |
 | REAS-DOC-001 to 005 | This bundle; `scripts/check_docs.py` and its tests in CI. |
 
 ## Limits

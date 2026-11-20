@@ -180,6 +180,9 @@ mod tests {
         async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
             Ok(self.known.clone())
         }
+        async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
+            Ok(None)
+        }
         async fn body_by_key(&self, _: &str) -> Result<Option<StoredBody>, StoreError> {
             Ok(None)
         }
@@ -223,6 +226,9 @@ mod tests {
     impl RawMessageStore for BrokenStore {
         async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
             Err(StoreError::Migration("down".to_owned()))
+        }
+        async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
+            unreachable!()
         }
         async fn body_by_key(&self, _: &str) -> Result<Option<StoredBody>, StoreError> {
             unreachable!()

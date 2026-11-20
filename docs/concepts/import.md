@@ -23,6 +23,8 @@ sources:
 
 `qm import` has two halves. The first reads the export and stores each message of a platform once: FreshDirect and six restaurant platforms ([ADR 0007](/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md)). The second parses every stored FreshDirect receipt that waits. No parser reads restaurant mail yet.
 
+New mail arrives in one of two ways, and both end in the same steps. `qm import` reads a Takeout export: the way to load the history. `qm fetch` reads the Gmail API with read-only access: the way new receipts arrive ([ADR 0013](/decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md)). Both hand the use case the raw bytes of a message; the sender rule, the redaction, the key and the parse do not know which source it came from, and a message that both deliver is stored once.
+
 ## Storing messages
 
 The mail source is the `TakeoutExport` adapter. Its path is a folder, one Takeout archive or one mailbox file. In a folder it reads every `.zip` and every `.mbox` file, to a depth of six folders, in path order, and it does not follow a symbolic link. One archive is open at a time; the log has a line when one is opened and when it is done. An archive is read in place: each entry whose name ends in `.mbox` is inflated as a stream and nothing is written to disk. The adapter sends one message at a time through a channel that holds at most 32, so memory does not grow with the export (REAS-RUST-007); when the use case stops, the reader stops at its next message.

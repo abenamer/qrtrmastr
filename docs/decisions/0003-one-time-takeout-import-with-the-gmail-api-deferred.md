@@ -22,6 +22,8 @@ The receipts live in Gmail. Three ways to read them were compared: the Gmail API
 
 * Amended 2026-11-18: the adapter reads the archives as Google delivers them. The path is a folder of `.zip` archives, one archive or one mailbox file; an archive is read in place with the `zip` crate (inflate only, through `flate2` and the Rust `zlib-rs`; no encryption, no other compression method), and the `MailSource` port is a bounded stream of messages, not a list. Reasons: the maintainer's first export was the whole mailbox, 8.4 GB in a 3 GB archive; the `qm` container has a read-only root and a 16 MB `/tmp`, so it cannot unzip; and an import must not need memory in proportion to the export. Alternatives rejected: unzip in the runbook (the maintainer keeps a second, larger copy of all mail on disk); shelling out to `unzip` (a second tool in the image and a writable directory); reading a whole mailbox into memory per file (worked for a label, not for a mailbox).
 
+* Amended 2026-11-19: the Gmail API adapter exists ([ADR 0013](/decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md)). A Takeout export stays the way to load the history.
+
 ## Consequences
 
 * Nothing runs in the cloud and nothing authenticates. The export file carries personal data and lives outside the repository ([Export your FreshDirect mail](/runbooks/takeout-export.md)).

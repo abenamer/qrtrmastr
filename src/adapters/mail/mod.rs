@@ -3,6 +3,7 @@
 //! order and hands the use case a message it can store (REAS-ARCH-004).
 
 pub mod classify;
+pub mod gmail;
 pub mod mime;
 pub mod redact;
 pub mod takeout;

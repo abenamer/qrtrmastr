@@ -14,12 +14,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::page::render_habit_page;
 use qrtrmastr::adapters::cli::{
-    Cli, Command, FixtureAction, ask_reason, render_added, render_due, render_habit, render_import,
-    render_simple,
+    Cli, Command, FixtureAction, GmailAction, ask_reason, log_line_is_safe, render_added,
+    render_due, render_habit, render_import, render_simple,
 };
 use qrtrmastr::adapters::config::Settings;
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
 use qrtrmastr::adapters::mail::PlatformMail;
+use qrtrmastr::adapters::mail::gmail::{self, Endpoints, GmailApi, GmailError, SignIn, TokenFile};
 use qrtrmastr::adapters::mail::redact::Redactor;
 use qrtrmastr::adapters::mail::takeout::TakeoutExport;
 use qrtrmastr::adapters::postgres::PostgresStore;
@@ -29,6 +30,7 @@ use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::list::ManageList;
 use qrtrmastr::application::migrate::Migrate;
 use qrtrmastr::application::parse::ParsePending;
+use qrtrmastr::application::ports::{MailSource, RawMessageStore};
 use qrtrmastr::application::recommend::{Due, DueOptions, HabitOptions};
 use qrtrmastr::domain::ids::AdditionId;
 use qrtrmastr::domain::list::ItemText;
@@ -47,12 +49,10 @@ fn main() -> ExitCode {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"))
         .add_directive(html5ever.parse().expect("a constant directive is valid"));
-    // The debug and trace lines of html5ever print the tokens of a mail before redaction. A
-    // directive of RUST_LOG for one of its modules would win over the directive above, so a
-    // second filter holds every target of the crate at warn at most, whatever RUST_LOG asks.
-    let no_mail_text = filter_fn(|meta| {
-        !meta.target().starts_with("html5ever") || *meta.level() <= tracing::Level::WARN
-    });
+    // A directive of RUST_LOG for a module of a library would win over the directive above,
+    // so a second filter holds the libraries that print mail or tokens at a safe level,
+    // whatever RUST_LOG asks (`log_line_is_safe`).
+    let no_mail_text = filter_fn(|meta| log_line_is_safe(meta.target(), meta.level()));
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .with(filter)
@@ -86,6 +86,68 @@ async fn connect(settings: &Settings) -> anyhow::Result<PostgresStore> {
     .await?)
 }
 
+fn token_file(settings: &Settings) -> anyhow::Result<TokenFile> {
+    let dir = settings
+        .state_dir
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("no state directory; set QM_STATE"))?;
+    Ok(TokenFile::in_dir(dir))
+}
+
+/// Stores the new messages of a source and parses the FreshDirect receipts that wait: what
+/// `qm import` and `qm fetch` share.
+async fn import_from(source: impl MailSource, settings: &Settings) -> anyhow::Result<()> {
+    let terms = settings.redaction_terms()?;
+    let redactor = Redactor::new(terms)?;
+    let reader = PlatformMail::new(settings.file.import.sender_platforms(), redactor);
+    let store = connect(settings).await?;
+    let import = ImportMail::new(source, reader, store.clone()).run().await?;
+    // The restaurant platforms have no parser yet (ADR 0007); their mail stays fetched.
+    let parse = ParsePending::new(store, Registry::default())
+        .run(Platform::Freshdirect)
+        .await?;
+    print!("{}", render_import(&import, &parse));
+    if import.redaction_failures.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "{} message(s) refused because personal data survived redaction; nothing of them was stored",
+            import.redaction_failures.len()
+        )
+    }
+}
+
+/// `qm gmail login`: the consent in the user's browser, then the refresh token into its file.
+async fn gmail_login(settings: &Settings) -> anyhow::Result<()> {
+    use std::io::{BufRead, IsTerminal};
+
+    let credentials = settings.gmail.clone().ok_or(GmailError::NoCredentials)?;
+    let file = token_file(settings)?;
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("`qm gmail login` asks you to paste an address; run it in a terminal");
+    }
+    let endpoints = Endpoints::default();
+    let sign_in = SignIn::begin()?;
+    eprintln!(
+        "1. Open this address in a browser and approve read-only access to your mail:\n\n{}\n\n\
+         2. The browser then goes to an address that starts with {} and shows an error page:\n   \
+         nothing listens there, and that is expected.\n\
+         3. Copy that whole address from the address bar, paste it here and press Enter.\n",
+        sign_in.authorization_url(&endpoints, &credentials),
+        gmail::REDIRECT_URI
+    );
+    let mut pasted = String::new();
+    std::io::stdin().lock().read_line(&mut pasted)?;
+    let code = sign_in.code_from_redirect(&pasted)?;
+    let refresh = tokio::task::spawn_blocking(move || {
+        sign_in.exchange(&gmail::agent(true), &endpoints, &credentials, &code)
+    })
+    .await??;
+    file.save(&refresh)?;
+    println!("signed in; `qm fetch` reads your new receipts");
+    Ok(())
+}
+
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let settings = Settings::load()?;
     match cli.command {
@@ -102,27 +164,54 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        Command::Import { takeout } => {
-            let terms = settings.redaction_terms()?;
-            let redactor = Redactor::new(terms)?;
-            let reader = PlatformMail::new(settings.file.import.sender_platforms(), redactor);
-            let store = connect(&settings).await?;
-            let import = ImportMail::new(TakeoutExport::new(takeout), reader, store.clone())
-                .run()
-                .await?;
-            // The restaurant platforms have no parser yet (ADR 0007); their mail stays fetched.
-            let parse = ParsePending::new(store, Registry::default())
-                .run(Platform::Freshdirect)
-                .await?;
-            print!("{}", render_import(&import, &parse));
-            if import.redaction_failures.is_empty() {
-                Ok(())
-            } else {
-                anyhow::bail!(
-                    "{} message(s) refused because personal data survived redaction; nothing of them was stored",
-                    import.redaction_failures.len()
-                )
-            }
+        Command::Import { takeout } => import_from(TakeoutExport::new(takeout), &settings).await,
+        Command::Gmail {
+            action: GmailAction::Login,
+        } => gmail_login(&settings).await,
+        Command::Fetch { since, max } => {
+            let credentials = settings.gmail.clone().ok_or(GmailError::NoCredentials)?;
+            let refresh = token_file(&settings)?.load()?;
+            // A week of overlap costs a few known messages and covers a late delivery.
+            let after = match since {
+                Some(day) => Some(day.to_zoned_datetime(jiff::tz::TimeZone::UTC)?.timestamp()),
+                None => connect(&settings)
+                    .await?
+                    .newest_received_at()
+                    .await?
+                    // The time of a message is the Date header its sender wrote: one in the future
+                    // must not move the search past today.
+                    .map(|newest| {
+                        newest
+                            .min(jiff::Timestamp::now())
+                            .saturating_sub(jiff::SignedDuration::from_hours(7 * 24))
+                    })
+                    .transpose()?,
+            };
+            let senders: Vec<String> = settings
+                .file
+                .import
+                .sender_platforms()
+                .into_iter()
+                .map(|(sender, _)| sender)
+                .collect();
+            let endpoints = Endpoints::default();
+            let agent = gmail::agent(true);
+            // The HTTP client blocks; keep it off the executor (REAS-RUST-007).
+            let access = {
+                let (agent, endpoints) = (agent.clone(), endpoints.clone());
+                tokio::task::spawn_blocking(move || {
+                    gmail::access_token(&agent, &endpoints, &credentials, &refresh)
+                })
+                .await??
+            };
+            let source = GmailApi::new(
+                agent,
+                &endpoints,
+                access,
+                gmail::search_query(&senders, after),
+                max,
+            );
+            import_from(source, &settings).await
         }
         Command::Due {
             as_of,
