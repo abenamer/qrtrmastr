@@ -6,6 +6,8 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+use crate::domain::pattern::fixed;
 use rust_decimal::Decimal;
 
 /// What a pack amount measures. Two amounts compare only in the same dimension.
@@ -31,14 +33,12 @@ pub struct PackAmount {
 /// A longer number is not an amount this module understands.
 const NUMBER: &str = r"(\d{1,6}/\d{1,6}|\d{1,6}(?:\.\d{1,3})?)";
 
-static COUNT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"^{NUMBER}(?:\s*-\s*{NUMBER})?\s*(ct|dozen)\b")).expect("valid regex")
-});
+static COUNT: LazyLock<Regex> =
+    LazyLock::new(|| fixed(&format!(r"^{NUMBER}(?:\s*-\s*{NUMBER})?\s*(ct|dozen)\b")));
 static MEASURE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
+    fixed(&format!(
         r"^{NUMBER}(?:\s*-\s*{NUMBER})?\s*(fl oz|ml|l|gallon|quart|pint|oz|lbs|lb)\b"
     ))
-    .expect("valid regex")
 });
 
 fn number(raw: &str) -> Option<Decimal> {

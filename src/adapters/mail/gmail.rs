@@ -128,6 +128,10 @@ pub fn agent(https_only: bool) -> ureq::Agent {
 
 fn transport(what: &'static str, error: &ureq::Error) -> GmailError {
     // The text of the error is not used: it can name a URL. The kind is enough to act on.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "ureq::Error is an external non-exhaustive enum; every kind that is not named above gets the same text"
+    )]
     let reason = match error {
         ureq::Error::Timeout(_) => "the call timed out",
         ureq::Error::HostNotFound => "the host name cannot be resolved; is the network up?",
@@ -214,6 +218,10 @@ impl SignIn {
 
     /// The address the user opens in a browser to give read-only access.
     pub fn authorization_url(&self, endpoints: &Endpoints, credentials: &Credentials) -> String {
+        #[expect(
+            clippy::expect_used,
+            reason = "the authorization endpoint is in the `qm` binary a constant of `Endpoints::default`, and in a test the address of a local server; neither comes from outside data"
+        )]
         let url = Url::parse_with_params(
             &endpoints.authorize,
             [
@@ -238,6 +246,10 @@ impl SignIn {
     pub fn code_from_redirect(&self, pasted: &str) -> Result<SecretString, GmailError> {
         let url = Url::parse(pasted.trim())
             .map_err(|_| GmailError::Redirect("it is not an address; copy the whole line"))?;
+        #[expect(
+            clippy::expect_used,
+            reason = "REDIRECT_URI is a constant of the source"
+        )]
         let expected = Url::parse(REDIRECT_URI).expect("the redirect is a valid URL");
         if url.scheme() != expected.scheme()
             || url.host_str() != expected.host_str()
@@ -350,7 +362,7 @@ impl TokenFile {
         &self.path
     }
 
-    fn failed(&self, reason: impl ToString) -> GmailError {
+    fn failed(&self, reason: &dyn std::fmt::Display) -> GmailError {
         GmailError::TokenFile {
             path: self.path.clone(),
             reason: reason.to_string(),
@@ -363,11 +375,11 @@ impl TokenFile {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Err(GmailError::NoToken(self.path.clone()));
             }
-            Err(e) => return Err(self.failed(e.kind())),
+            Err(e) => return Err(self.failed(&e.kind())),
         };
         // A parse error would quote the file; say only that it is not readable.
         let stored: StoredToken = serde_json::from_str(&text)
-            .map_err(|_| self.failed("not a token file; run `qm gmail login` again"))?;
+            .map_err(|_| self.failed(&"not a token file; run `qm gmail login` again"))?;
         Ok(SecretString::from(stored.refresh_token))
     }
 
@@ -379,7 +391,7 @@ impl TokenFile {
         let text = serde_json::to_string(&StoredToken {
             refresh_token: refresh_token.expose_secret().to_owned(),
         })
-        .map_err(|_| self.failed("cannot be written"))?;
+        .map_err(|_| self.failed(&"cannot be written"))?;
         let partial = self.path.with_extension("json.partial");
         // A partial file from an interrupted run is replaced.
         let _ = std::fs::remove_file(&partial);
@@ -388,11 +400,11 @@ impl TokenFile {
             .create_new(true)
             .mode(0o600)
             .open(&partial)
-            .map_err(|e| self.failed(format!("{}; does the state directory exist?", e.kind())))?;
+            .map_err(|e| self.failed(&format!("{}; does the state directory exist?", e.kind())))?;
         file.write_all(text.as_bytes())
             .and_then(|()| file.sync_all())
-            .map_err(|e| self.failed(e.kind()))?;
-        std::fs::rename(&partial, &self.path).map_err(|e| self.failed(e.kind()))
+            .map_err(|e| self.failed(&e.kind()))?;
+        std::fs::rename(&partial, &self.path).map_err(|e| self.failed(&e.kind()))
     }
 }
 

@@ -17,6 +17,8 @@
 use std::sync::LazyLock;
 
 use regex::{Regex, RegexBuilder};
+
+use crate::domain::pattern::fixed;
 use scraper::{Html, Node, Selector};
 use serde::Deserialize;
 use thiserror::Error;
@@ -93,37 +95,43 @@ impl RedactionError {
 }
 
 static HEADING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(deliver(y|ed)?\s+(address|to|information|details)|ship(ping)?\s+(address|to)|payment|billing|contact\s+(info|information)|phone|tel\.?)\b")
-        .expect("regex")
+    fixed(
+        r"(?i)\b(deliver(y|ed)?\s+(address|to|information|details)|ship(ping)?\s+(address|to)|payment|billing|contact\s+(info|information)|phone|tel\.?)\b",
+    )
 });
 /// A card brand, or the word "card", before four digits is payment context too: a
 /// point-of-sale receipt prints "MasterCard 4242" and a delivery platform "Credit Card - 4242",
 /// with no mask; a wallet ("Android Pay - 4242") counts the same. No boundary before the word: a text body runs cells together.
 const CARD_BRAND: &str = r"(?:visa|card|amex|american\s+express|discover|diners\s+club|jcb|pay|paypal|venmo)[\s#:\-\x{2013}]*";
 
-static PHONE_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:\+?1[\s.-]*)?\(?[2-9][0-9]{2}\)?[\s.-]+[0-9]{3}[\s.-]+[0-9]{4}\b")
-        .expect("regex")
-});
+static PHONE_SHAPE: LazyLock<Regex> =
+    LazyLock::new(|| fixed(r"(?:\+?1[\s.-]*)?\(?[2-9][0-9]{2}\)?[\s.-]+[0-9]{3}[\s.-]+[0-9]{4}\b"));
 /// What a pass leaves in place of a term.
 const TOKEN: &str = r"\[REDACTED:[a-z]+\]";
 /// An address may hold a replacement on either side of the `@`: a pass that ran earlier can
 /// have replaced a name inside an address that is not itself a configured term, and the rest
 /// of the address must still go. The domain ends in a top-level name or in a replacement.
 static EMAIL_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
+    fixed(&format!(
         r"(?:[A-Za-z0-9._%+-]|{TOKEN})+@(?:(?:[A-Za-z0-9.-]|{TOKEN})+\.[A-Za-z]{{2,}}|(?:[A-Za-z0-9.-]|{TOKEN})*{TOKEN})"
     ))
-    .expect("regex")
 });
 static CARD_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(
+    fixed(&format!(
         r"(?i)(ending\s+(in|with)|[xX*\u{{2022}}]{{2,}}|{CARD_BRAND})\s*[0-9]{{4}}\b"
     ))
-    .expect("regex")
 });
-static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("regex"));
-static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("regex"));
+static WS: LazyLock<Regex> = LazyLock::new(|| fixed(r"\s+"));
+static TAG: LazyLock<Regex> = LazyLock::new(|| fixed(r"<[^>]*>"));
+
+/// A CSS selector that is a constant of the source.
+#[expect(
+    clippy::expect_used,
+    reason = "the selector is a constant of the source; an invalid one is a bug, found by the first test that redacts HTML"
+)]
+fn selector(css: &str) -> Selector {
+    Selector::parse(css).expect("a selector written in the source is valid")
+}
 
 /// The term matches the redacted markup itself: a pass left an occurrence behind.
 const CHECK_MARKUP: &str = "still in the markup";
@@ -244,6 +252,10 @@ fn case_insensitive(pattern: &str) -> Option<Regex> {
 }
 
 impl Redactor {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the terms are personal data: the constructor takes them from the caller, so no copy stays there after the redactor is built"
+    )]
     pub fn new(terms: RedactionTerms) -> Result<Self, RedactionError> {
         let mut literals = Vec::new();
         for (kind, list) in [
@@ -346,7 +358,7 @@ impl Redactor {
     /// Redacts HTML: structure first, then text passes over the normalized serialized result.
     pub fn redact_html(&self, html: &str) -> Result<String, RedactionError> {
         let mut document = Html::parse_document(html);
-        let element = Selector::parse("td, div, p, li, section, address, span").expect("selector");
+        let element = selector("td, div, p, li, section, address, span");
 
         // The smallest containers whose text carries a heading: no child container carries it too.
         let mut to_detach: Vec<ego_tree::NodeId> = Vec::new();
@@ -363,7 +375,7 @@ impl Redactor {
                 to_detach.push(container.id());
             }
         }
-        let images = Selector::parse("img").expect("selector");
+        let images = selector("img");
         to_detach.extend(document.select(&images).map(|img| img.id()));
         // Comments can carry anything a template author left there; nothing of ours reads them.
         to_detach.extend(
@@ -505,23 +517,48 @@ impl Redactor {
 }
 
 /// `%20` to a space and so on; a lone `%` or a bad pair stays as it is.
+///
+/// The text is outside data: a message key or a link of a mail. The function reads bytes and
+/// takes no index into the text, so a `%` before a character of more than one byte cannot stop
+/// it (REAS-SEC-003). A pair is two hexadecimal digits, with one leniency that [`hex_pair`]
+/// explains.
 fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(byte) = u8::from_str_radix(&text[i + 1..i + 3], 16)
+    let mut out = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        if first == b'%'
+            && let Some((pair, after)) = tail.split_first_chunk::<2>()
+            && let Some(byte) = hex_pair(*pair)
         {
             out.push(byte);
-            i += 3;
-            continue;
+            rest = after;
+        } else {
+            out.push(first);
+            rest = tail;
         }
-        out.push(bytes[i]);
-        i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The byte that two hexadecimal digits name, or `None` when the two are not a pair.
+///
+/// A `+` and one digit is read as that digit alone, so `%+9` is a tab. No reader of a link
+/// decodes that, but the first decoder did, and it stays so that this function gives the same
+/// result as the first decoder for every text that did not stop it. The lenient reading is not
+/// safer than the strict one, only the same as before: it finds `x%+9Pat`, and it misses a
+/// term whose first character follows `%+`, because that character goes into the pair. A
+/// check of both readings is a change of the redaction and is not made here.
+fn hex_pair([high, low]: [u8; 2]) -> Option<u8> {
+    let digit = |byte: u8| {
+        char::from(byte)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    let low = digit(low)?;
+    if high == b'+' {
+        return Some(low);
+    }
+    Some((digit(high)? << 4) | low)
 }
 
 #[cfg(test)]
@@ -856,5 +893,57 @@ mod tests {
         assert!(r.carries_configured_term("pat.example@example.com.1234@mail.example"));
         assert!(r.carries_configured_term("/u/Pat%20Example"));
         assert!(!r.carries_configured_term("abc.def@mail.example"));
+    }
+
+    #[test]
+    fn a_percent_sign_before_a_wide_character_does_not_stop_the_check() {
+        let r = redactor();
+        // Before 2026-11-20 each of the first three texts stopped the program: the decoder cut
+        // the text two bytes after the `%`, inside the character.
+        assert!(!r.carries_configured_term("<abc%a\u{e9}@mail.example>"));
+        assert!(!r.carries_configured_term("/u/100%1\u{20ac}"));
+        assert!(!r.carries_configured_term("%0\u{1f600}"));
+        // A term after such a sequence is still found, and only through decoding: without it
+        // the first text has no word "Pat", and the second no line of the address.
+        assert!(r.carries_configured_term("/u/%a\u{e9}/%50at%20Example"));
+        assert!(r.carries_configured_term("/u/%a\u{e9}/Brookly%6E%2C%20%4eY%2011201"));
+        assert!(!r.carries_configured_term("/u/%a\u{e9}/%51at%20Example"));
+    }
+
+    #[test]
+    fn a_term_whose_words_are_joined_by_a_lenient_pair_is_still_found() {
+        let r = redactor();
+        // `%09` is a tab. `%+9` is one too in the lenient reading, which the first decoder had.
+        assert!(r.carries_configured_term("x%09Pat"));
+        assert!(r.carries_configured_term("x%+9Pat"));
+        assert!(r.carries_configured_term("123%+9Imaginary%+9Street%+9Apt%+94B"));
+        assert!(r.carries_configured_term("x%+0Pat"));
+        // A digit that is not part of a pair joins the word, and the word is then another word.
+        assert!(!r.carries_configured_term("x9Pat"));
+    }
+
+    #[test]
+    fn a_pair_is_decoded_and_everything_else_stays() {
+        assert_eq!(percent_decode("a%20b"), "a b");
+        assert_eq!(percent_decode("%4a%4A"), "JJ");
+        assert_eq!(percent_decode("%"), "%");
+        assert_eq!(percent_decode("%2"), "%2");
+        assert_eq!(percent_decode("50%"), "50%");
+        assert_eq!(percent_decode("%zz"), "%zz");
+        assert_eq!(percent_decode("%2g"), "%2g");
+        assert_eq!(percent_decode("%g2"), "%g2");
+        assert_eq!(percent_decode("%-5"), "%-5");
+        // The one leniency: a plus sign and a digit is that digit.
+        assert_eq!(percent_decode("%+5"), "\u{5}");
+        assert_eq!(percent_decode("%+g"), "%+g");
+        assert_eq!(percent_decode("%++"), "%++");
+        assert_eq!(percent_decode("%5+"), "%5+");
+        // Two pairs that are one character, and one pass only.
+        assert_eq!(percent_decode("%c3%a9"), "\u{e9}");
+        assert_eq!(percent_decode("%2541"), "%41");
+        assert_eq!(percent_decode("%a\u{e9}"), "%a\u{e9}");
+        assert_eq!(percent_decode("%%41"), "%A");
+        // Bytes that are not UTF-8 after decoding become the replacement character.
+        assert_eq!(percent_decode("%ff"), "\u{fffd}");
     }
 }

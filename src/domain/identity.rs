@@ -5,6 +5,8 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+use crate::domain::pattern::fixed;
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
@@ -24,22 +26,18 @@ pub struct Normalized {
 
 static SIZE_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
     // "Name - (1/2 gallon)", "Name (approx. 8oz)", "Name - 16 oz" at the end of the name.
-    Regex::new(r"(?i)\s*(?:[-\u{2013}\u{2014}]\s*)?\((?P<size>[^()]*)\)\s*$").expect("valid regex")
+    fixed(r"(?i)\s*(?:[-\u{2013}\u{2014}]\s*)?\((?P<size>[^()]*)\)\s*$")
 });
-static MULTI_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("valid regex"));
+static MULTI_SPACE: LazyLock<Regex> = LazyLock::new(|| fixed(r"\s+"));
 static APPROX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(approx\.?|approximately|about)\s*").expect("valid regex"));
-static DASHES: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\u{2010}-\u{2015}\u{2212}]").expect("valid regex"));
-static TRAILING_PUNCT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[\s,.;:\-]+$").expect("valid regex"));
-static HALF_GALLON: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(1/2|half)\s*(gallon|gal)\b").expect("valid regex"));
+    LazyLock::new(|| fixed(r"(?i)\b(approx\.?|approximately|about)\s*"));
+static DASHES: LazyLock<Regex> = LazyLock::new(|| fixed(r"[\u{2010}-\u{2015}\u{2212}]"));
+static TRAILING_PUNCT: LazyLock<Regex> = LazyLock::new(|| fixed(r"[\s,.;:\-]+$"));
+static HALF_GALLON: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)\b(1/2|half)\s*(gallon|gal)\b"));
 static QUANTITY_UNIT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
+    fixed(
         r"(?i)\b(?P<n>\d+(?:\.\d+)?)\s*(?P<unit>fl\.?\s*oz\.?|fluid ounces?|ounces?|oz\.?|pounds?|lbs?\.?|gallons?|gal\.?|quarts?|qt\.?|pints?|pt\.?|liters?|litres?|l\b|ml\b|milliliters?|grams?|g\b|kg\b|kilograms?|count|ct\.?|pack|pk\.?|pieces?|pcs?\.?|each|ea\.?|dozen|doz\.?)",
     )
-    .expect("valid regex")
 });
 
 fn canonical_unit(unit: &str) -> &'static str {
@@ -180,7 +178,7 @@ mod tests {
             proptest::prop_assert_eq!(n.name_norm.trim(), n.name_norm.as_str());
             proptest::prop_assert_eq!(n.size_norm.trim(), n.size_norm.as_str());
             // Normalizing is a pure function of its input: the same text gives the same identity.
-            proptest::prop_assert_eq!(normalize(&raw), n.clone());
+            proptest::prop_assert_eq!(&normalize(&raw), &n);
             let has_letters_outside_parens = raw
                 .split(['(', ')'])
                 .step_by(2)

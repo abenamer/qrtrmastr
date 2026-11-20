@@ -209,6 +209,10 @@ pub fn evaluate(
         history.sort_by_key(|p| p.delivery_date);
         let dates: BTreeSet<Date> = history.iter().map(|p| p.delivery_date).collect();
         let times_bought = dates.len();
+        #[expect(
+            clippy::expect_used,
+            reason = "a group of `by_product` is made by a push, so it holds at least one purchase"
+        )]
         let last_bought = *dates
             .iter()
             .next_back()
@@ -221,7 +225,15 @@ pub fn evaluate(
             .collect();
         let usual_gap_days = median_days(&mut gaps);
         let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
+        #[expect(
+            clippy::expect_used,
+            reason = "the list holds at least one quantity, and the mean of two positive quantities of three decimals is one too"
+        )]
         let typical_quantity = median_quantity(&mut quantities).expect("at least one quantity");
+        #[expect(
+            clippy::expect_used,
+            reason = "a group of `by_product` is made by a push, so it holds at least one purchase"
+        )]
         let last_price = history.last().expect("at least one purchase").price;
 
         let status = match (times_bought, usual_gap_days) {
@@ -478,6 +490,11 @@ pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
             let in_recent = in_long.iter().filter(|n| recent.contains(*n)).count();
             let last = history.last()?;
             let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
+            #[expect(
+                clippy::expect_used,
+                reason = "the list holds at least one quantity, and the mean of two positive quantities of three decimals is one too"
+            )]
+            let typical_quantity = median_quantity(&mut quantities).expect("at least one");
             (in_recent > 0).then(|| HabitRecommendation {
                 product,
                 in_recent,
@@ -485,7 +502,7 @@ pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
                 in_long: in_long.len(),
                 long_orders: long.len(),
                 last_bought: last.delivery_date,
-                typical_quantity: median_quantity(&mut quantities).expect("at least one"),
+                typical_quantity,
                 last_price: last.price,
                 stocked_until: stocked_until(&history).filter(|day| *day > as_of),
             })
@@ -545,12 +562,22 @@ pub fn simple(purchases: &[Purchase]) -> Vec<SimpleRecommendation> {
             let count = orders_with_product.len();
             (!in_last && count * 2 >= orders_total && orders_total >= 2).then(|| {
                 let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
+                #[expect(
+                    clippy::expect_used,
+                    reason = "the list holds at least one quantity, and the mean of two positive quantities of three decimals is one too"
+                )]
+                let typical_quantity = median_quantity(&mut quantities).expect("at least one");
+                #[expect(
+                    clippy::expect_used,
+                    reason = "a group of `by_product` is made by a push, so it holds at least one purchase"
+                )]
+                let last_price = history.last().expect("at least one").price;
                 SimpleRecommendation {
                     product,
                     orders_with_product: count,
                     orders_total,
-                    typical_quantity: median_quantity(&mut quantities).expect("at least one"),
-                    last_price: history.last().expect("at least one").price,
+                    typical_quantity,
+                    last_price,
                 }
             })
         })

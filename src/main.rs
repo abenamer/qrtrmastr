@@ -1,7 +1,6 @@
 //! The composition root (REAS-ARCH-001): the one place that builds the concrete adapters and
 //! wires them to the use cases. Every command fails with a non-zero exit status when its use
 //! case fails (REAS-RUST-005). The clock is read here and passed in; the domain never reads it.
-#![forbid(unsafe_code)]
 
 use std::process::ExitCode;
 
@@ -46,6 +45,10 @@ fn main() -> ExitCode {
     } else {
         "html5ever=error"
     };
+    #[expect(
+        clippy::expect_used,
+        reason = "the directive is one of the two constants above"
+    )]
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"))
         .add_directive(html5ever.parse().expect("a constant directive is valid"));

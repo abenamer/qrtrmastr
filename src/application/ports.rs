@@ -79,7 +79,10 @@ pub struct MigrationReport {
 }
 
 /// The schema of the store: the only port the `migrate` command needs.
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
+)]
 pub trait SchemaStore {
     /// Applies the pending migrations. Idempotent: a second call applies nothing.
     async fn migrate(&self) -> Result<MigrationReport, StoreError>;
@@ -159,7 +162,10 @@ pub struct StoredBody {
     pub body_html: Option<String>,
 }
 
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
+)]
 pub trait RawMessageStore {
     async fn known_keys(&self) -> Result<HashSet<String>, StoreError>;
     /// When the newest stored message was received; `None` for an empty store. A fetch asks
@@ -210,7 +216,10 @@ pub struct ParseFinish<'a> {
     pub order: Option<OrderWrite<'a>>,
 }
 
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
+)]
 pub trait GroceryStore {
     /// Fails with [`StoreError::Conflict`] when the message is no longer in the expected state
     /// and version; nothing is written then.
@@ -252,7 +261,10 @@ pub struct NewAddition<'a> {
 }
 
 /// The user's own additions to the next order (ADR 0011).
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
+)]
 pub trait ShoppingList {
     async fn add_addition(&self, addition: &NewAddition<'_>) -> Result<AdditionId, StoreError>;
     /// The additions no order has been delivered after: added on or after the latest delivery
@@ -262,7 +274,10 @@ pub trait ShoppingList {
     async fn drop_addition(&self, id: AdditionId) -> Result<bool, StoreError>;
 }
 
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
+)]
 pub trait Catalog {
     /// The alias for a normalized name and size, created with a new product when unseen.
     async fn resolve_alias(&self, request: &AliasRequest<'_>) -> Result<AliasId, StoreError>;

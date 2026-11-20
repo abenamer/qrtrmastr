@@ -10,6 +10,8 @@ use std::sync::LazyLock;
 
 use jiff::civil::Date;
 use regex::Regex;
+
+use crate::domain::pattern::fixed;
 use scraper::{ElementRef, Html, Selector};
 
 use super::{Confidence, ParseError, ReceiptParser};
@@ -25,43 +27,50 @@ pub struct FreshDirect2026;
 pub const NAME: &str = "fd_receipt_2026";
 pub const VERSION: i32 = 2;
 
-static ORDER_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)order\s*(?:number|#|no\.?)?\s*:?\s*(\d{11,13})\b").expect("regex")
-});
+static ORDER_NUMBER: LazyLock<Regex> =
+    LazyLock::new(|| fixed(r"(?i)order\s*(?:number|#|no\.?)?\s*:?\s*(\d{11,13})\b"));
 static DELIVERY_DATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)delivery\s+date\s*:?\s*([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2})").expect("regex")
+    fixed(
+        r"(?i)delivery\s+date\s*:?\s*([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2})",
+    )
 });
 /// The real receipt states the delivery in a sentence, not after a label: "It will be delivered
 /// between 10 AM and 12 PM on Monday, November 09, 2026." Groups: start, end, date.
 static DELIVERY_SENTENCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)delivered\s+between\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+and\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+on\s+([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4})").expect("regex")
+    fixed(
+        r"(?i)delivered\s+between\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+and\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+on\s+([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4})",
+    )
 });
 static DELIVERY_WINDOW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)delivery\s+(?:window|time)\s*:?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[-\u{2013}]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)")
-        .expect("regex")
+    fixed(
+        r"(?i)delivery\s+(?:window|time)\s*:?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[-\u{2013}]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)",
+    )
 });
 static QTY_CELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*$").expect("regex"));
-static WEIGHT_CELL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(\d+(?:\.\d+)?)\s*(lb|lbs|oz|kg|g)\.?\s*$").expect("regex")
-});
+    LazyLock::new(|| fixed(r"^\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*$"));
+static WEIGHT_CELL: LazyLock<Regex> =
+    LazyLock::new(|| fixed(r"(?i)^\s*(\d+(?:\.\d+)?)\s*(lb|lbs|oz|kg|g)\.?\s*$"));
 static UNIT_PRICE_CELL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*\(?\s*(\$?\s*[\d,]+\.\d{2})\s*/\s*(ea|each|lb|pound)\.?\s*\)?\s*$")
-        .expect("regex")
+    fixed(r"(?i)^\s*\(?\s*(\$?\s*[\d,]+\.\d{2})\s*/\s*(ea|each|lb|pound)\.?\s*\)?\s*$")
 });
 static MONEY_CELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*\(?-?\$?\s*[\d,]+\.\d{2}\)?\s*$").expect("regex"));
+    LazyLock::new(|| fixed(r"^\s*\(?-?\$?\s*[\d,]+\.\d{2}\)?\s*$"));
 static FOOTER_LABEL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(subtotal|sub-total|total tax|tax|sales tax|state bottle deposit|bottle deposit|deposit|delivery fee|delivery|service fee|fuel surcharge|tip|driver tip|order total|total)(?:\s*\([^)]*\))?\s*:?\s*$")
-        .expect("regex")
+    fixed(
+        r"(?i)^\s*(subtotal|sub-total|total tax|tax|sales tax|state bottle deposit|bottle deposit|deposit|delivery fee|delivery|service fee|fuel surcharge|tip|driver tip|order total|total)(?:\s*\([^)]*\))?\s*:?\s*$",
+    )
 });
-static FURNITURE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(order\s+#?\d{9,14}|order total\b.*|[TSD]\s*=\s*.+)\s*$").expect("regex")
-});
-static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("regex"));
+static FURNITURE: LazyLock<Regex> =
+    LazyLock::new(|| fixed(r"(?i)^\s*(order\s+#?\d{9,14}|order total\b.*|[TSD]\s*=\s*.+)\s*$"));
+static WS: LazyLock<Regex> = LazyLock::new(|| fixed(r"\s+"));
 
+/// A CSS selector that is a constant of the source.
+#[expect(
+    clippy::expect_used,
+    reason = "the selector is a constant of the source; an invalid one is a bug, found by the first test that parses a receipt"
+)]
 fn sel(css: &str) -> Selector {
-    Selector::parse(css).expect("valid selector")
+    Selector::parse(css).expect("a selector written in the source is valid")
 }
 
 fn text_of(element: ElementRef<'_>) -> String {

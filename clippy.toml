@@ -1,0 +1,4 @@
+# REAS-RUST-005 does not apply to test code: an `unwrap` or `expect` on a fixture is acceptable
+# there. The levels themselves are in `Cargo.toml` under `[lints.clippy]`.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
