@@ -8,12 +8,30 @@ updated: 2026-11-20
 
 # REAS self-audit
 
-**Recorded validation: Actions run 20 passed for implementation commit `f208fb5`.**
+**Recorded validation: Actions run 24 passed for implementation commit `843b94d`.**
 
 The language review does not establish full ASD-STE100 compliance.
 See the [language-review record](ste-review.md) for its scope and open checks.
 
 ## Remote evidence for this revision
+
+[Actions run 24](https://github.com/abenamer/reas/actions/runs/44831443937) passed on 2026-11-20.
+Its source commit is `843b94d` on `claude/zen-newton-74jyn8`, which added the Native code concept and changed no code, test, lockfile, workflow, or script.
+The job list and step conclusions were read from the Actions API after execution.
+Each row reports one of the six outcomes of [REAS-TEST-002](validation.md#reas-test-002); no job was skipped, retried, or timed out.
+
+| Job | Outcome | Evidence |
+| --- | --- | --- |
+| [msrv](https://github.com/abenamer/reas/actions/runs/44831443937/job/136617111096) | Passed | 17 seconds, conclusion success, every step success |
+| [rust-examples-arm64](https://github.com/abenamer/reas/actions/runs/44831443937/job/136617111346) | Passed | 31 seconds, conclusion success, every step success |
+| [docs](https://github.com/abenamer/reas/actions/runs/44831443937/job/136617111483) | Passed | 8 seconds, conclusion success, every step success |
+| [rust-examples](https://github.com/abenamer/reas/actions/runs/44831443937/job/136617111528) | Passed | 26 seconds, conclusion success, every step success |
+| [nightly-doctests](https://github.com/abenamer/reas/actions/runs/44831443937/job/136617111689) | Passed | 107 seconds, conclusion success, every step success |
+
+No job in this run exercises a native path, because the examples contain none; see the native-paths row of the coverage table.
+This audit section was added in the next commit.
+
+## Remote evidence for 1.6.0-draft
 
 [Actions run 20](https://github.com/abenamer/reas/actions/runs/44820161148) passed on 2026-11-20.
 Its source commit is `f208fb5` on `claude/zen-newton-74jyn8`.
@@ -46,6 +64,7 @@ Every job runs one subcommand of `scripts/check.sh`, so this table and the workf
 | `examples/trust-boundary/fuzz/**` | `rust-examples`, `nightly-doctests` | Clippy and rustfmt on stable; build and a 30-second run on nightly |
 | Compile-fail doctests | `nightly-doctests` | Expected diagnostic codes asserted |
 | `scripts/check.sh` | every job | A defect in the script fails every job |
+| Native paths ([REAS-NATIVE-002](native-code.md#reas-native-002), [REAS-NATIVE-004](native-code.md#reas-native-004)) | `rust-examples` | Every example sets `unsafe_code = "forbid"`, so the count is zero by construction and the compiler is the counter; no FFI; the one fast path, the SWAR checksum, is portable integer arithmetic with no target feature, so no path is CPU-gated, Miri is not required, and no path is Miri-blind. `cargo geiger` was not run. |
 | `.github/workflows/docs.yml` | none beyond its own execution | Not gated by a workflow linter. A syntax error fails every job; a wrong step name does not. |
 | `LICENSE-*`, `.gitignore`, `rust-toolchain.toml` | none | Not gated. The toolchain file is read by every Cargo job but its content is not asserted. |
 
@@ -97,7 +116,7 @@ This local result has no immutable source commit and is not release evidence.
 | Miri on the examples | Not run. The examples forbid `unsafe`, so REAS-SEC-004 requires no Miri job for them. |
 | ASD-STE100 language review of `security.md`, REAS-TEST-003, and the new example | Not run. See the review record. |
 
-## Remote evidence for this revision
+## Remote evidence for 1.5.0-draft
 
 [Actions run 16](https://github.com/abenamer/reas/actions/runs/44304113162) passed on 2026-11-18.
 Its source commit is `73ebe1d` on `claude/zen-newton-74jyn8`.
@@ -153,7 +172,7 @@ The remote evidence section must identify a committed revision before a release.
 | Complete STE vocabulary and grammar review | Not run in full. See the review record. |
 | Database adapter, persisted transitions, and transaction integration tests | Not run. These examples do not contain a database adapter. |
 
-## Remote evidence for this revision
+## Remote evidence for 1.4.0-draft
 
 [Actions run 11](https://github.com/abenamer/reas/actions/runs/39995381881) passed on 2026-10-23.
 Its source commit is `d746f9adae750e8810a57652878cea83dc465d7b` on `codex/reas-precision-ste-review`.

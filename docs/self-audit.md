@@ -1,25 +1,25 @@
 ---
 type: Audit Report
 title: REAS self-audit
-description: Each rule of REAS 1.6.0-draft with its status in this project, the evidence for each result, and the limits of the audit.
+description: Each rule of REAS 1.7.0-draft with its status in this project, the evidence for each result, and the limits of the audit.
 tags: [quality, documentation, audit]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
 updated: 2026-11-20
 sources:
   - id: reas
     resource: https://github.com/abenamer/reas
-    title: REAS engineering standard, 1.6.0-draft
+    title: REAS engineering standard, 1.7.0-draft
 ---
 
 # REAS self-audit
 
-**Recorded validation: Actions run [44821890273](https://github.com/abenamer/qrtrmastr/actions/runs/44821890273) on 2026-11-20 for commit `534da18` on `main`. Six jobs passed: `rust`, `audit`, `deny`, `docs`, `privacy`, `secrets`. The job `dependency-review` was skipped: it runs on a pull request only, and this run was a push. That run does not cover the change that vendored REAS 1.6.0-draft; the log entry of that change records its checks.**
+**Recorded validation: Actions run [44821890273](https://github.com/abenamer/qrtrmastr/actions/runs/44821890273) on 2026-11-20 for commit `534da18` on `main`. Six jobs passed: `rust`, `audit`, `deny`, `docs`, `privacy`, `secrets`. The job `dependency-review` was skipped: it runs on a pull request only, and this run was a push. That run does not cover the change that vendored REAS 1.7.0-draft; the log entry of that change records its checks.**
 
-The project was made against REAS 1.4.0-draft. On 2026-11-20 the vendored copy at `standards/reas/` changed to 1.6.0-draft, and the audit below was done against it. The project does not meet every rule of that version: the table says which, and [ADR 0015](/decisions/0015-reas-1-6-0-draft-and-the-order-of-its-gaps.md) gives the order in which the gaps close. The language review does not establish ASD-STE100 compliance; see the [STE review](/ste-review.md).
+The project was made against REAS 1.4.0-draft. On 2026-11-20 the vendored copy at `standards/reas/` changed to 1.7.0-draft, and the audit below was done against it. The project does not meet every rule of that version: the table says which, and [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) gives the order in which the gaps close. The language review does not establish ASD-STE100 compliance; see the [STE review](/ste-review.md).
 
-## Audit against REAS 1.6.0-draft: 2026-11-20
+## Audit against REAS 1.7.0-draft: 2026-11-20
 
-Method: the audit read the rules in `standards/reas/standard/` and the code at commit `534da18`. Step 1 of ADR 0015, the lint table, is done; its rows below describe the code after that change, on the `reas-lints` branch. A count of lint findings is the number of lines that `cargo clippy --locked --lib --bins --message-format=short -- -W <lint>` printed for `src/` on 2026-11-20 with Rust 1.99.1; test code is not in a count. A status is one of four words:
+Method: the audit read the rules in `standards/reas/standard/` and the code at commit `534da18`. It was done in two parts on the same day: the 40 rules of 1.6.0-draft first, from a copy of that version; then, after the copy of 1.7.0-draft, the four rules of the new Native code concept and the sentences that 1.7.0-draft changed in REAS-RUST-004, REAS-SEC-001 and REAS-SEC-004. Step 1 of ADR 0015, the lint table, is done; its rows below describe the code after that change, on the `reas-lints` branch. A count of lint findings is the number of lines that `cargo clippy --locked --lib --bins --message-format=short -- -W <lint>` printed for `src/` on 2026-11-20 with Rust 1.99.1; test code is not in a count. A status is one of four words:
 
 * Met: the audit found the evidence that the rule's Verification section names.
 * Partly met: the code follows the rule's text in the places the audit read, and a named part is absent.
@@ -83,6 +83,17 @@ The exposure is in [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-t
 | REAS-SEC-004 | Met | `unsafe_code = "forbid"` under `[lints.rust]` in `Cargo.toml`, for every target of the package; no unsafe code. The two Clippy lints of the rule are `deny`. |
 | REAS-SEC-005 | Not applicable | No fast path, cache or second implementation of one function. The habit rule and the gap rule are different rules with different results. |
 | REAS-SEC-006 | Partly met | SQL values are parameters; JSON is written by `serde_json`; the page of `qm due --html` encodes element text and attribute values in `src/adapters/cli/page.rs`, with a test; an addition refuses control characters when it is made. Deviation, kept on purpose: the redactor changes a mail before storage ([ADR 0004](/decisions/0004-redaction-before-storage.md)), where the rule says to store a value as it was entered; the reason is privacy, and the stored text is still encoded at each sink. Gaps: the table that `qm due` prints to a terminal writes a product name from a receipt with no encoding of control characters; no list of the sinks with one test for each; the Gmail query and the HTTP headers were not examined. |
+
+### Native code
+
+The project writes no native code. Its dependencies hold some, on paths that outside data reaches. The exception for the CI jobs of REAS-NATIVE-002 and REAS-NATIVE-004 does not apply, for the same reason as above.
+
+| Rule | Status | Evidence or gap |
+| --- | --- | --- |
+| REAS-NATIVE-001 | Partly met | Advisory. No change has added native code to the project. Gap: nothing records the native code of the dependencies. Known from `cargo metadata` for Linux on x86_64: the TLS library uses `ring`, which has C and assembly behind a `links` key; every byte from the Gmail API passes it, and the database connection when it uses TLS. The unsafe code of the mail parser, the HTML parser, the archive reader, the pattern engine and the crates they use was not counted; a search of their sources by the security review found the word in each, which is not a count. |
+| REAS-NATIVE-002 | Not met | The count of the package is zero by `unsafe_code = "forbid"` in `Cargo.toml`; no committed baseline records that zero. No count exists for the dependencies on a path of outside data: `cargo geiger` 0.13.0 is on the development machine and has not run on this project. No CI job. |
+| REAS-NATIVE-003 | Met | No unsafe code; `unsafe_code = "forbid"` under `[lints.rust]` in `Cargo.toml`, for every target of the package; `clippy::undocumented_unsafe_blocks` and `clippy::multiple_unsafe_ops_per_block` are `deny`. |
+| REAS-NATIVE-004 | Not met | No fuzz target for a parser of outside bytes (REAS-TEST-003). No module holds unsafe code, so no Miri job is due. The path through `ring` is Miri-blind; this row is the only place that says so, and no sanitizer build exists. |
 
 ### Validation and evidence
 

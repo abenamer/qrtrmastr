@@ -11,6 +11,7 @@ Read only the rules that apply to the current task.
 - [State machines](state-machines.md)
 - [Validation and evidence](validation.md)
 - [Security at seams](security.md)
+- [Native code](native-code.md)
 
 ## Architecture
 - [Ports and adapters](ports-and-adapters.md)

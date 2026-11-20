@@ -19,12 +19,12 @@ The questions and their answers:
 2. What external systems does it use? A mail export today (a Takeout mbox), the Gmail API later; PostgreSQL; later, recipe pages and a weather source. Each of these is outside the project's control.
 3. For how long must the project remain in use? Indefinitely; it accumulates a household's history.
 4. How likely are the boundaries to change? Likely. The mail source is planned to change from a file to an API without changing anything downstream, and the deferred design adds more sources.
-5. Who can supply outside data to the application? Added on 2026-11-20, for REAS 1.6.0-draft. Three parties:
+5. Who can supply outside data to the application? Added on 2026-11-20, for REAS 1.7.0-draft. Three parties:
    * Any party that can send mail to the maintainer's mailbox. A Takeout export and the Gmail mailbox hold what other parties wrote. The import keeps a message only when its From mailbox is an address the project lists for a platform, and it records whether the mail has a DKIM pass. A From address can be forged, so a forged message reaches the mail reader, the classifier and the redactor, and since [ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md) the receipt parser. In practice the bytes come from FreshDirect and the restaurant platforms, and the ordinary bad data is a receipt that the platform's own software built wrongly.
    * Google, through the Gmail API over TLS: the JSON of each answer.
    * The maintainer: the configuration file, the command line, and the text of `qm add`.
 
-   The application has no listener and no endpoint. The answer to this question sets the exposure for the REAS security rules: other parties can supply outside data, so the exception that REAS gives a private tool whose only source of outside data is its maintainer does not apply. [ADR 0015](/decisions/0015-reas-1-6-0-draft-and-the-order-of-its-gaps.md) records what follows from that.
+   The application has no listener and no endpoint. The answer to this question sets the exposure for the REAS security rules: other parties can supply outside data, so the exception that REAS gives a private tool whose only source of outside data is its maintainer does not apply. [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) records what follows from that.
 
 ## Decision
 

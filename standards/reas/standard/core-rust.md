@@ -160,7 +160,7 @@ Clone deliberately; a clone that exists only to satisfy the borrow checker hides
 
 Do not use `unsafe` to violate aliasing or lifetime requirements.
 The borrow checker also does its checks on references in an `unsafe` block.
-When safe Rust cannot express an operation, confine and document the unsafe code as [REAS-SEC-004](security.md#reas-sec-004) specifies.
+When safe Rust cannot express an operation, treat the crossing as [Native code](native-code.md) specifies: bound it, mark it, and exercise it. [REAS-SEC-004](security.md#reas-sec-004) holds the confinement mechanics.
 
 ### Verification
 
