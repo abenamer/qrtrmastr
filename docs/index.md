@@ -31,6 +31,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 
 * [Develop and run](runbooks/develop.md) - Running qm through Docker Compose, the toolchain, the database options, the checks, and the pull-request flow.
 * [Export your FreshDirect mail and import it](runbooks/takeout-export.md) - The Takeout export, the redaction terms, and the import.
+* [Fetch new receipts from Gmail](runbooks/gmail-fetch.md) - The Google Cloud project, the sign-in, and qm fetch.
 
 # Decisions
 
@@ -46,6 +47,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0010](decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md) - Sizes of one product count as one, and a bulk purchase is a stock.
 * [ADR 0011](decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md) - Essentials, extras, reminders, and additions with a reason.
 * [ADR 0012](decisions/0012-the-next-order-as-a-page-that-is-a-file.md) - The next order as a page that is a file.
+* [ADR 0013](decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md) - New receipts are fetched from the Gmail API.
 * [ADR 0014](decisions/0014-dates-and-times-with-jiff-not-chrono.md) - Dates and times with jiff, not chrono.
 
 # Log

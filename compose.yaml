@@ -47,6 +47,11 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-qm}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@qm-postgres:5432/${POSTGRES_DB:-qrtrmastr}
       QM_CONFIG: /config/config.toml
+      # `qm gmail login` and `qm fetch`: the OAuth client of your own Google Cloud project
+      # (docs/runbooks/gmail-fetch.md). Empty until you set them in .env.
+      QM_GMAIL_CLIENT_ID: ${QM_GMAIL_CLIENT_ID:-}
+      QM_GMAIL_CLIENT_SECRET: ${QM_GMAIL_CLIENT_SECRET:-}
+      QM_STATE: /state
       RUST_LOG: ${RUST_LOG:-warn}
       # "Today" for `qm due` without --as-of is the day in this zone.
       TZ: ${TZ:-UTC}
@@ -55,6 +60,9 @@ services:
       - ${QM_DATA_DIR:-${HOME}/qm-data}:/data:ro
       # The configuration file with the redaction terms, read-only.
       - ${QM_CONFIG_DIR:-${HOME}/.config/qrtrmastr}:/config:ro
+      # What the tool remembers between runs: the Gmail refresh token, in a file only you can
+      # read. Create the directory first (mkdir -p), or Docker creates it as root.
+      - ${QM_STATE_DIR:-${HOME}/.local/state/qrtrmastr}:/state
       # Where `qm fixture add --dir /fixtures` writes; gitignored on the host.
       - ./tests/fixtures/local:/fixtures
     # Runs as your host user so files it writes under /fixtures are yours; set QM_UID and QM_GID in

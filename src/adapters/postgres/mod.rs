@@ -188,6 +188,15 @@ impl RawMessageStore for PostgresStore {
         .transpose()
     }
 
+    async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
+        let (newest,): (Option<jiff_sqlx::Timestamp>,) =
+            sqlx::query_as("select max(received_at) from raw_messages")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| database_error("find the newest message", e))?;
+        Ok(newest.map(jiff_sqlx::Timestamp::to_jiff))
+    }
+
     async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
         let rows: Vec<(String,)> = sqlx::query_as("select message_key from raw_messages")
             .fetch_all(&self.pool)

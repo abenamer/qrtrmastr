@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm fetch` reads new receipts from the Gmail API with read-only access, after a one-time `qm gmail login`. Setup in `docs/runbooks/gmail-fetch.md`. [ADR 0013](docs/decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md).
 - `qm due --html` prints the next order as a web page; `scripts/due_page.sh` writes it to your exports directory. [ADR 0012](docs/decisions/0012-the-next-order-as-a-page-that-is-a-file.md).
 - `qm due` prints essentials, extras, a shuffled "remember this?" list and your own additions. `qm add ITEM` adds an item by hand and asks for the reason (ran out, almost running out, making a recipe, new food to try, repeat favorite); `qm drop NUMBER` removes it. Migrations `0005_list_additions.sql`, `0006_addition_reason_running_low.sql`. [ADR 0011](docs/decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md).
 - `qm due` counts the sizes of one product as one, and leaves out a product bought in bulk until the stock is expected to run out. [ADR 0010](docs/decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md).

@@ -14,6 +14,7 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use thiserror::Error;
 
+use super::mail::gmail::Credentials;
 use super::mail::redact::RedactionTerms;
 use crate::domain::recommend::Thresholds;
 use crate::domain::states::Platform;
@@ -170,6 +171,12 @@ pub struct Settings {
     pub db_max_connections: u32,
     pub config_path: PathBuf,
     pub file: FileConfig,
+    /// The OAuth client for `qm gmail login` and `qm fetch`: `QM_GMAIL_CLIENT_ID` and
+    /// `QM_GMAIL_CLIENT_SECRET`. `None` until both are set; only those commands need it.
+    pub gmail: Option<Credentials>,
+    /// Where the tool keeps what it must remember between runs, today the Gmail refresh
+    /// token: `QM_STATE`, else the user's state directory.
+    pub state_dir: Option<PathBuf>,
 }
 
 impl Settings {
@@ -205,11 +212,30 @@ impl Settings {
                 path: config_path.clone(),
                 reason: describe_without_values(&e),
             })?;
+        let set = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        let gmail = match (set("QM_GMAIL_CLIENT_ID"), set("QM_GMAIL_CLIENT_SECRET")) {
+            (Some(client_id), Some(secret)) => Some(Credentials {
+                client_id: client_id.trim().to_owned(),
+                client_secret: SecretString::from(secret.trim().to_owned()),
+            }),
+            _ => None,
+        };
+        // An empty value is no value: it would put the token file into the working directory.
+        let state_dir = match std::env::var_os("QM_STATE").filter(|value| !value.is_empty()) {
+            Some(path) => Some(PathBuf::from(path)),
+            None => directories::ProjectDirs::from("", "", "qrtrmastr").map(|dirs| {
+                dirs.state_dir()
+                    .unwrap_or_else(|| dirs.data_local_dir())
+                    .to_path_buf()
+            }),
+        };
         Ok(Self {
             database_url: SecretString::from(database_url),
             db_max_connections,
             config_path,
             file,
+            gmail,
+            state_dir,
         })
     }
 

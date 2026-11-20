@@ -162,6 +162,9 @@ pub struct StoredBody {
 #[allow(async_fn_in_trait)]
 pub trait RawMessageStore {
     async fn known_keys(&self) -> Result<HashSet<String>, StoreError>;
+    /// When the newest stored message was received; `None` for an empty store. A fetch asks
+    /// the mailbox for what came after it.
+    async fn newest_received_at(&self) -> Result<Option<Timestamp>, StoreError>;
     /// The redacted body stored under `key`, if any.
     async fn body_by_key(&self, key: &str) -> Result<Option<StoredBody>, StoreError>;
     /// Inserts unless the key or the source hash is already stored.

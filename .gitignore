@@ -21,3 +21,6 @@ __pycache__/
 
 # The page of `qm due --html` holds your purchase history; it never enters git (ADR 0012).
 /*.html
+
+# The Gmail refresh token of `qm fetch` (ADR 0013). Its place is the state directory.
+gmail-token.json*
