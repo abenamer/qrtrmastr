@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use super::ports::{Catalog, GroceryStore, ProductLabel, StoreError};
 use crate::domain::recommend::{
-    Recommendation, SimpleRecommendation, Status, Thresholds, evaluate, order_cadence, rank, simple,
+    HabitRecommendation, Recommendation, SimpleRecommendation, Status, Thresholds, evaluate, habit,
+    order_cadence, rank, simple,
 };
 
 /// Which items the list shows beyond the ones that are due.
@@ -43,6 +44,20 @@ pub struct SimpleRow {
 pub struct SimpleReport {
     pub orders: usize,
     pub rows: Vec<SimpleRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HabitRow {
+    pub product: ProductLabel,
+    #[serde(flatten)]
+    pub recommendation: HabitRecommendation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HabitReport {
+    pub orders: usize,
+    /// The most habitual products first, cut to the length asked for.
+    pub rows: Vec<HabitRow>,
 }
 
 pub struct Due<S: GroceryStore + Catalog> {
@@ -90,6 +105,34 @@ impl<S: GroceryStore + Catalog> Due<S> {
             as_of,
             orders: distinct_orders(&dates),
             order_cadence_days: cadence,
+            rows,
+        })
+    }
+
+    /// The habit rule, the default (ADR 0009): the products most often in the latest orders,
+    /// the first `top` of them.
+    pub async fn run_habit(&self, top: usize) -> Result<HabitReport, StoreError> {
+        let purchases = self.store.purchases().await?;
+        let dates = self.store.delivery_dates().await?;
+        let muted = self.store.muted_products().await?;
+        let labels = self.store.product_labels().await?;
+        let rows = habit(&purchases)
+            .into_iter()
+            .filter(|r| !muted.contains(&r.product))
+            .filter_map(|recommendation| {
+                labels
+                    .iter()
+                    .find(|label| label.id == recommendation.product)
+                    .cloned()
+                    .map(|product| HabitRow {
+                        product,
+                        recommendation,
+                    })
+            })
+            .take(top)
+            .collect();
+        Ok(HabitReport {
+            orders: distinct_orders(&dates),
             rows,
         })
     }

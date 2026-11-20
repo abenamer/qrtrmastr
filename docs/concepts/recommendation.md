@@ -17,7 +17,11 @@ sources:
 
 `qm due` lists what you are about to run out of. It uses counts and observed gaps only. It fits no model, draws no samples, and reads no weather. The maintainer chose that for the MVP; probabilities and seasons are deferred.
 
-## The gap rule (default)
+## The habit rule (default)
+
+The products most often in the latest orders ([ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md)). For each product in at least one of the latest 20 orders, the rule counts the orders that hold it among the latest 20 and among the latest 50. The list is ranked by the first count, then the second, then the later last purchase, and cut to `--top` products, 15 by default. The typical quantity is the median billed quantity over those 50 orders. Muted products are left out. The rule uses no dates: on the maintainer's history it names what the next order holds about twice as often as the gap rule.
+
+## The gap rule (`--gap`)
 
 For each product, from the `purchases` view:
 

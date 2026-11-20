@@ -8,7 +8,7 @@ use jiff::civil::Date;
 
 use crate::application::import::ImportReport;
 use crate::application::parse::ParseReport;
-use crate::application::recommend::{DueReport, SimpleReport};
+use crate::application::recommend::{DueReport, HabitReport, SimpleReport};
 use crate::domain::recommend::Status;
 
 #[derive(Debug, Parser)]
@@ -50,8 +50,15 @@ pub enum Command {
         #[arg(long, visible_alias = "mbox", value_name = "PATH")]
         takeout: PathBuf,
     },
-    /// What you are about to run out of, from your own purchase gaps.
+    /// What your next order most likely holds: the products most often in your latest
+    /// orders. `--gap` and `--simple` are the two older rules.
     Due {
+        /// How many products to list.
+        #[arg(long, default_value_t = 15, value_name = "N")]
+        top: usize,
+        /// Use the gap rule instead: items whose usual gap between purchases has passed.
+        #[arg(long, conflicts_with = "simple")]
+        gap: bool,
         /// The day to judge from; today when omitted.
         #[arg(long, value_name = "YYYY-MM-DD")]
         as_of: Option<Date>,
@@ -177,6 +184,37 @@ pub fn render_due(report: &DueReport) -> String {
             status_text(r.status)
         ));
     }
+    out
+}
+
+fn habit_table(out: &mut String, rows: &[crate::application::recommend::HabitRow]) {
+    if rows.is_empty() {
+        out.push_str("none\n");
+        return;
+    }
+    out.push_str(&format!(
+        "{:<56} {:>8} {:>8} {:>11} {:>5}\n",
+        "product", "recent", "longer", "last", "qty"
+    ));
+    for row in rows {
+        let r = &row.recommendation;
+        out.push_str(&format!(
+            "{:<56} {:>8} {:>8} {:>11} {:>5}\n",
+            truncate(&label(&row.product), 56),
+            format!("{}/{}", r.in_recent, r.recent_orders),
+            format!("{}/{}", r.in_long, r.long_orders),
+            r.last_bought,
+            r.typical_quantity
+        ));
+    }
+}
+
+pub fn render_habit(report: &HabitReport) -> String {
+    let mut out = format!(
+        "{} orders; the products most often in your latest orders:\n",
+        report.orders
+    );
+    habit_table(&mut out, &report.rows);
     out
 }
 
