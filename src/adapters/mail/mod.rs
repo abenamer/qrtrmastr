@@ -68,26 +68,31 @@ impl MailReader for PlatformMail {
             .and_then(classify::domain_of)
             .is_some_and(|domain| classify::dkim_passed(&parsed.authentication_results, &domain));
 
-        let redaction = |kind| MailError::RedactionFailed {
+        let redaction = |part: &str, error: redact::RedactionError| MailError::RedactionFailed {
             key: key.to_string(),
-            kind,
+            kind: error.kind(),
+            context: format!(
+                "{platform} {kind}, {part}: {} {}",
+                error.kind(),
+                error.check()
+            ),
         };
         let subject = self
             .redactor
             .redact_text(&parsed.subject)
-            .map_err(|e| redaction(e.kind()))?;
+            .map_err(|e| redaction("subject", e))?;
         let body_html = parsed
             .html
             .as_deref()
             .map(|html| self.redactor.redact_html(html))
             .transpose()
-            .map_err(|e| redaction(e.kind()))?;
+            .map_err(|e| redaction("html body", e))?;
         let body_text = parsed
             .text
             .as_deref()
             .map(|text| self.redactor.redact_text(text))
             .transpose()
-            .map_err(|e| redaction(e.kind()))?;
+            .map_err(|e| redaction("text body", e))?;
 
         Ok(Prepared::Message(NewRawMessage {
             platform,

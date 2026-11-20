@@ -55,8 +55,12 @@ pub enum RedactionError {
     BadPhone(usize),
     #[error("card_last4 #{0} is not exactly four digits")]
     BadLast4(usize),
-    #[error("{kind} survived redaction")]
-    Survived { kind: &'static str },
+    /// `check` says which assertion found the term; it never carries the text.
+    #[error("{kind} survived redaction ({check})")]
+    Survived {
+        kind: &'static str,
+        check: &'static str,
+    },
 }
 
 impl RedactionError {
@@ -67,7 +71,18 @@ impl RedactionError {
             }
             RedactionError::BadPhone(_) => "phone",
             RedactionError::BadLast4(_) => "card",
-            RedactionError::Survived { kind } => kind,
+            RedactionError::Survived { kind, .. } => kind,
+        }
+    }
+
+    /// Which assertion failed, for the import report; empty for a construction failure.
+    pub fn check(&self) -> &'static str {
+        match self {
+            RedactionError::Survived { check, .. } => check,
+            RedactionError::TermTooShort { .. }
+            | RedactionError::BadTerm { .. }
+            | RedactionError::BadPhone(_)
+            | RedactionError::BadLast4(_) => "",
         }
     }
 }
@@ -87,6 +102,14 @@ static CARD_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("regex"));
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("regex"));
+
+/// The term matches the redacted markup itself: a pass left an occurrence behind.
+const CHECK_MARKUP: &str = "still in the markup";
+/// The term matches only once the tags are gone: markup the passes do not bridge splits it.
+const CHECK_TEXT: &str = "in the text once tags are removed";
+/// The term's letters and digits appear in sequence: other punctuation or spacing, or inside a
+/// longer run such as a link.
+const CHECK_SEQUENCE: &str = "same letters and digits, other punctuation";
 
 /// Characters that split a word without showing: soft hyphen, zero-width space, joiner,
 /// non-joiner, byte-order mark, word joiner.
@@ -375,22 +398,32 @@ impl Redactor {
     fn verify(&self, out: &str) -> Result<(), RedactionError> {
         let view = text_view(out);
         let alnum = alphanumerics(&view);
+        let survived = |kind, check| Err(RedactionError::Survived { kind, check });
         for literal in &self.literals {
-            if literal.plain.is_match(&view) || literal.regex.is_match(out) {
-                return Err(RedactionError::Survived { kind: literal.kind });
+            if literal.regex.is_match(out) {
+                return survived(literal.kind, CHECK_MARKUP);
+            }
+            if literal.plain.is_match(&view) {
+                return survived(literal.kind, CHECK_TEXT);
             }
             if !literal.alnum.is_empty() && alnum.contains(&literal.alnum) {
-                return Err(RedactionError::Survived { kind: literal.kind });
+                return survived(literal.kind, CHECK_SEQUENCE);
             }
         }
         for regex in &self.phones {
-            if regex.is_match(&view) || regex.is_match(out) {
-                return Err(RedactionError::Survived { kind: "phone" });
+            if regex.is_match(out) {
+                return survived("phone", CHECK_MARKUP);
+            }
+            if regex.is_match(&view) {
+                return survived("phone", CHECK_TEXT);
             }
         }
         for regex in &self.last4 {
-            if regex.is_match(&view) || regex.is_match(out) {
-                return Err(RedactionError::Survived { kind: "card" });
+            if regex.is_match(out) {
+                return survived("card", CHECK_MARKUP);
+            }
+            if regex.is_match(&view) {
+                return survived("card", CHECK_TEXT);
             }
         }
         Ok(())
@@ -533,15 +566,24 @@ mod tests {
         let r = redactor();
         assert_eq!(
             r.verify("delivered to 123 imaginary street apt 4b"),
-            Err(RedactionError::Survived { kind: "address" })
+            Err(RedactionError::Survived {
+                kind: "address",
+                check: CHECK_MARKUP
+            })
         );
         assert_eq!(
             r.verify("123 <b>Imaginary</b> Street <i>Apt</i> 4B"),
-            Err(RedactionError::Survived { kind: "address" })
+            Err(RedactionError::Survived {
+                kind: "address",
+                check: CHECK_MARKUP
+            })
         );
         assert_eq!(
             r.verify("call 212-555-0199 now"),
-            Err(RedactionError::Survived { kind: "phone" })
+            Err(RedactionError::Survived {
+                kind: "phone",
+                check: CHECK_MARKUP
+            })
         );
         assert_eq!(r.verify("Patagonia and Spatula are words"), Ok(()));
         assert_eq!(
