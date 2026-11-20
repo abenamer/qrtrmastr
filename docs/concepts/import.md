@@ -42,7 +42,7 @@ A path that cannot be opened, a folder with no archive and no mailbox file, arch
 The second half reads every FreshDirect message in state `fetched`, oldest first. Restaurant messages stay in `fetched` until a parser exists for their platform.
 
 * A placed, updated or unknown message is left for later; no parser reads those kinds yet.
-* A receipt without a DKIM pass is refused: outcome `failed`, reason recorded, nothing parsed. A receipt without an HTML body is refused the same way.
+* A receipt without a DKIM pass is parsed like any other, and its order is tagged `non-verified` in `grocery_orders.sender_check` ([ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md)). A receipt without an HTML body is refused: outcome `failed`, reason recorded, nothing parsed.
 * The parser registry asks each parser whether it recognizes the layout. None: outcome `unsupported`. The most confident one parses; a parse error is outcome `failed` with the error recorded.
 * A parsed receipt is reconciled: the lines must sum to the subtotal, the subtotal and its additions to the total, and each priced line must be unit price times billed quantity, within one cent. A line with an options price or a special-price flag is exempt from the last check. Every mismatch becomes an anomaly, and the order is written with `reconciled = false`. The outcome is `ok` when everything reconciles and `partial` otherwise.
 * Each line's name is normalized and resolved to an alias ([Identity](/concepts/identity.md)); an unseen alias creates a product.
