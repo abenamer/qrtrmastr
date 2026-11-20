@@ -40,6 +40,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0004](decisions/0004-redaction-before-storage.md) - Redaction before storage.
 * [ADR 0005](decisions/0005-product-identity-through-aliases.md) - Product identity through aliases.
 * [ADR 0006](decisions/0006-recommendation-by-usual-gap-with-a-simple-rule-beside-it.md) - Recommendation by usual gap, with a simple rule beside it.
+* [ADR 0007](decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md) - Restaurant mail is stored at import and parsed later.
 
 # Log
 

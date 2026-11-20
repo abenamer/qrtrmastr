@@ -1,30 +1,71 @@
-//! Classification of a FreshDirect mail: which sender it is from, which of the three kinds it
-//! is, and whether Gmail recorded a DKIM pass for it.
+//! Classification of a platform's mail: which platform the sender belongs to, which kind the
+//! message is, and whether Gmail recorded a DKIM pass for it.
 
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::domain::states::MessageKind;
+use crate::domain::states::{MessageKind, Platform};
 
-static RECEIPT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)here'?s your receipt|your receipt").expect("regex"));
-static UPDATED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)order information has been updated|has been updated").expect("regex")
-});
-static PLACED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^\s*your order for\b").expect("regex"));
+fn rule(pattern: &str) -> Regex {
+    Regex::new(pattern).expect("a subject rule is a valid regex")
+}
 
-/// The kind of a FreshDirect mail from its subject. Anything else is `Unknown`, which is stored.
-pub fn kind_from_subject(subject: &str) -> MessageKind {
-    if RECEIPT.is_match(subject) {
+static FD_RECEIPT: LazyLock<Regex> =
+    LazyLock::new(|| rule(r"(?i)here'?s your receipt|your receipt"));
+static FD_UPDATED: LazyLock<Regex> =
+    LazyLock::new(|| rule(r"(?i)order information has been updated|has been updated"));
+static FD_PLACED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*your order for\b"));
+/// Seamless and Grubhub confirm an order with "Thanks for your <Restaurant> order".
+static THANKS_FOR_ORDER: LazyLock<Regex> =
+    LazyLock::new(|| rule(r"(?i)^\s*thanks for your\b.*\border\b"));
+/// Square: "Receipt from <Merchant> #xxxx".
+static RECEIPT_FROM: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*receipt from\b"));
+/// Toast and Clover: no subject is on record yet, so the word itself is the rule (ADR 0007).
+static RECEIPT_WORD: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)\breceipt\b"));
+static DD_PLACED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*order confirmation for\b"));
+static DD_RECEIPT: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*final receipt\b"));
+static DD_UPDATED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*adjustment\b"));
+
+fn receipt_or_unknown(is_receipt: bool) -> MessageKind {
+    if is_receipt {
         MessageKind::Receipt
-    } else if UPDATED.is_match(subject) {
-        MessageKind::Updated
-    } else if PLACED.is_match(subject) {
-        MessageKind::Placed
     } else {
         MessageKind::Unknown
+    }
+}
+
+/// The kind of a platform's mail from its subject. Anything else is `Unknown`, which is stored:
+/// a sender that also sends promotions (DoorDash, Square) is sorted out by kind, not dropped.
+pub fn kind_from_subject(platform: Platform, subject: &str) -> MessageKind {
+    match platform {
+        Platform::Freshdirect => {
+            if FD_RECEIPT.is_match(subject) {
+                MessageKind::Receipt
+            } else if FD_UPDATED.is_match(subject) {
+                MessageKind::Updated
+            } else if FD_PLACED.is_match(subject) {
+                MessageKind::Placed
+            } else {
+                MessageKind::Unknown
+            }
+        }
+        Platform::Seamless | Platform::Grubhub => {
+            receipt_or_unknown(THANKS_FOR_ORDER.is_match(subject))
+        }
+        Platform::Square => receipt_or_unknown(RECEIPT_FROM.is_match(subject)),
+        Platform::Toast | Platform::Clover => receipt_or_unknown(RECEIPT_WORD.is_match(subject)),
+        Platform::Doordash => {
+            if DD_RECEIPT.is_match(subject) {
+                MessageKind::Receipt
+            } else if DD_UPDATED.is_match(subject) {
+                MessageKind::Updated
+            } else if DD_PLACED.is_match(subject) {
+                MessageKind::Placed
+            } else {
+                MessageKind::Unknown
+            }
+        }
     }
 }
 
@@ -61,10 +102,14 @@ pub fn domain_of(address: &str) -> Option<String> {
         .map(|(_, d)| d.trim().to_ascii_lowercase())
 }
 
-/// Whether the From address is one of the platform's senders. `allowed` is lowercase.
-pub fn sender_matches(from: Option<&str>, allowed: &[String]) -> bool {
-    from.map(|f| f.trim().to_ascii_lowercase())
-        .is_some_and(|f| allowed.contains(&f))
+/// The platform whose sender the From address is, by exact address. `senders` is lowercase.
+/// A marketing address of the same company is another address and matches nothing.
+pub fn platform_of(from: Option<&str>, senders: &[(String, Platform)]) -> Option<Platform> {
+    let from = from?.trim().to_ascii_lowercase();
+    senders
+        .iter()
+        .find(|(address, _)| *address == from)
+        .map(|(_, platform)| *platform)
 }
 
 #[cfg(test)]
@@ -74,14 +119,72 @@ mod tests {
 
     #[rstest]
     #[case(
+        Platform::Freshdirect,
         "Your FreshDirect order is in the works! Here's your receipt",
         MessageKind::Receipt
     )]
-    #[case("Your order information has been updated", MessageKind::Updated)]
-    #[case("Your order for Tuesday, March 3", MessageKind::Placed)]
-    #[case("20% off this week", MessageKind::Unknown)]
-    fn subjects_classify(#[case] subject: &str, #[case] kind: MessageKind) {
-        assert_eq!(kind_from_subject(subject), kind);
+    #[case(
+        Platform::Freshdirect,
+        "Your order information has been updated",
+        MessageKind::Updated
+    )]
+    #[case(
+        Platform::Freshdirect,
+        "Your order for Tuesday, March 3",
+        MessageKind::Placed
+    )]
+    #[case(Platform::Freshdirect, "20% off this week", MessageKind::Unknown)]
+    #[case(
+        Platform::Seamless,
+        "Thanks for your Example Noodle Bar order",
+        MessageKind::Receipt
+    )]
+    #[case(
+        Platform::Grubhub,
+        "Thanks for your Example Diner order",
+        MessageKind::Receipt
+    )]
+    #[case(Platform::Grubhub, "An update on your refund", MessageKind::Unknown)]
+    #[case(
+        Platform::Seamless,
+        "Your order for Tuesday, March 3",
+        MessageKind::Unknown
+    )]
+    #[case(
+        Platform::Square,
+        "Receipt from Example Coffee #1a2B",
+        MessageKind::Receipt
+    )]
+    #[case(
+        Platform::Square,
+        "Example Coffee sent you a receipt offer",
+        MessageKind::Unknown
+    )]
+    #[case(
+        Platform::Toast,
+        "Your receipt from Example Bistro",
+        MessageKind::Receipt
+    )]
+    #[case(Platform::Clover, "Receipt for your purchase", MessageKind::Receipt)]
+    #[case(Platform::Clover, "Rate your visit", MessageKind::Unknown)]
+    #[case(
+        Platform::Doordash,
+        "Order Confirmation for Pat from Example Tacos",
+        MessageKind::Placed
+    )]
+    #[case(
+        Platform::Doordash,
+        "Final receipt for Pat from Example Tacos",
+        MessageKind::Receipt
+    )]
+    #[case(Platform::Doordash, "Adjustment to your order", MessageKind::Updated)]
+    #[case(Platform::Doordash, "50% off your next order", MessageKind::Unknown)]
+    fn subjects_classify(
+        #[case] platform: Platform,
+        #[case] subject: &str,
+        #[case] kind: MessageKind,
+    ) {
+        assert_eq!(kind_from_subject(platform, subject), kind);
     }
 
     #[test]
@@ -114,9 +217,21 @@ mod tests {
             Some("freshdirect.com".to_owned())
         );
         assert_eq!(domain_of("nobody"), None);
-        let allowed = vec!["service@freshdirect.com".to_owned()];
-        assert!(sender_matches(Some(" Service@FreshDirect.com "), &allowed));
-        assert!(!sender_matches(Some("deals@a.freshdirect.com"), &allowed));
-        assert!(!sender_matches(None, &allowed));
+        let senders = vec![
+            ("service@freshdirect.com".to_owned(), Platform::Freshdirect),
+            ("orders@eat.seamless.com".to_owned(), Platform::Seamless),
+        ];
+        assert_eq!(
+            platform_of(Some(" Service@FreshDirect.com "), &senders),
+            Some(Platform::Freshdirect)
+        );
+        assert_eq!(
+            platform_of(Some("orders@eat.seamless.com"), &senders),
+            Some(Platform::Seamless)
+        );
+        // The marketing address of the same company is not the orders address.
+        assert_eq!(platform_of(Some("email@a.seamless.com"), &senders), None);
+        assert_eq!(platform_of(Some("deals@a.freshdirect.com"), &senders), None);
+        assert_eq!(platform_of(None, &senders), None);
     }
 }

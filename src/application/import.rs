@@ -1,11 +1,14 @@
 //! `qm import`, first half: read every message of the source, prepare it, store the new ones.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 use thiserror::Error;
 
 use super::ports::{
     InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore, StoreError,
 };
+use crate::domain::states::Platform;
 
 /// Why an import run stopped. A source that cannot be read at all, or a store that fails, ends
 /// the run with an error; the command then exits with a failure status (REAS-RUST-005). One
@@ -24,6 +27,8 @@ pub enum ImportError {
 pub struct ImportReport {
     pub read: usize,
     pub inserted: usize,
+    /// The new messages by platform; the counts sum to `inserted`.
+    pub inserted_by_platform: BTreeMap<Platform, usize>,
     pub already_known: usize,
     pub other_sender: usize,
     pub malformed: Vec<String>,
@@ -64,7 +69,13 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
                         continue;
                     }
                     match self.store.insert(&message).await? {
-                        InsertOutcome::Inserted(_) => report.inserted += 1,
+                        InsertOutcome::Inserted(_) => {
+                            report.inserted += 1;
+                            *report
+                                .inserted_by_platform
+                                .entry(message.platform)
+                                .or_default() += 1;
+                        }
                         InsertOutcome::AlreadyKnown => report.already_known += 1,
                     }
                 }
@@ -88,7 +99,7 @@ mod tests {
     use super::*;
     use crate::application::ports::{NewRawMessage, PendingMessage, StoredBody};
     use crate::domain::ids::{MessageKey, RawMessageId};
-    use crate::domain::states::{MessageKind, Platform};
+    use crate::domain::states::MessageKind;
 
     struct TwoMails;
 
@@ -189,6 +200,10 @@ mod tests {
         let report = import.run().await.expect("import");
         assert_eq!(report.read, 4);
         assert_eq!(report.inserted, 1);
+        assert_eq!(
+            report.inserted_by_platform,
+            BTreeMap::from([(Platform::Freshdirect, 1)])
+        );
         assert_eq!(report.already_known, 1);
         assert_eq!(report.other_sender, 1);
         assert_eq!(report.redaction_failures, vec!["leaky: phone".to_owned()]);

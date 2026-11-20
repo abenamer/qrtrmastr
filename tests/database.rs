@@ -13,7 +13,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let first = migrate.run().await.expect("first migration run");
     assert_eq!(first.already_applied, 0);
-    assert_eq!(first.applied.len(), 2, "{:?}", first.applied);
+    assert_eq!(first.applied.len(), 3, "{:?}", first.applied);
     assert!(
         first.applied[0].ends_with("raw mail"),
         "{:?}",
@@ -22,7 +22,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let second = migrate.run().await.expect("second migration run");
     assert!(second.applied.is_empty(), "{:?}", second.applied);
-    assert_eq!(second.already_applied, 2);
+    assert_eq!(second.already_applied, 3);
 }
 
 #[sqlx::test(migrations = false)]
@@ -88,7 +88,7 @@ async fn a_message_with_an_unknown_kind_is_refused_by_the_check_constraint(pool:
 // ---------------------------------------------------------------------------------------------
 
 use chrono::NaiveDate;
-use qrtrmastr::adapters::mail::FreshDirectMail;
+use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::redact::{RedactionTerms, Redactor};
 use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::import::ImportMail;
@@ -147,9 +147,12 @@ impl MailSource for Mails {
     }
 }
 
-fn reader() -> FreshDirectMail {
-    FreshDirectMail::new(
-        vec!["service@freshdirect.com".to_owned()],
+fn reader() -> PlatformMail {
+    PlatformMail::new(
+        vec![
+            ("service@freshdirect.com".to_owned(), Platform::Freshdirect),
+            ("orders@eat.seamless.com".to_owned(), Platform::Seamless),
+        ],
         Redactor::new(terms()).expect("terms"),
     )
 }
@@ -352,4 +355,56 @@ async fn a_stale_version_changes_no_row(pool: PgPool) {
         .await,
         1
     );
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_restaurant_receipt_is_stored_under_its_platform_and_waits_for_a_parser(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let seamless = RawMail {
+        bytes: b"From: Seamless <orders@eat.seamless.com>\r\nTo: pat.example@example.com\r\n\
+            Subject: Thanks for your Example Noodle Bar order\r\n\
+            Date: Fri, 6 Mar 2026 19:05:00 -0500\r\nMessage-ID: <s1@mail.example>\r\n\
+            Authentication-Results: mx.google.com; dkim=pass header.i=@eat.seamless.com\r\n\
+            Content-Type: text/html; charset=utf-8\r\n\r\n\
+            <html><body><p>Deliver to 123 Imaginary Street Apt 4B</p>\
+            <p>1 Dan Dan Noodles $14.50</p></body></html>"
+            .to_vec(),
+    };
+    let mails = Mails(vec![
+        receipt_mail("12345678901", "Tuesday, March 3, 2026", "r1"),
+        seamless,
+    ]);
+
+    let report = ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    assert_eq!(report.inserted, 2);
+    assert_eq!(
+        report.inserted_by_platform,
+        std::collections::BTreeMap::from([(Platform::Freshdirect, 1), (Platform::Seamless, 1)])
+    );
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!(parsed.pending, 1, "the parse step reads FreshDirect only");
+
+    let waiting = store.pending(Platform::Seamless).await.expect("pending");
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].parse_state, ParseState::Fetched);
+    let html = waiting[0].body_html.as_deref().expect("html");
+    assert!(html.contains("Dan Dan Noodles"), "{html}");
+    assert!(!html.contains("Imaginary Street"), "{html}");
+
+    let unknown = sqlx::query(
+        "insert into raw_messages \
+           (platform, message_key, key_kind, received_at, subject, kind, dkim_pass, source_sha256, redaction_version) \
+         values ('ubereats', 'k9', 'message_id', now(), 'subject', 'receipt', true, '\\x09', 1)",
+    )
+    .execute(&pool)
+    .await;
+    let message = unknown.expect_err("the insert must fail").to_string();
+    assert!(message.contains("raw_messages_platform_check"), "{message}");
 }

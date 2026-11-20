@@ -14,7 +14,7 @@ use qrtrmastr::adapters::cli::{
 };
 use qrtrmastr::adapters::config::Settings;
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
-use qrtrmastr::adapters::mail::FreshDirectMail;
+use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::redact::Redactor;
 use qrtrmastr::adapters::mail::takeout::TakeoutExport;
 use qrtrmastr::adapters::postgres::PostgresStore;
@@ -80,11 +80,12 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Import { takeout } => {
             let terms = settings.redaction_terms()?;
             let redactor = Redactor::new(terms)?;
-            let reader = FreshDirectMail::new(settings.file.import.senders.clone(), redactor);
+            let reader = PlatformMail::new(settings.file.import.sender_platforms(), redactor);
             let store = connect(&settings).await?;
             let import = ImportMail::new(TakeoutExport::new(takeout), reader, store.clone())
                 .run()
                 .await?;
+            // The restaurant platforms have no parser yet (ADR 0007); their mail stays fetched.
             let parse = ParsePending::new(store, Registry::default())
                 .run(Platform::Freshdirect)
                 .await?;
