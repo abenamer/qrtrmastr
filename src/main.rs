@@ -27,10 +27,21 @@ use qrtrmastr::application::recommend::{Due, DueOptions};
 use qrtrmastr::domain::states::Platform;
 
 fn main() -> ExitCode {
+    // html5ever warns once per misplaced node in a mail's tables ("foster parenting not
+    // implemented"); in a whole mailbox that is millions of lines and no defect. The warnings
+    // stay hidden unless RUST_LOG names html5ever itself. Its debug and trace lines print the
+    // tokens of a mail before redaction, so the target is never more verbose than warn,
+    // whatever RUST_LOG asks for.
+    let html5ever = if std::env::var("RUST_LOG").is_ok_and(|value| value.contains("html5ever")) {
+        "html5ever=warn"
+    } else {
+        "html5ever=error"
+    };
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .add_directive(html5ever.parse().expect("a constant directive is valid"));
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .init();
     let cli = Cli::parse();

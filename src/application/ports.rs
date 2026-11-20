@@ -56,7 +56,13 @@ pub enum MailError {
     Malformed { key: String, reason: String },
     /// Personal data survived redaction. The message is not stored.
     #[error("message {key}: {kind} survived redaction; not stored")]
-    RedactionFailed { key: String, kind: &'static str },
+    RedactionFailed {
+        key: String,
+        kind: &'static str,
+        /// Where and how, for the report: platform, message kind, part and the assertion that
+        /// failed. It never carries the text.
+        context: String,
+    },
 }
 
 /// What a migration run did.

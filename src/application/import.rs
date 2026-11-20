@@ -33,6 +33,8 @@ pub struct ImportReport {
     pub other_sender: usize,
     pub malformed: Vec<String>,
     pub redaction_failures: Vec<String>,
+    /// The refused messages counted by where and how the term survived; never the text.
+    pub refused_by_cause: BTreeMap<String, usize>,
 }
 
 pub struct ImportMail<M: MailSource, R: MailReader, S: RawMessageStore> {
@@ -79,8 +81,9 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
                         InsertOutcome::AlreadyKnown => report.already_known += 1,
                     }
                 }
-                Err(MailError::RedactionFailed { key, kind }) => {
+                Err(MailError::RedactionFailed { key, kind, context }) => {
                     report.redaction_failures.push(format!("{key}: {kind}"));
+                    *report.refused_by_cause.entry(context).or_default() += 1;
                 }
                 Err(error) => report.malformed.push(error.to_string()),
             }
@@ -158,6 +161,7 @@ mod tests {
                 b"leaky" => Err(MailError::RedactionFailed {
                     key: "leaky".to_owned(),
                     kind: "phone",
+                    context: "freshdirect receipt, html body: phone".to_owned(),
                 }),
                 bytes => Ok(Prepared::Message(message(
                     std::str::from_utf8(bytes).expect("ascii"),
@@ -207,6 +211,10 @@ mod tests {
         assert_eq!(report.already_known, 1);
         assert_eq!(report.other_sender, 1);
         assert_eq!(report.redaction_failures, vec!["leaky: phone".to_owned()]);
+        assert_eq!(
+            report.refused_by_cause,
+            BTreeMap::from([("freshdirect receipt, html body: phone".to_owned(), 1)])
+        );
         assert_eq!(*import.store.inserted.borrow(), vec!["b".to_owned()]);
     }
 

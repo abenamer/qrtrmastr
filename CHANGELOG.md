@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm import` reports refusals by cause: one `REFUSED <count>: <cause>` line for each cause (platform, message kind, part, kind of term, the check that found it), and the line per message only for twenty refusals or fewer. A cause never carries the text.
 - Restaurant mail is stored at import: besides FreshDirect, `qm import` stores the redacted order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash, found by exact sender address (`[import.restaurant_senders]` in the configuration). No parser reads it yet. The report has a line of new messages by platform. Migration `0003_restaurant_platforms.sql`. [ADR 0007](docs/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md).
 - Import a folder of Takeout archives: `qm import --takeout <path>` takes a folder of the `.zip` files as Google delivers them, one archive, or one mailbox file. Archives are read in place, nothing is extracted, and one message is in memory at a time, so an export of the whole mailbox works. `--mbox` stays as an alias. New dependency: `zip`, inflate only. [ADR 0003](docs/decisions/0003-one-time-takeout-import-with-the-gmail-api-deferred.md).
 - First run: the README, `qm --help` and `qm import --help` say that the tool needs a Google Takeout export of your FreshDirect mail and how to request one. An export that cannot be opened is now an error with status 1 that names the file to look for and the runbook; before, it was a `malformed` line and status 0. A missing `[redaction]` section prints the section to add and where the file lives.
