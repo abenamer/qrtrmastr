@@ -28,7 +28,7 @@ Nothing of the project is installed on the host. The database and the `qm` comma
 4. Run commands with `docker compose run --rm qm <command>`:
 
        docker compose run --rm qm migrate
-       docker compose run --rm qm import --mbox /data/<path inside your exports directory>
+       docker compose run --rm qm import --takeout /data/<folder inside your exports directory>
        docker compose run --rm qm due
        docker compose run --rm qm fixture add <key> --dir /fixtures
 

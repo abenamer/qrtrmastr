@@ -93,7 +93,7 @@ use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
-    AttemptRecord, GroceryStore, MailError, MailSource, ParseFinish, ParserTag, RawMail,
+    AttemptRecord, GroceryStore, MailSource, MailStream, ParseFinish, ParserTag, RawMail,
     RawMessageStore, StoreError,
 };
 use qrtrmastr::application::recommend::{Due, DueOptions};
@@ -136,8 +136,13 @@ fn receipt_mail(order: &str, date: &str, message_id: &str) -> RawMail {
 struct Mails(Vec<RawMail>);
 
 impl MailSource for Mails {
-    async fn messages(&self) -> Result<Vec<RawMail>, MailError> {
-        Ok(self.0.clone())
+    fn messages(&self) -> MailStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(self.0.len().max(1));
+        for mail in &self.0 {
+            tx.try_send(Ok(mail.clone()))
+                .expect("the channel holds every mail");
+        }
+        rx
     }
 }
 

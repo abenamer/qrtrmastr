@@ -25,7 +25,9 @@ sources:
 
 ## Storing messages
 
-An export that cannot be opened or read ends the run with an error and a failure exit status; nothing is counted, and the parse step does not run, so messages an earlier import stored stay in `fetched` until the next successful import (REAS-RUST-005). For each message of a readable export, in order:
+The mail source is the `TakeoutExport` adapter. Its path is a folder, one Takeout archive or one mailbox file. In a folder it reads every `.zip` and every `.mbox` file, to a depth of six folders, in path order, and it does not follow a symbolic link. One archive is open at a time; the log has a line when one is opened and when it is done. An archive is read in place: each entry whose name ends in `.mbox` is inflated as a stream and nothing is written to disk. The adapter sends one message at a time through a channel that holds at most 32, so memory does not grow with the export (REAS-RUST-007); when the use case stops, the reader stops at its next message.
+
+A path that cannot be opened, a folder with no archive and no mailbox file, archives with no mailbox entry, a file that is not a readable archive, or a read that fails ends the run with an error and a failure exit status, and the parse step does not run (REAS-RUST-005). Messages read before the error are stored; the next run counts them as known. For each message, in order:
 
 1. The MIME parts and a few headers are read: `Message-ID`, `Date`, `Subject`, `From`, `Authentication-Results`, the HTML body, the text body.
 2. The message key is the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing. A key already stored is skipped and counted as known. The source hash is stored too and is unique, so a message that arrives under a new header is still stored once.

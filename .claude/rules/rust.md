@@ -29,7 +29,7 @@ The project follows the REAS standard, version 1.4.0-draft, vendored at `standar
 
 - **REAS-ARCH-001, visible code path.** Inbound adapter, application use case, port trait, outbound adapter; one composition root (`src/main.rs`); a use case may call a port directly; no forwarding layer without a different responsibility.
 - **REAS-ARCH-002, dependencies inward.** SQLx, file and network types and the clock stay out of `src/domain`; ports are declared in `src/application/ports.rs` and implemented in `src/adapters`.
-- **REAS-ARCH-004, concrete implementations visible.** A port only where a test double or a replaceable implementation is needed or to isolate a system outside our control; no factories of factories, no service locator, no duplicate interfaces; adapters named for what they adapt (`PostgresStore`, `MboxFile`).
+- **REAS-ARCH-004, concrete implementations visible.** A port only where a test double or a replaceable implementation is needed or to isolate a system outside our control; no factories of factories, no service locator, no duplicate interfaces; adapters named for what they adapt (`PostgresStore`, `TakeoutExport`).
 - **REAS-ARCH-005, rules apart from infrastructure.** Business rules and mathematics are pure functions that take time, randomness and data as inputs; serialisation, row mapping and API clients live in adapters; dependencies come through constructors.
 - **REAS-ARCH-006, adapter parameters.** A use case takes its adapter as a type parameter bound by the port by default; a trait object (`Arc<dyn Port + Send + Sync>`) where the implementation must vary at run time, with the decision recorded at the composition root; check dyn-compatibility first.
 

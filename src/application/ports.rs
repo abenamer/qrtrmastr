@@ -82,10 +82,13 @@ pub struct RawMail {
     pub bytes: Vec<u8>,
 }
 
+/// The messages of a source, one at a time, through a bounded channel: the source is never
+/// held in memory whole. A failure to read arrives as an item; the stream ends after it.
+pub type MailStream = tokio::sync::mpsc::Receiver<Result<RawMail, MailError>>;
+
 /// Where mail comes from: a Takeout export today, the Gmail API later.
-#[allow(async_fn_in_trait)]
 pub trait MailSource {
-    async fn messages(&self) -> Result<Vec<RawMail>, MailError>;
+    fn messages(&self) -> MailStream;
 }
 
 /// A message after MIME parsing, classification and redaction, ready to store.

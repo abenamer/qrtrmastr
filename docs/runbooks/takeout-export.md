@@ -8,6 +8,9 @@ sources:
   - id: reader
     resource: ../../src/adapters/mail/mod.rs
     title: The FreshDirect mail reader
+  - id: takeout
+    resource: ../../src/adapters/mail/takeout.rs
+    title: The Takeout export reader
   - id: config
     resource: ../../src/adapters/config.rs
     title: Settings
@@ -31,7 +34,7 @@ FreshDirect has no public API and the tool does not scrape its site, so the rece
 
 1. In Gmail, create a filter for `from:service@freshdirect.com` that applies a new label, `FreshDirect`. Tick "Also apply filter to matching conversations" so the old mail gets the label too.
 2. Open <https://takeout.google.com>. Deselect everything, select Mail, choose "All Mail data included", deselect everything there and select the label `FreshDirect`. Request one export as a .zip.
-3. When the mail from Google arrives, download the archive and unzip it into your exports directory, `~/qm-data/` by default (`QM_DATA_DIR` in `.env`), for example `~/qm-data/takeout-2026-11/`. The export is `Takeout/Mail/FreshDirect.mbox` inside it. It carries your name, address, phone and card digits: never copy it into the repository, never print it in a Claude Code session. The guard hook refuses the common forms of that.
+3. When the mail from Google arrives, download the archive into a folder of your exports directory (`~/qm-data/` by default, `QM_DATA_DIR` in `.env`), for example `~/qm-data/takeout-data/`. Google splits a large export into more than one `.zip`; put them all in the folder. Do not unzip them. The archives carry your name, address, phone and card digits: never copy them into the repository, never print their content in a Claude Code session. The guard hook refuses the common forms of that.
 4. Write your redaction terms to `~/.config/qrtrmastr/config.toml` (`QM_CONFIG_DIR` in `.env`; the container sees that directory as `/config`, so an error that names `/config/config.toml` means this file). Every line of your delivery address as the receipt prints it, your phone digits, your name as the greeting prints it and alone, your email, the last four digits of each card:
 
        [redaction]
@@ -44,19 +47,21 @@ FreshDirect has no public API and the tool does not scrape its site, so the rece
    The same terms, one per line, go into `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
 5. Import. The exports directory is `/data` inside the container:
 
-       docker compose run --rm qm import --mbox /data/takeout-2026-11/Takeout/Mail/FreshDirect.mbox
+       docker compose run --rm qm import --takeout /data/takeout-data
+
+   The path is a folder, one archive, or one mailbox file. The command reads every `.zip` in the folder in place, and every `.mbox` file of an export you unzipped earlier, in name order; it extracts nothing and holds one message in memory at a time, so the size of an archive does not matter. One archive is open at a time, and the log names each as it is opened and when it is done. An export of the whole mailbox works too: mail from FreshDirect is stored, every other message is counted under "from other senders" and nothing of it is stored. A whole mailbox of 100 GB takes a long time; the run can be stopped and started again, and messages already stored are skipped. `--mbox` is an accepted alias of `--takeout`.
 
    Expected result: two lines of counts, for example
 
        messages read 312, new 312, already known 0, from other senders 0
        receipts parsed 101, partial 2, failed 0, unsupported 3, left for later 206, anomalies 9
 
-   An export the command cannot open is an error with status 1 that prints the path it tried and these steps in short; check the path after `/data`. A missing `[redaction]` section is an error that prints the section to add. "Left for later" are the placed and updated mails, which no parser reads yet. "Unsupported" receipts are in a layout the parser does not know; they are stored and wait for a parser version. A "REFUSED" line means personal data survived redaction in a message; that message was not stored, the command exits with status 1, and you add the surviving term to the configuration and import again.
+   A path the command cannot open, a folder without an archive or a mailbox file, an archive without Mail in it, or a file that is not a readable archive is an error with status 1 that prints the path and these steps in short; check the path after `/data`. Messages read before the error are stored, and the next run skips them. A missing `[redaction]` section is an error that prints the section to add. "Left for later" are the placed and updated mails, which no parser reads yet. "Unsupported" receipts are in a layout the parser does not know; they are stored and wait for a parser version. A "REFUSED" line means personal data survived redaction in a message; that message was not stored, the command exits with status 1, and you add the surviving term to the configuration and import again.
 6. Check: `docker compose run --rm qm due` prints a plausible list. `docker compose run --rm qm due --json` gives the same as data.
 
 ## Repeat later
 
-Request a new Takeout export, unzip it into the exports directory and import it again. Messages already stored are counted as known and skipped; only the new ones are added. That is the MVP's incremental sync.
+Request a new Takeout export, put the archive in the same folder and import the folder again. Messages already stored are counted as known and skipped; only the new ones are added. That is the MVP's incremental sync. You can delete an archive from the folder after its import succeeded.
 
 ## Recover
 

@@ -3,7 +3,7 @@
 #   docker compose up -d                       starts the database (the qm service has a profile,
 #                                              so it does not start on its own)
 #   docker compose run --rm qm migrate         runs one command and removes the container
-#   docker compose run --rm qm import --mbox /data/<export path>
+#   docker compose run --rm qm import --takeout /data/<folder of Takeout archives>
 #   docker compose run --rm qm due
 #
 # The named volume below holds the data. Normal operations (stop, start, restart, down, up,
