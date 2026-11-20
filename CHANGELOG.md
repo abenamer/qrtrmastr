@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- Receipts parse: the FreshDirect parser, version 2, reads the real receipt layout of 2017 to 2026, and a receipt without a DKIM pass is parsed and its order tagged `non-verified` instead of refused. Migration `0004_order_sender_check.sql`. [ADR 0008](docs/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md).
 - Redaction, versions 3 to 7: a pass for a long term without a word boundary; card digits after a brand, the word "card" or a wallet name; an email address is removed whole when a name inside it was replaced first; the country code of a phone number no longer takes the last digit of a ZIP code before it. The privacy canary's term mode skips the owner segment of a GitHub address. It scans a file with a NUL or a byte that is not UTF-8 as text, where it passed such a file before.
 - `qm import` reports refusals by cause: one `REFUSED <count>: <cause>` line for each cause (platform, message kind, part, kind of term, the check that found it), and the line per message only for twenty refusals or fewer. A cause never carries the text.
 - Restaurant mail is stored at import: besides FreshDirect, `qm import` stores the redacted order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash, found by exact sender address (`[import.restaurant_senders]` in the configuration). No parser reads it yet. The report has a line of new messages by platform. Migration `0003_restaurant_platforms.sql`. [ADR 0007](docs/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md).

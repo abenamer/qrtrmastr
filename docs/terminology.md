@@ -20,7 +20,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Anomaly | A row of a receipt's item table that no parser rule classified, kept with its raw cells in `order_line_anomalies`. The order is still stored. Nothing is dropped. |
 | Billed quantity | The quantity the receipt charged for: the weight when the item is sold by weight, else the second number of the quantity cell. Stored as `billed_qty`. |
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
-| DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`; a parser refuses a message without it. |
+| DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`. An order from a receipt without it is tagged `non-verified`. |
 | Gap rule | The default rule of `qm due`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
 | Local fixture | A real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. Tests use it when present. |

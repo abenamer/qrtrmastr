@@ -9,7 +9,7 @@ use super::ports::{
 };
 use crate::domain::identity::normalize;
 use crate::domain::receipt::{Anomaly, Receipt, reconcile};
-use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform};
+use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SenderCheck};
 
 /// The parser tag recorded when no parser ran at all.
 const REFUSED: ParserTag = ParserTag {
@@ -75,18 +75,8 @@ where
             MessageKind::Receipt => {}
         }
 
-        if !message.dkim_pass {
-            report.failed += 1;
-            return self
-                .finish(
-                    message,
-                    REFUSED,
-                    ParseOutcome::Failed,
-                    Some("DKIM did not pass; the message is not trusted".to_owned()),
-                    None,
-                )
-                .await;
-        }
+        // A receipt without a DKIM pass is parsed all the same: the mailbox is the maintainer's
+        // own, and the order is tagged non-verified instead (ADR 0008).
         let Some(html) = message.body_html.as_deref() else {
             report.failed += 1;
             return self
@@ -161,6 +151,7 @@ where
                 let order = OrderWrite {
                     receipt: &receipt,
                     reconciled,
+                    sender_check: SenderCheck::from_dkim_pass(message.dkim_pass),
                     alias_ids,
                 };
                 self.finish(message, parser, outcome, None, Some(order))

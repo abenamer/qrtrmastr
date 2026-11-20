@@ -23,13 +23,18 @@ use crate::domain::receipt::{
 pub struct FreshDirect2026;
 
 pub const NAME: &str = "fd_receipt_2026";
-pub const VERSION: i32 = 1;
+pub const VERSION: i32 = 2;
 
 static ORDER_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)order\s*(?:number|#|no\.?)?\s*:?\s*(\d{11,13})\b").expect("regex")
 });
 static DELIVERY_DATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)delivery\s+date\s*:?\s*([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{2}-\d{2})").expect("regex")
+});
+/// The real receipt states the delivery in a sentence, not after a label: "It will be delivered
+/// between 10 AM and 12 PM on Monday, November 09, 2026." Groups: start, end, date.
+static DELIVERY_SENTENCE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)delivered\s+between\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+and\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+on\s+([A-Za-z]+,?\s+[A-Za-z]+\s+\d{1,2},?\s+\d{4})").expect("regex")
 });
 static DELIVERY_WINDOW: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)delivery\s+(?:window|time)\s*:?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[-\u{2013}]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)")
@@ -47,8 +52,11 @@ static UNIT_PRICE_CELL: LazyLock<Regex> = LazyLock::new(|| {
 static MONEY_CELL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*\(?-?\$?\s*[\d,]+\.\d{2}\)?\s*$").expect("regex"));
 static FOOTER_LABEL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(subtotal|sub-total|tax|sales tax|bottle deposit|deposit|delivery fee|delivery|service fee|tip|driver tip|order total|total)\s*:?\s*$")
+    Regex::new(r"(?i)^\s*(subtotal|sub-total|total tax|tax|sales tax|state bottle deposit|bottle deposit|deposit|delivery fee|delivery|service fee|fuel surcharge|tip|driver tip|order total|total)(?:\s*\([^)]*\))?\s*:?\s*$")
         .expect("regex")
+});
+static FURNITURE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\s*(order\s+#?\d{9,14}|order total\b.*|[TSD]\s*=\s*.+)\s*$").expect("regex")
 });
 static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").expect("regex"));
 
@@ -150,6 +158,47 @@ fn money(cell: &str) -> Option<Money> {
     Money::parse(cell.trim()).ok()
 }
 
+/// The totals rows of a receipt as they are read. An order from two stores (groceries and wine)
+/// prints a subtotal, a tax and a deposit for each store, then one `Total Tax`, the fees and one
+/// order total; a deposit row after `Total Tax` restates the sum.
+#[derive(Default)]
+struct FooterSums {
+    subtotal: Option<Money>,
+    tax: Option<Money>,
+    total_tax: Option<Money>,
+    bottle_deposit: Option<Money>,
+    delivery_fee: Option<Money>,
+    service_fee: Option<Money>,
+    tip: Option<Money>,
+    total: Option<Money>,
+}
+
+fn add(sum: &mut Option<Money>, amount: Money) {
+    *sum = Some(sum.map_or(amount, |so_far| so_far.saturating_add(amount)));
+}
+
+impl FooterSums {
+    fn apply(&mut self, label: &str, amount: Money) {
+        match label {
+            "subtotal" | "sub-total" => add(&mut self.subtotal, amount),
+            "total tax" => self.total_tax = Some(amount),
+            "tax" | "sales tax" => add(&mut self.tax, amount),
+            "state bottle deposit" | "bottle deposit" | "deposit" => {
+                if self.total_tax.is_some() {
+                    self.bottle_deposit = Some(amount);
+                } else {
+                    add(&mut self.bottle_deposit, amount);
+                }
+            }
+            "delivery fee" | "delivery" => self.delivery_fee = Some(amount),
+            "service fee" | "fuel surcharge" => add(&mut self.service_fee, amount),
+            "tip" | "driver tip" => self.tip = Some(amount),
+            "order total" | "total" => self.total = Some(amount),
+            _ => {}
+        }
+    }
+}
+
 enum Classified {
     Department(String),
     Item(Box<LineItem>),
@@ -166,6 +215,13 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
     let non_empty: Vec<&String> = row.cells.iter().filter(|c| !c.is_empty()).collect();
     if non_empty.is_empty() {
         return Classified::Blank;
+    }
+    // Rows of the real layout that carry no item and no total: the column titles in plain
+    // cells, the order number, the summary box with the payment, and the legend of the flags.
+    let titles =
+        row.cells.iter().any(|c| c == "Final Price") && row.cells.iter().any(|c| c == "Unit Price");
+    if titles || (non_empty.len() == 1 && FURNITURE.is_match(non_empty[0])) {
+        return Classified::Header;
     }
     if let Some(caps) = QTY_CELL.captures(&row.cells[0]) {
         if row.cells.len() < 6 {
@@ -225,7 +281,10 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
             flags,
         }));
     }
-    if non_empty.len() == 2
+    // A totals row is a label and an amount; a taxable fee carries a flag letter after them.
+    let label_and_amount = non_empty.len() == 2
+        || (non_empty.len() == 3 && matches!(non_empty[2].trim(), "T" | "S" | "D"));
+    if label_and_amount
         && let (Some(label), Some(amount)) =
             (FOOTER_LABEL.captures(non_empty[0]), money(non_empty[1]))
     {
@@ -272,14 +331,21 @@ impl ReceiptParser for FreshDirect2026 {
             .ok_or(ParseError::NoOrderNumber)?;
         let order_number = OrderNumber::parse(&order_number)
             .map_err(|e| ParseError::BadOrderNumber(order_number.clone(), e.to_string()))?;
+        let sentence = DELIVERY_SENTENCE.captures(&text);
         let date_text = DELIVERY_DATE
             .captures(&text)
             .map(|c| c[1].to_owned())
+            .or_else(|| sentence.as_ref().map(|c| c[3].to_owned()))
             .ok_or(ParseError::NoDeliveryDate)?;
         let delivery_date = parse_date(&date_text).ok_or(ParseError::BadDeliveryDate(date_text))?;
         let delivery_window = DELIVERY_WINDOW
             .captures(&text)
-            .map(|c| c[1].trim().to_owned());
+            .map(|c| c[1].trim().to_owned())
+            .or_else(|| {
+                sentence
+                    .as_ref()
+                    .map(|c| format!("{} - {}", c[1].trim(), c[2].trim()))
+            });
 
         // The item table is the innermost table with a quantity cell in a row of its own.
         let item_table = document.select(&sel("table")).find(|table| {
@@ -292,28 +358,9 @@ impl ReceiptParser for FreshDirect2026 {
 
         let mut lines = Vec::new();
         let mut anomalies = Vec::new();
-        let mut totals = Totals::default();
-        let mut found_subtotal = false;
-        let mut found_total = false;
+        let mut footers = FooterSums::default();
         let mut department: Option<String> = None;
         let mut line_no: u32 = 0;
-
-        let mut apply_footer = |label: &str, amount: Money, totals: &mut Totals| match label {
-            "subtotal" | "sub-total" => {
-                totals.subtotal = amount;
-                found_subtotal = true;
-            }
-            "tax" | "sales tax" => totals.tax = Some(amount),
-            "bottle deposit" | "deposit" => totals.bottle_deposit = Some(amount),
-            "delivery fee" | "delivery" => totals.delivery_fee = Some(amount),
-            "service fee" => totals.service_fee = Some(amount),
-            "tip" | "driver tip" => totals.tip = Some(amount),
-            "order total" | "total" => {
-                totals.total = amount;
-                found_total = true;
-            }
-            _ => {}
-        };
 
         for (index, tr) in own_rows(item_table).into_iter().enumerate() {
             let row = read_row(tr);
@@ -324,7 +371,7 @@ impl ReceiptParser for FreshDirect2026 {
                     line_no += 1;
                     lines.push(*item);
                 }
-                Classified::Footer(label, amount) => apply_footer(&label, amount, &mut totals),
+                Classified::Footer(label, amount) => footers.apply(&label, amount),
                 Classified::Unknown(reason) => anomalies.push(Anomaly {
                     row_index: index,
                     cells: row.cells.clone(),
@@ -341,7 +388,7 @@ impl ReceiptParser for FreshDirect2026 {
             for tr in own_rows(table) {
                 let row = read_row(tr);
                 if let Classified::Footer(label, amount) = classify(&row, 0, None) {
-                    apply_footer(&label, amount, &mut totals);
+                    footers.apply(&label, amount);
                 }
             }
         }
@@ -349,12 +396,15 @@ impl ReceiptParser for FreshDirect2026 {
         if lines.is_empty() {
             return Err(ParseError::NoItems);
         }
-        if !found_subtotal {
-            return Err(ParseError::NoSubtotal);
-        }
-        if !found_total {
-            return Err(ParseError::NoTotal);
-        }
+        let totals = Totals {
+            subtotal: footers.subtotal.ok_or(ParseError::NoSubtotal)?,
+            tax: footers.total_tax.or(footers.tax),
+            bottle_deposit: footers.bottle_deposit,
+            delivery_fee: footers.delivery_fee,
+            service_fee: footers.service_fee,
+            tip: footers.tip,
+            total: footers.total.ok_or(ParseError::NoTotal)?,
+        };
 
         Ok(Receipt {
             order_number,
@@ -468,5 +518,92 @@ mod tests {
             .expect("the redacted receipt parses");
         assert_eq!(from_redacted, parsed());
         insta::assert_yaml_snapshot!(from_redacted);
+    }
+
+    #[test]
+    fn a_receipt_in_the_real_layout_with_two_stores_parses_and_reconciles() {
+        let document = Html::parse_document(include_str!(
+            "../../../tests/fixtures/synthetic/input/freshdirect/2024/receipt-two-stores.html"
+        ));
+        assert_eq!(FreshDirect2026.supports(&document), Some(Confidence(90)));
+        let receipt = FreshDirect2026.parse(&document).expect("parses");
+        assert_eq!(receipt.order_number.as_str(), "12345678902");
+        assert_eq!(
+            receipt.delivery_date,
+            NaiveDate::from_ymd_opt(2024, 12, 23).expect("date")
+        );
+        assert_eq!(
+            receipt.delivery_window.as_deref(),
+            Some("10:30 AM - 11:30 AM")
+        );
+        let names: Vec<&str> = receipt.lines.iter().map(|l| l.raw_name.as_str()).collect();
+        assert_eq!(names.len(), 4, "{names:?}");
+        assert_eq!(receipt.lines[1].department.as_deref(), Some("Vegetables"));
+        assert_eq!(receipt.lines[3].department.as_deref(), Some("FD Wines"));
+        // Two subtotals are one sum; `Total Tax` stands for the two tax rows; the fuel
+        // surcharge, with its flag letter, is a fee.
+        assert_eq!(receipt.totals.subtotal, Money::from_cents(3418));
+        assert_eq!(receipt.totals.tax, Some(Money::from_cents(216)));
+        assert_eq!(receipt.totals.service_fee, Some(Money::from_cents(100)));
+        assert_eq!(receipt.totals.tip, Some(Money::from_cents(1000)));
+        assert_eq!(receipt.totals.total, Money::from_cents(4734));
+        assert!(receipt.anomalies.is_empty(), "{:?}", receipt.anomalies);
+        let r = reconcile(&receipt);
+        assert!(r.reconciled(), "{r:?}");
+    }
+
+    /// A backtest over stored, redacted receipts, outside the repository. `QM_BACKTEST_FILE` is
+    /// a file of JSON lines, each `{"year": 2026, "html": "..."}`, as a query over
+    /// `raw_messages` writes them. Run: `QM_BACKTEST_FILE=... cargo test --lib backtest -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs QM_BACKTEST_FILE, a local export of redacted receipts"]
+    fn backtest_over_stored_receipts() {
+        use std::collections::BTreeMap;
+        let path = std::env::var("QM_BACKTEST_FILE").expect("QM_BACKTEST_FILE is set");
+        let content = std::fs::read_to_string(path).expect("the file is readable");
+        let mut outcomes: BTreeMap<(i64, String), usize> = BTreeMap::new();
+        let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
+        let mut lines = 0;
+        for line in content.lines().filter(|l| !l.trim().is_empty()) {
+            let value: serde_json::Value = serde_json::from_str(line).expect("a JSON line");
+            let year = value["year"].as_i64().expect("a year");
+            let document = Html::parse_document(value["html"].as_str().expect("html"));
+            let outcome = match FreshDirect2026.supports(&document) {
+                None => "unsupported".to_owned(),
+                Some(_) => match FreshDirect2026.parse(&document) {
+                    Err(error) => format!("failed: {error}"),
+                    Ok(receipt) => {
+                        lines += receipt.lines.len();
+                        for anomaly in &receipt.anomalies {
+                            *reasons.entry(anomaly.reason.clone()).or_default() += 1;
+                        }
+                        let r = reconcile(&receipt);
+                        if r.reconciled() {
+                            "ok".to_owned()
+                        } else {
+                            format!(
+                                "partial: subtotal {} total {} line issues {}",
+                                r.subtotal_matches,
+                                r.total_matches,
+                                r.line_issues.len().min(1)
+                            )
+                        }
+                    }
+                },
+            };
+            *outcomes.entry((year, outcome)).or_default() += 1;
+        }
+        let mut by_outcome: BTreeMap<String, usize> = BTreeMap::new();
+        for ((year, outcome), count) in &outcomes {
+            println!("{year} {count:4} {outcome}");
+            *by_outcome.entry(outcome.clone()).or_default() += count;
+        }
+        println!("--- all years, {lines} lines");
+        for (outcome, count) in &by_outcome {
+            println!("{count:4} {outcome}");
+        }
+        for (reason, count) in &reasons {
+            println!("anomaly {count:4} {reason}");
+        }
     }
 }

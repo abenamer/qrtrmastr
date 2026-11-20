@@ -16,7 +16,7 @@ pub use crate::domain::ids::AliasId;
 use crate::domain::ids::{MessageKey, OrderNumber, ProductId, RawMessageId};
 use crate::domain::receipt::Receipt;
 use crate::domain::recommend::Purchase;
-use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SoldBy};
+use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SenderCheck, SoldBy};
 
 /// A failure inside a store adapter, with the adapter's error kept as the source.
 #[derive(Debug, Error)]
@@ -186,6 +186,7 @@ pub struct AttemptRecord {
 pub struct OrderWrite<'a> {
     pub receipt: &'a Receipt,
     pub reconciled: bool,
+    pub sender_check: SenderCheck,
     pub alias_ids: Vec<AliasId>,
 }
 

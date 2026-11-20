@@ -13,7 +13,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let first = migrate.run().await.expect("first migration run");
     assert_eq!(first.already_applied, 0);
-    assert_eq!(first.applied.len(), 3, "{:?}", first.applied);
+    assert_eq!(first.applied.len(), 4, "{:?}", first.applied);
     assert!(
         first.applied[0].ends_with("raw mail"),
         "{:?}",
@@ -22,7 +22,7 @@ async fn migrating_twice_applies_everything_once(pool: PgPool) {
 
     let second = migrate.run().await.expect("second migration run");
     assert!(second.applied.is_empty(), "{:?}", second.applied);
-    assert_eq!(second.already_applied, 3);
+    assert_eq!(second.already_applied, 4);
 }
 
 #[sqlx::test(migrations = false)]
@@ -407,4 +407,46 @@ async fn a_restaurant_receipt_is_stored_under_its_platform_and_waits_for_a_parse
     .await;
     let message = unknown.expect_err("the insert must fail").to_string();
     assert!(message.contains("raw_messages_platform_check"), "{message}");
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_receipt_without_a_dkim_pass_is_parsed_and_its_order_is_tagged_non_verified(
+    pool: PgPool,
+) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let signed = receipt_mail("12345678901", "Tuesday, March 3, 2026", "v1");
+    let unsigned = RawMail {
+        bytes: String::from_utf8(
+            receipt_mail("12345678902", "Tuesday, March 10, 2026", "v2").bytes,
+        )
+        .expect("utf8")
+        .replace(
+            "Authentication-Results: mx.google.com; dkim=pass header.i=@freshdirect.com\r\n",
+            "",
+        )
+        .into_bytes(),
+    };
+    ImportMail::new(Mails(vec![signed, unsigned]), reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    let parsed = ParsePending::new(store, Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!((parsed.parsed, parsed.failed), (2, 0), "{parsed:?}");
+
+    let tags: Vec<(String, String)> =
+        sqlx::query_as("select order_number, sender_check from grocery_orders order by 1")
+            .fetch_all(&pool)
+            .await
+            .expect("orders");
+    assert_eq!(
+        tags,
+        [
+            ("12345678901".to_owned(), "verified".to_owned()),
+            ("12345678902".to_owned(), "non-verified".to_owned()),
+        ]
+    );
 }
