@@ -312,6 +312,87 @@ pub struct HabitRecommendation {
     pub stocked_until: Option<Date>,
 }
 
+impl HabitRecommendation {
+    /// An essential is in at least a quarter of the latest orders; the other habitual
+    /// products are extras (ADR 0011).
+    pub fn is_essential(&self) -> bool {
+        self.in_recent * ESSENTIAL_ONE_IN >= self.recent_orders
+    }
+}
+
+/// A product is an essential when it is in at least one of this many of the latest orders.
+pub const ESSENTIAL_ONE_IN: usize = 4;
+/// A product can be a reminder when it is in at least this many orders of the whole history.
+pub const REMEMBER_MIN_ORDERS: usize = 3;
+
+/// A product bought before that left the latest orders: a question, not a prediction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reminder {
+    #[serde(rename = "product_id")]
+    pub product: ProductId,
+    pub orders_with_product: usize,
+    pub last_bought: Date,
+    pub last_price: Money,
+}
+
+/// One step of SplitMix64: spreads a seed and a product over the whole range, so that the
+/// order of the reminders is a fixed shuffle for one seed. Not for secrets.
+fn mix(seed: u64, product: ProductId) -> u64 {
+    let mut z = seed
+        .wrapping_add(product.get().unsigned_abs())
+        .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// `count` products to ask "remember this?" about: in at least [`REMEMBER_MIN_ORDERS`] orders
+/// of the history and in none of the latest [`HABIT_RECENT_ORDERS`]. Which ones is a shuffle
+/// fixed by `seed`; the caller supplies it, so the same seed gives the same list.
+pub fn remember(purchases: &[Purchase], seed: u64, count: usize) -> Vec<Reminder> {
+    let orders: BTreeMap<&OrderNumber, Date> = purchases
+        .iter()
+        .map(|p| (&p.order_number, p.delivery_date))
+        .collect();
+    let mut latest: Vec<(Date, &OrderNumber)> = orders
+        .iter()
+        .map(|(number, date)| (*date, *number))
+        .collect();
+    latest.sort();
+    let recent: BTreeSet<&OrderNumber> = latest
+        .iter()
+        .rev()
+        .take(HABIT_RECENT_ORDERS)
+        .map(|(_, number)| *number)
+        .collect();
+
+    let mut by_product: BTreeMap<ProductId, Vec<&Purchase>> = BTreeMap::new();
+    for purchase in purchases {
+        by_product
+            .entry(purchase.product)
+            .or_default()
+            .push(purchase);
+    }
+    let mut out: Vec<Reminder> = by_product
+        .into_iter()
+        .filter_map(|(product, history)| {
+            let in_orders: BTreeSet<&OrderNumber> =
+                history.iter().map(|p| &p.order_number).collect();
+            let last = history.iter().max_by_key(|p| p.delivery_date)?;
+            let listed = in_orders.len() >= REMEMBER_MIN_ORDERS && in_orders.is_disjoint(&recent);
+            listed.then_some(Reminder {
+                product,
+                orders_with_product: in_orders.len(),
+                last_bought: last.delivery_date,
+                last_price: last.price,
+            })
+        })
+        .collect();
+    out.sort_by_key(|r| (mix(seed, r.product), r.product));
+    out.truncate(count);
+    out
+}
+
 /// The day a bulk purchase is expected to last until, when the last purchase of `history`
 /// (sorted by date) was one. The usual amount is the median over the earlier purchase days and
 /// the usual gap the median between all of them; a product with fewer than three purchase days
@@ -542,6 +623,55 @@ mod tests {
         assert_eq!(r[1].typical_quantity, Quantity::parse("3").expect("q"));
         assert!(habit(&[], d(2026, 3, 1)).is_empty());
         assert!(r.iter().all(|x| x.stocked_until.is_none()));
+    }
+
+    #[test]
+    fn essentials_are_in_a_quarter_of_the_latest_orders_and_reminders_left_them() {
+        // 40 weekly orders. Product 1 in all; product 2 in every fourth (5 of the latest 20);
+        // product 3 in every fifth (4 of 20); products 10 to 19 in the first three orders
+        // only; product 20 in the first two only.
+        let mut p = Vec::new();
+        for week in 0..40u32 {
+            let date = d(2025, 1, 1) + jiff::Span::new().days(i64::from(week) * 7);
+            let order = format!("1{:010}", week);
+            p.push(buy(1, &order, date, "1"));
+            if week % 4 == 0 {
+                p.push(buy(2, &order, date, "1"));
+            }
+            if week % 5 == 0 {
+                p.push(buy(3, &order, date, "1"));
+            }
+            if week < 3 {
+                for product in 10..20 {
+                    p.push(buy(product, &order, date, "1"));
+                }
+            }
+            if week < 2 {
+                p.push(buy(20, &order, date, "1"));
+            }
+        }
+        let r = habit(&p, d(2026, 3, 1));
+        let essential: Vec<(i64, usize, bool)> = r
+            .iter()
+            .map(|x| (x.product.get(), x.in_recent, x.is_essential()))
+            .collect();
+        assert_eq!(essential, [(1, 20, true), (2, 5, true), (3, 4, false)]);
+
+        // The reminders are among products 10 to 19: bought three times, gone from the
+        // latest 20 orders. Product 20 was bought twice only; 1 to 3 are still bought.
+        let all = remember(&p, 1, 100);
+        let mut ids: Vec<i64> = all.iter().map(|x| x.product.get()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, (10..20).collect::<Vec<i64>>());
+        assert_eq!(all[0].orders_with_product, 3);
+        assert_eq!(all[0].last_bought, d(2025, 1, 15));
+        // The same seed gives the same list; another seed gives another order.
+        let first = remember(&p, 1, 4);
+        assert_eq!(first.len(), 4);
+        assert_eq!(first, remember(&p, 1, 4));
+        assert_eq!(first[..], all[..4]);
+        assert!((2..40).any(|seed| remember(&p, seed, 4) != first));
+        assert!(remember(&[], 1, 4).is_empty());
     }
 
     #[test]

@@ -96,13 +96,14 @@ use jiff_sqlx::ToSqlx;
 use rust_decimal::Decimal;
 
 use crate::application::ports::{
-    AliasRequest, Catalog, GroceryStore, InsertOutcome, NewRawMessage, ParseFinish, PendingMessage,
-    ProductLabel, RawMessageStore, StoredBody,
+    AliasRequest, Catalog, GroceryStore, InsertOutcome, NewAddition, NewRawMessage, ParseFinish,
+    PendingMessage, ProductLabel, RawMessageStore, ShoppingList, StoredBody,
 };
-use crate::domain::ids::{AliasId, MessageKey, OrderNumber, ProductId, RawMessageId};
+use crate::domain::ids::{AdditionId, AliasId, MessageKey, OrderNumber, ProductId, RawMessageId};
+use crate::domain::list::{Addition, ItemText};
 use crate::domain::money::{Money, Quantity};
 use crate::domain::recommend::Purchase;
-use crate::domain::states::{KeyKind, MessageKind, ParseState, Platform, SoldBy};
+use crate::domain::states::{AddReason, KeyKind, MessageKind, ParseState, Platform, SoldBy};
 
 fn invalid_row(table: &'static str, id: i64, reason: impl ToString) -> StoreError {
     StoreError::InvalidRow {
@@ -441,6 +442,58 @@ struct LabelRow {
     sold_by: String,
     department: Option<String>,
     latest_raw_name: Option<String>,
+}
+
+impl ShoppingList for PostgresStore {
+    async fn add_addition(&self, addition: &NewAddition<'_>) -> Result<AdditionId, StoreError> {
+        let (id,): (i64,) = sqlx::query_as(
+            "insert into list_additions (item_text, product_id, reason, added_on) \
+             values ($1, $2, $3, $4) returning id",
+        )
+        .bind(addition.item.as_str())
+        .bind(addition.product.map(ProductId::get))
+        .bind(addition.reason.as_str())
+        .bind(addition.added_on.to_sqlx())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| database_error("add an addition", e))?;
+        AdditionId::new(id).map_err(|e| invalid_row("list_additions", id, e))
+    }
+
+    async fn open_additions(&self) -> Result<Vec<Addition>, StoreError> {
+        let rows: Vec<(i64, String, Option<i64>, String, jiff_sqlx::Date)> = sqlx::query_as(
+            "select id, item_text, product_id, reason, added_on from list_additions \
+              where added_on >= coalesce((select max(delivery_date) from grocery_orders), added_on) \
+              order by added_on, id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| database_error("list open additions", e))?;
+        rows.into_iter()
+            .map(|(id, item, product, reason, added_on)| {
+                let invalid = |e: &dyn std::fmt::Display| invalid_row("list_additions", id, e);
+                Ok(Addition {
+                    id: AdditionId::new(id).map_err(|e| invalid(&e))?,
+                    item: ItemText::parse(&item).map_err(|e| invalid(&e))?,
+                    product: product
+                        .map(ProductId::new)
+                        .transpose()
+                        .map_err(|e| invalid(&e))?,
+                    reason: reason.parse::<AddReason>().map_err(|e| invalid(&e))?,
+                    added_on: added_on.to_jiff(),
+                })
+            })
+            .collect()
+    }
+
+    async fn drop_addition(&self, id: AdditionId) -> Result<bool, StoreError> {
+        let done = sqlx::query("delete from list_additions where id = $1")
+            .bind(id.get())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| database_error("drop an addition", e))?;
+        Ok(done.rows_affected() == 1)
+    }
 }
 
 impl Catalog for PostgresStore {

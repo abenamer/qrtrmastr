@@ -138,6 +138,11 @@ row_id!(
     "product"
 );
 row_id!(
+    /// A `list_additions.id`.
+    AdditionId,
+    "addition"
+);
+row_id!(
     /// A `product_aliases.id`.
     AliasId,
     "alias"

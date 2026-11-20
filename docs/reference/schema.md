@@ -17,6 +17,12 @@ sources:
   - id: m0004
     resource: ../../migrations/0004_order_sender_check.sql
     title: Migration 0004, the sender check of an order
+  - id: m0005
+    resource: ../../migrations/0005_list_additions.sql
+    title: Migration 0005, the additions to the next order
+  - id: m0006
+    resource: ../../migrations/0006_addition_reason_running_low.sql
+    title: Migration 0006, the reason running-low
 ---
 
 # Database schema
@@ -33,6 +39,7 @@ Migrations live in `migrations/` and only add. `qm migrate` applies them; SQLx r
 | `grocery_order_lines` | One line of one order, with the quantity cell verbatim, weight, prices, flags, and the alias it matched. | identity; `(order_number, line_no)` unique | 0002 |
 | `order_line_anomalies` | A receipt row no rule classified, with its raw cells. | identity | 0002 |
 | `product_preferences` | Per product: muted, note. | `product_id` | 0002 |
+| `list_additions` | What the user added to the next order by hand: text, reason (`AddReason`), day, and the product when the text names one. | `id` | 0005, 0006 |
 | `purchases` (view) | Lines joined through alias and product to their order's delivery date. What the recommendation reads. | — | 0002 |
 
 ## Column notes

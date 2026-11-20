@@ -19,12 +19,23 @@ sources:
 
 ## The habit rule (default)
 
-The products most often in the latest orders ([ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md)). For each product in at least one of the latest 20 orders, the rule counts the orders that hold it among the latest 20 and among the latest 50. The list is ranked by the first count, then the second, then the later last purchase, and cut to `--top` products, 15 by default. The typical quantity is the median billed quantity over those 50 orders. Muted products are left out. The rule uses no dates: on the maintainer's history it names what the next order holds about twice as often as the gap rule.
+The products most often in the latest orders ([ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md)). For each product in at least one of the latest 20 orders, the rule counts the orders that hold it among the latest 20 and among the latest 50. The list is ranked by the first count, then the second, then the later last purchase. The next section says how `qm due` cuts it into lists. The typical quantity is the median billed quantity over those 50 orders. Muted products are left out. The rule uses no dates: on the maintainer's history it names what the next order holds about twice as often as the gap rule.
 
 Two things are applied before the count ([ADR 0010](/decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md)):
 
 * Products with exactly the same name are one product, the one bought last. A case of 36 and a pack of 3 share one history, and a purchase counts as its quantity times the amount of the pack when the size texts compare.
 * A product is a stock when its last purchase is at least 3 times its usual amount. It is expected to last that many usual gaps. Until that day, judged from `--as-of`, it is left out of the list and named in a line below it.
+
+## What `qm due` prints
+
+Four lists ([ADR 0011](/decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md)):
+
+* **Essentials**: the habit rule's products that are in at least a quarter of the latest 20 orders. All of them.
+* **Extras**: the next products of the habit rule, `--top` of them, 10 by default.
+* **Remember this?**: `--remember` products, 5 by default, that are in at least 3 orders of the history and in none of the latest 20. A shuffle picks them; its seed is the day, or `--seed`. It is a question, not a prediction.
+* **Your additions**: what you added with `qm add`, each with its reason: ran out, almost running out, making a recipe, new food to try, repeat favorite. An addition is listed until an order is delivered after the day it was added.
+
+The history gives about a third of an order. The additions are how the rest of the list is made, and their reasons are kept as data for a later rule.
 
 ## The gap rule (`--gap`)
 

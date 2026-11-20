@@ -14,10 +14,13 @@ use thiserror::Error;
 
 use crate::domain::identity::Normalized;
 pub use crate::domain::ids::AliasId;
-use crate::domain::ids::{MessageKey, OrderNumber, ProductId, RawMessageId};
+use crate::domain::ids::{AdditionId, MessageKey, OrderNumber, ProductId, RawMessageId};
+use crate::domain::list::{Addition, ItemText};
 use crate::domain::receipt::Receipt;
 use crate::domain::recommend::Purchase;
-use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SenderCheck, SoldBy};
+use crate::domain::states::{
+    AddReason, MessageKind, ParseOutcome, ParseState, Platform, SenderCheck, SoldBy,
+};
 
 /// A failure inside a store adapter, with the adapter's error kept as the source.
 #[derive(Debug, Error)]
@@ -234,6 +237,26 @@ pub struct ProductLabel {
     pub sold_by: SoldBy,
     pub department: Option<String>,
     pub latest_raw_name: String,
+}
+
+/// One addition to store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewAddition<'a> {
+    pub item: &'a ItemText,
+    pub product: Option<ProductId>,
+    pub reason: AddReason,
+    pub added_on: Date,
+}
+
+/// The user's own additions to the next order (ADR 0011).
+#[allow(async_fn_in_trait)]
+pub trait ShoppingList {
+    async fn add_addition(&self, addition: &NewAddition<'_>) -> Result<AdditionId, StoreError>;
+    /// The additions no order has been delivered after: added on or after the latest delivery
+    /// date, oldest first.
+    async fn open_additions(&self) -> Result<Vec<Addition>, StoreError>;
+    /// `false` when no addition has this id.
+    async fn drop_addition(&self, id: AdditionId) -> Result<bool, StoreError>;
 }
 
 #[allow(async_fn_in_trait)]

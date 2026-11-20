@@ -7,9 +7,11 @@ use clap::{Parser, Subcommand};
 use jiff::civil::Date;
 
 use crate::application::import::ImportReport;
+use crate::application::list::Added;
 use crate::application::parse::ParseReport;
 use crate::application::recommend::{DueReport, HabitReport, SimpleReport};
 use crate::domain::recommend::Status;
+use crate::domain::states::AddReason;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -50,12 +52,20 @@ pub enum Command {
         #[arg(long, visible_alias = "mbox", value_name = "PATH")]
         takeout: PathBuf,
     },
-    /// What your next order most likely holds: the products most often in your latest
-    /// orders. `--gap` and `--simple` are the two older rules.
+    /// What your next order most likely holds: the essentials (in a quarter of your latest
+    /// orders), some extras, and a few things you used to buy. `--gap` and `--simple` are the
+    /// two older rules.
     Due {
-        /// How many products to list.
-        #[arg(long, default_value_t = 15, value_name = "N")]
+        /// How many extras to list after the essentials.
+        #[arg(long, default_value_t = 10, value_name = "N")]
         top: usize,
+        /// How many "remember this?" products to list.
+        #[arg(long, default_value_t = 5, value_name = "N")]
+        remember: usize,
+        /// The seed of the "remember this?" shuffle; the day when omitted, so the list
+        /// changes each day. Give another number for another list.
+        #[arg(long, value_name = "NUMBER")]
+        seed: Option<u64>,
         /// Use the gap rule instead: items whose usual gap between purchases has passed.
         #[arg(long, conflicts_with = "simple")]
         gap: bool,
@@ -77,6 +87,22 @@ pub enum Command {
         /// Print JSON instead of a table.
         #[arg(long)]
         json: bool,
+    },
+    /// Add an item to your next order by hand, with the reason. `qm due` lists your additions
+    /// until an order is delivered after them. Without --reason the command asks.
+    Add {
+        /// What to add, as you would search for it: `qm add miso paste`.
+        #[arg(required = true, value_name = "ITEM")]
+        item: Vec<String>,
+        /// Why: out-of-stock (you ran out), running-low (almost out), recipe, new-food or
+        /// repeat-favorite.
+        #[arg(long, value_name = "REASON")]
+        reason: Option<AddReason>,
+    },
+    /// Remove one of your additions; the number is the one `qm due` prints before it.
+    Drop {
+        #[arg(value_name = "NUMBER")]
+        id: i64,
     },
     /// Work with parser fixtures.
     Fixture {
@@ -210,11 +236,44 @@ fn habit_table(out: &mut String, rows: &[crate::application::recommend::HabitRow
 }
 
 pub fn render_habit(report: &HabitReport) -> String {
-    let mut out = format!(
-        "as of {}, {} orders; the products most often in your latest orders:\n",
-        report.as_of, report.orders
-    );
-    habit_table(&mut out, &report.rows);
+    let mut out = format!("as of {}, {} orders\n", report.as_of, report.orders);
+    out.push_str("\nESSENTIALS: in at least a quarter of your latest orders\n");
+    habit_table(&mut out, &report.essentials);
+    out.push_str("\nEXTRAS: the next most often in your latest orders\n");
+    habit_table(&mut out, &report.extras);
+    out.push_str(&format!(
+        "\nREMEMBER THIS? bought before, not in your latest orders (--seed {})\n",
+        report.seed
+    ));
+    if report.remember.is_empty() {
+        out.push_str("none\n");
+    } else {
+        out.push_str(&format!(
+            "{:<56} {:>8} {:>11}\n",
+            "product", "orders", "last"
+        ));
+    }
+    for row in &report.remember {
+        out.push_str(&format!(
+            "{:<56} {:>8} {:>11}\n",
+            truncate(&label(&row.product), 56),
+            row.reminder.orders_with_product,
+            row.reminder.last_bought
+        ));
+    }
+    out.push_str("\nYOUR ADDITIONS: qm add ITEM, qm drop NUMBER\n");
+    if report.additions.is_empty() {
+        out.push_str("none\n");
+    }
+    for addition in &report.additions {
+        out.push_str(&format!(
+            "{:>4}  {:<50} {:<16} {:>11}\n",
+            addition.id,
+            truncate(addition.item.as_str(), 50),
+            addition.reason.phrase(),
+            addition.added_on
+        ));
+    }
     if !report.stocked.is_empty() {
         out.push('\n');
     }
@@ -230,6 +289,51 @@ pub fn render_habit(report: &HabitReport) -> String {
         }
     }
     out
+}
+
+pub fn render_added(added: &Added) -> String {
+    let product = match &added.product {
+        Some(product) => format!("; in your history as {}", label(product)),
+        None => String::new(),
+    };
+    format!(
+        "added {}: {} ({}){product}\n",
+        added.id,
+        added.item,
+        added.reason.phrase()
+    )
+}
+
+/// Asks why an item is added, until an answer names a reason: its number or its text. `None`
+/// when the input ends first.
+pub fn ask_reason(
+    item: &str,
+    mut input: impl std::io::BufRead,
+    mut output: impl std::io::Write,
+) -> std::io::Result<Option<AddReason>> {
+    writeln!(output, "Why are you adding {item}?")?;
+    for (n, reason) in AddReason::ALL.iter().enumerate() {
+        writeln!(output, "  {}  {}", n + 1, reason.phrase())?;
+    }
+    loop {
+        write!(output, "1-{}> ", AddReason::ALL.len())?;
+        output.flush()?;
+        let mut line = String::new();
+        if input.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        let answer = line.trim().to_lowercase();
+        let by_number = answer
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| AddReason::ALL.get(n.checked_sub(1)?));
+        let by_text = AddReason::ALL
+            .iter()
+            .find(|r| r.as_str() == answer || r.phrase() == answer);
+        if let Some(reason) = by_number.or(by_text) {
+            return Ok(Some(*reason));
+        }
+    }
 }
 
 pub fn render_simple(report: &SimpleReport) -> String {
@@ -302,5 +406,29 @@ mod tests {
         assert!(Cli::try_parse_from(["qm", "launch"]).is_err());
         assert!(Cli::try_parse_from(["qm", "due", "--as-of", "yesterday"]).is_err());
         assert!(Cli::try_parse_from(["qm", "import"]).is_err());
+    }
+
+    #[test]
+    fn the_reason_prompt_takes_a_number_or_the_text_and_asks_again_otherwise() {
+        let ask = |answers: &str| {
+            let mut shown = Vec::new();
+            let reason = ask_reason("miso paste", answers.as_bytes(), &mut shown).expect("io");
+            (reason, String::from_utf8(shown).expect("utf-8"))
+        };
+        let (reason, shown) = ask("3\n");
+        assert_eq!(reason, Some(AddReason::Recipe));
+        assert_eq!(ask("2\n").0, Some(AddReason::RunningLow));
+        assert_eq!(ask("almost running out\n").0, Some(AddReason::RunningLow));
+        assert!(shown.contains("Why are you adding miso paste?"));
+        assert!(shown.contains("  1  ran out, need to replace"));
+        assert!(shown.contains("  2  almost running out"));
+        assert!(shown.contains("  5  repeat favorite"));
+        assert_eq!(ask("new-food\n").0, Some(AddReason::NewFood));
+        assert_eq!(ask("Out-Of-Stock\n").0, Some(AddReason::OutOfStock));
+        // A wrong answer is asked again; the end of the input gives no reason.
+        let (reason, shown) = ask("because\n0\n9\n5\n");
+        assert_eq!(reason, Some(AddReason::RepeatFavorite));
+        assert_eq!(shown.matches("1-5> ").count(), 4);
+        assert_eq!(ask("because\n").0, None);
     }
 }

@@ -6,6 +6,7 @@
 
 pub mod identity;
 pub mod ids;
+pub mod list;
 pub mod money;
 pub mod pack;
 pub mod receipt;
