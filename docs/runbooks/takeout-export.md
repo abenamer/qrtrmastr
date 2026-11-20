@@ -49,12 +49,15 @@ FreshDirect has no public API and the tool does not scrape its site, so the rece
 
        docker compose run --rm qm import --takeout /data/takeout-data
 
-   The path is a folder, one archive, or one mailbox file. The command reads every `.zip` in the folder in place, and every `.mbox` file of an export you unzipped earlier, in name order; it extracts nothing and holds one message in memory at a time, so the size of an archive does not matter. One archive is open at a time, and the log names each as it is opened and when it is done. An export of the whole mailbox works too: mail from FreshDirect is stored, every other message is counted under "from other senders" and nothing of it is stored. A whole mailbox of 100 GB takes a long time; the run can be stopped and started again, and messages already stored are skipped. `--mbox` is an accepted alias of `--takeout`.
+   The path is a folder, one archive, or one mailbox file. The command reads every `.zip` in the folder in place, and every `.mbox` file of an export you unzipped earlier, in name order; it extracts nothing and holds one message in memory at a time, so the size of an archive does not matter. One archive is open at a time, and the log names each as it is opened and when it is done. An export of the whole mailbox works too: mail from FreshDirect and from the restaurant platforms of the configuration (Seamless, Grubhub, Toast, Square, Clover, DoorDash) is stored, every other message is counted under "from other senders" and nothing of it is stored. A whole mailbox of 100 GB takes a long time; the run can be stopped and started again, and messages already stored are skipped. `--mbox` is an accepted alias of `--takeout`.
 
-   Expected result: two lines of counts, for example
+   Expected result: three lines of counts, for example
 
        messages read 312, new 312, already known 0, from other senders 0
-       receipts parsed 101, partial 2, failed 0, unsupported 3, left for later 206, anomalies 9
+       new by platform: freshdirect 312
+       freshdirect receipts parsed 101, partial 2, failed 0, unsupported 3, left for later 206, anomalies 9
+
+   Restaurant mail is stored and waits: no parser reads it yet.
 
    A path the command cannot open, a folder without an archive or a mailbox file, an archive without Mail in it, or a file that is not a readable archive is an error with status 1 that prints the path and these steps in short; check the path after `/data`. Messages read before the error are stored, and the next run skips them. A missing `[redaction]` section is an error that prints the section to add. "Left for later" are the placed and updated mails, which no parser reads yet. "Unsupported" receipts are in a layout the parser does not know; they are stored and wait for a parser version. A "REFUSED" line means personal data survived redaction in a message; that message was not stored, the command exits with status 1, and you add the surviving term to the configuration and import again.
 6. Check: `docker compose run --rm qm due` prints a plausible list. `docker compose run --rm qm due --json` gives the same as data.

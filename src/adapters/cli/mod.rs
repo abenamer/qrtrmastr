@@ -17,12 +17,14 @@ use crate::domain::recommend::Status;
     version,
     about = "Quartermaster: a grocery order history from receipt emails, and a recommended next cart",
     long_about = "Quartermaster: a grocery order history from receipt emails, and a recommended next cart.\n\n\
-        The tool needs a Google Takeout export of your FreshDirect mail. It talks to no retailer \
+        The tool needs a Google Takeout export of your mail. It talks to no retailer \
         and reads no mailbox. In Gmail, give the receipts a label with a filter on \
         from:service@freshdirect.com; at https://takeout.google.com export Mail, that label only, \
         as a .zip; put the archive in your exports directory (~/qm-data, /data inside the container) \
         and import that folder: archives are read in place, one after the other. An export of \
-        the whole mailbox works too: only mail from FreshDirect is stored. \
+        the whole mailbox works too: only mail from FreshDirect and from the restaurant \
+        platforms in the configuration (Seamless, Grubhub, Toast, Square, Clover, DoorDash) is \
+        stored, and only FreshDirect receipts are parsed so far. \
         Before the first import, write your redaction terms into config.toml. Both steps, with \
         the expected output: docs/runbooks/takeout-export.md"
 )]
@@ -35,8 +37,8 @@ pub struct Cli {
 pub enum Command {
     /// Apply the pending database migrations. Running it again applies nothing.
     Migrate,
-    /// Import a Google Takeout export of your FreshDirect mail, then parse the new receipts.
-    /// Idempotent: messages already stored are skipped.
+    /// Import Google Takeout exports: store the FreshDirect and restaurant-platform mail, then
+    /// parse the new FreshDirect receipts. Idempotent: messages already stored are skipped.
     ///
     /// The path is a folder that holds the .zip archives as Google delivers them, one archive,
     /// or an unzipped Takeout/Mail/<label>.mbox file. Archives are read in place, one at a
@@ -94,6 +96,14 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
         "messages read {}, new {}, already known {}, from other senders {}\n",
         import.read, import.inserted, import.already_known, import.other_sender
     ));
+    if !import.inserted_by_platform.is_empty() {
+        let by_platform: Vec<String> = import
+            .inserted_by_platform
+            .iter()
+            .map(|(platform, count)| format!("{platform} {count}"))
+            .collect();
+        out.push_str(&format!("new by platform: {}\n", by_platform.join(", ")));
+    }
     for m in &import.malformed {
         out.push_str(&format!("malformed: {m}\n"));
     }
@@ -101,7 +111,7 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
         out.push_str(&format!("REFUSED, personal data survived redaction: {r}\n"));
     }
     out.push_str(&format!(
-        "receipts parsed {}, partial {}, failed {}, unsupported {}, left for later {}, anomalies {}",
+        "freshdirect receipts parsed {}, partial {}, failed {}, unsupported {}, left for later {}, anomalies {}",
         parse.parsed, parse.partial, parse.failed, parse.unsupported, parse.left_for_later, parse.anomalies
     ));
     if parse.conflicts > 0 {

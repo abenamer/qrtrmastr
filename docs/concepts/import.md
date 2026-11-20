@@ -21,7 +21,7 @@ sources:
 
 # Import
 
-`qm import` has two halves. The first reads the export and stores each message once. The second parses every stored receipt that waits.
+`qm import` has two halves. The first reads the export and stores each message of a platform once: FreshDirect and six restaurant platforms ([ADR 0007](/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md)). The second parses every stored FreshDirect receipt that waits. No parser reads restaurant mail yet.
 
 ## Storing messages
 
@@ -31,15 +31,15 @@ A path that cannot be opened, a folder with no archive and no mailbox file, arch
 
 1. The MIME parts and a few headers are read: `Message-ID`, `Date`, `Subject`, `From`, `Authentication-Results`, the HTML body, the text body.
 2. The message key is the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing. A key already stored is skipped and counted as known. The source hash is stored too and is unique, so a message that arrives under a new header is still stored once.
-3. A message not from the platform's sender (`import.senders` in the configuration) is counted and not stored.
-4. The kind comes from the subject: `placed`, `updated`, `receipt`, or `unknown`. Unknown is stored.
-5. `dkim_pass` records whether an `Authentication-Results` header that Gmail itself added (authserv-id `mx.google.com`) says a DKIM signature verified for the sender's domain or one of its subdomains. A pass from another signing domain, or a header another server added, does not count; a forged sender with its own valid signature would otherwise pass.
+3. The platform comes from the exact From address: `import.senders` in the configuration are FreshDirect's, `import.restaurant_senders` lists the addresses of each restaurant platform. A message from any other address is counted and not stored.
+4. The kind comes from the subject, by the rules of the platform: `placed`, `updated`, `receipt`, or `unknown`. Unknown is stored.
+5. `dkim_pass` records whether an `Authentication-Results` header that Gmail itself added (authserv-id `mx.google.com`) says a DKIM signature verified for the domain of this message's sender or one of its subdomains. A pass from another signing domain, or a header another server added, does not count; a forged sender with its own valid signature would otherwise pass.
 6. The redactor runs over the subject and both bodies ([Privacy](/concepts/privacy.md)). A message in which a configured term survives is refused: nothing of it is stored, the import continues, and the command exits with a failure status at the end.
 7. One row of `raw_messages` is written, in state `fetched`.
 
 ## Parsing receipts
 
-The second half reads every message of the platform in state `fetched`, oldest first:
+The second half reads every FreshDirect message in state `fetched`, oldest first. Restaurant messages stay in `fetched` until a parser exists for their platform.
 
 * A placed, updated or unknown message is left for later; no parser reads those kinds yet.
 * A receipt without a DKIM pass is refused: outcome `failed`, reason recorded, nothing parsed. A receipt without an HTML body is refused the same way.

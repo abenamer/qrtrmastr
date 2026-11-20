@@ -15,7 +15,7 @@ FreshDirect has no public API and this tool does not scrape its site, so your re
 3. Download the archive, or archives when Google splits a large export, into a folder of your exports directory, `~/qm-data/takeout-data/` for example. Do not unzip them: the import reads each archive in place, one message at a time, and extracts nothing. The export carries your name, address, phone and card digits: it never enters this repository, and the tool redacts every message before it stores anything.
 4. Write your redaction terms into `~/.config/qrtrmastr/config.toml`: your name, email, phone, each line of your delivery address and the last four digits of your cards, in a `[redaction]` section. The import refuses to run without them, and its error prints the section to add.
 
-The runbook [Export your FreshDirect mail and import it](docs/runbooks/takeout-export.md) has the same steps with the expected output. An export of the whole mailbox works too; only the mail from FreshDirect is stored. Repeating the export later and importing it again adds only the new messages.
+The runbook [Export your FreshDirect mail and import it](docs/runbooks/takeout-export.md) has the same steps with the expected output. An export of the whole mailbox works too; the import then also stores the order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash for a later parser. Repeating the export later and importing it again adds only the new messages.
 
 ## Privacy
 
