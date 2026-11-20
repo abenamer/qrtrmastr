@@ -35,6 +35,6 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
 | Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |
 | Synthetic fixture | A receipt built from the real layout with invented products, prices that reconcile, and fake personal data chosen to trip the privacy canary. Committed under `tests/fixtures/synthetic/`. |
-| Takeout export | The file Google Takeout produces for a Gmail label: every message of the label in mbox form. The MVP's mail source. It carries personal data and lives outside the repository. |
+| Takeout export | What Google Takeout delivers for Gmail: one or more `.zip` archives, each with the mail in mbox form under `Takeout/Mail/`. The MVP's mail source, read in place. It carries personal data and lives outside the repository. |
 | Typical quantity | The median billed quantity of a product over its purchases; what `qm due` suggests. |
 | Usual gap | The median gap, in days, between a product's distinct purchase dates. |

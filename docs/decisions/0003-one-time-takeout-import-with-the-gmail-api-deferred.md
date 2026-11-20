@@ -14,11 +14,13 @@ The receipts live in Gmail. Three ways to read them were compared: the Gmail API
 
 ## Decision
 
-* The MVP reads a Takeout export of the `FreshDirect` label through the `MboxFile` adapter of the `MailSource` port. No Google Cloud project, no OAuth, no credential on disk.
+* The MVP reads a Takeout export of the `FreshDirect` label through the `TakeoutExport` adapter of the `MailSource` port. No Google Cloud project, no OAuth, no credential on disk.
 * The message key is the `Message-ID` header, else the SHA-256 of the raw bytes. Both Takeout and the Gmail API carry the header, so a later API adapter dedupes against what Takeout imported.
 * The source hash is stored and unique as well, so a message that arrives under a different header is still stored once.
 * A later export is imported the same way; known messages are skipped. That is the MVP's incremental sync.
 * The Gmail API adapter is deferred: same port, same key, a Google Cloud project when the maintainer wants it.
+
+* Amended 2026-11-18: the adapter reads the archives as Google delivers them. The path is a folder of `.zip` archives, one archive or one mailbox file; an archive is read in place with the `zip` crate (inflate only, through `flate2` and the Rust `zlib-rs`; no encryption, no other compression method), and the `MailSource` port is a bounded stream of messages, not a list. Reasons: the maintainer's first export was the whole mailbox, 8.4 GB in a 3 GB archive; the `qm` container has a read-only root and a 16 MB `/tmp`, so it cannot unzip; and an import must not need memory in proportion to the export. Alternatives rejected: unzip in the runbook (the maintainer keeps a second, larger copy of all mail on disk); shelling out to `unzip` (a second tool in the image and a writable directory); reading a whole mailbox into memory per file (worked for a label, not for a mailbox).
 
 ## Consequences
 
