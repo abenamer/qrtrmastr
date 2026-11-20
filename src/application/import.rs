@@ -82,7 +82,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashSet;
 
-    use chrono::Utc;
+    use jiff::Timestamp;
 
     use super::*;
     use crate::application::ports::{NewRawMessage, PendingMessage, StoredBody};
@@ -118,7 +118,7 @@ mod tests {
         NewRawMessage {
             platform: Platform::Freshdirect,
             key: MessageKey::from_message_id(key).expect("key"),
-            received_at: Utc::now(),
+            received_at: Timestamp::now(),
             subject: "s".to_owned(),
             kind: MessageKind::Receipt,
             dkim_pass: true,

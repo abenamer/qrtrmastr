@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use rust_decimal::Decimal;
 use serde::Serialize;
 
@@ -15,7 +15,7 @@ use super::money::{Money, Quantity};
 pub struct Purchase {
     pub product: ProductId,
     pub order_number: OrderNumber,
-    pub delivery_date: NaiveDate,
+    pub delivery_date: Date,
     pub quantity: Quantity,
     pub price: Money,
 }
@@ -65,7 +65,7 @@ pub struct Recommendation {
     pub product: ProductId,
     pub times_bought: usize,
     pub usual_gap_days: Option<i64>,
-    pub last_bought: NaiveDate,
+    pub last_bought: Date,
     pub days_since: i64,
     pub typical_quantity: Quantity,
     pub last_price: Money,
@@ -100,13 +100,18 @@ fn median_quantity(values: &mut [Quantity]) -> Option<Quantity> {
     }
 }
 
+/// Whole days from `from` to `to`; negative when `to` is the earlier day.
+pub fn days_between(from: Date, to: Date) -> i64 {
+    i64::from((to - from).get_days())
+}
+
 /// The usual gap between orders: the median of the gaps between distinct delivery dates.
-pub fn order_cadence(delivery_dates: &[NaiveDate]) -> Option<i64> {
-    let distinct: BTreeSet<NaiveDate> = delivery_dates.iter().copied().collect();
+pub fn order_cadence(delivery_dates: &[Date]) -> Option<i64> {
+    let distinct: BTreeSet<Date> = delivery_dates.iter().copied().collect();
     let mut gaps: Vec<i64> = distinct
         .iter()
         .zip(distinct.iter().skip(1))
-        .map(|(a, b)| (*b - *a).num_days())
+        .map(|(a, b)| days_between(*a, *b))
         .collect();
     median_days(&mut gaps)
 }
@@ -115,7 +120,7 @@ pub fn order_cadence(delivery_dates: &[NaiveDate]) -> Option<i64> {
 /// next order is expected.
 pub fn evaluate(
     purchases: &[Purchase],
-    as_of: NaiveDate,
+    as_of: Date,
     cadence: i64,
     thresholds: Thresholds,
 ) -> Vec<Recommendation> {
@@ -130,17 +135,17 @@ pub fn evaluate(
     let mut out = Vec::with_capacity(by_product.len());
     for (product, mut history) in by_product {
         history.sort_by_key(|p| p.delivery_date);
-        let dates: BTreeSet<NaiveDate> = history.iter().map(|p| p.delivery_date).collect();
+        let dates: BTreeSet<Date> = history.iter().map(|p| p.delivery_date).collect();
         let times_bought = dates.len();
         let last_bought = *dates
             .iter()
             .next_back()
             .expect("a product has at least one purchase");
-        let days_since = (as_of - last_bought).num_days();
+        let days_since = days_between(last_bought, as_of);
         let mut gaps: Vec<i64> = dates
             .iter()
             .zip(dates.iter().skip(1))
-            .map(|(a, b)| (*b - *a).num_days())
+            .map(|(a, b)| days_between(*a, *b))
             .collect();
         let usual_gap_days = median_days(&mut gaps);
         let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
@@ -220,7 +225,7 @@ pub struct SimpleRecommendation {
 }
 
 pub fn simple(purchases: &[Purchase]) -> Vec<SimpleRecommendation> {
-    let orders: BTreeMap<OrderNumber, NaiveDate> = purchases
+    let orders: BTreeMap<OrderNumber, Date> = purchases
         .iter()
         .map(|p| (p.order_number.clone(), p.delivery_date))
         .collect();
@@ -269,11 +274,11 @@ pub fn simple(purchases: &[Purchase]) -> Vec<SimpleRecommendation> {
 mod tests {
     use super::*;
 
-    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, day).expect("valid date")
+    fn d(y: i16, m: i8, day: i8) -> Date {
+        jiff::civil::date(y, m, day)
     }
 
-    fn buy(product: i64, order: &str, date: NaiveDate, qty: &str) -> Purchase {
+    fn buy(product: i64, order: &str, date: Date, qty: &str) -> Purchase {
         Purchase {
             product: ProductId::new(product).expect("id"),
             order_number: OrderNumber::parse(order).expect("order"),

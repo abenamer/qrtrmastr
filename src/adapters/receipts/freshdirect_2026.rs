@@ -8,7 +8,7 @@
 
 use std::sync::LazyLock;
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 
@@ -61,7 +61,7 @@ fn text_of(element: ElementRef<'_>) -> String {
     WS.replace_all(joined.trim(), " ").into_owned()
 }
 
-fn parse_date(text: &str) -> Option<NaiveDate> {
+fn parse_date(text: &str) -> Option<Date> {
     let cleaned = WS.replace_all(text.trim(), " ");
     let cleaned = cleaned.trim_end_matches(',');
     let formats = [
@@ -70,14 +70,18 @@ fn parse_date(text: &str) -> Option<NaiveDate> {
         "%A, %B %d %Y",
         "%B %d, %Y",
         "%B %d %Y",
-        "%a, %b %d, %Y",
-        "%b %d, %Y",
         "%m/%d/%Y",
         "%Y-%m-%d",
     ];
-    formats
-        .iter()
-        .find_map(|format| NaiveDate::parse_from_str(cleaned, format).ok())
+    // A weekday or a month is printed in full or in three letters, in any pairing; `%A` and
+    // `%B` read the full name only, so each format is tried with each pairing.
+    let names = [("%A", "%B"), ("%A", "%b"), ("%a", "%B"), ("%a", "%b")];
+    formats.iter().find_map(|format| {
+        names.iter().find_map(|(weekday, month)| {
+            let format = format.replace("%A", weekday).replace("%B", month);
+            Date::strptime(&format, cleaned).ok()
+        })
+    })
 }
 
 /// The cells of a row as text, with the first product link path found in the row.
@@ -375,6 +379,44 @@ mod tests {
     const FIXTURE: &str =
         include_str!("../../../tests/fixtures/synthetic/input/freshdirect/2026/receipt-basic.html");
 
+    #[test]
+    fn a_delivery_date_is_read_in_each_format_a_receipt_prints() {
+        let march_3 = Some(jiff::civil::date(2026, 3, 3));
+        for text in [
+            "Tuesday, March 3, 2026",
+            "Tuesday, March 03, 2026",
+            "Tuesday March 3, 2026",
+            "Tuesday, March 3 2026",
+            "March 3, 2026",
+            "March 3 2026",
+            "Tue, Mar 3, 2026",
+            "Mar 3, 2026",
+            // A short weekday with a full month, and the reverse.
+            "Tue, March 3, 2026",
+            "Tuesday, Mar 3, 2026",
+            "Tue March 3, 2026",
+            "Tue, Mar 3 2026",
+            "Mar 3 2026",
+            "03/03/2026",
+            "3/3/2026",
+            "2026-03-03",
+            "  Tuesday,   March 3, 2026, ",
+        ] {
+            assert_eq!(parse_date(text), march_3, "{text}");
+        }
+        for text in [
+            "",
+            "soon",
+            "March 32, 2026",
+            "February 30, 2026",
+            "2026-13-01",
+            // The weekday must be the weekday of the date.
+            "Monday, March 3, 2026",
+        ] {
+            assert_eq!(parse_date(text), None, "{text}");
+        }
+    }
+
     fn parsed() -> Receipt {
         let document = Html::parse_document(FIXTURE);
         assert_eq!(FreshDirect2026.supports(&document), Some(Confidence(90)));
@@ -387,10 +429,7 @@ mod tests {
     fn the_synthetic_receipt_parses_into_six_lines_that_reconcile() {
         let receipt = parsed();
         assert_eq!(receipt.order_number.as_str(), "12345678901");
-        assert_eq!(
-            receipt.delivery_date,
-            NaiveDate::from_ymd_opt(2026, 3, 3).expect("date")
-        );
+        assert_eq!(receipt.delivery_date, jiff::civil::date(2026, 3, 3));
         assert_eq!(receipt.delivery_window.as_deref(), Some("8:00am - 10:00am"));
         assert_eq!(receipt.lines.len(), 6);
         assert_eq!(receipt.totals.subtotal, Money::from_cents(4777));

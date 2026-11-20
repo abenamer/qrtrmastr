@@ -116,7 +116,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     print!("{}", render_simple(&report));
                 }
             } else {
-                let as_of = as_of.unwrap_or_else(|| chrono::Local::now().date_naive());
+                let as_of = as_of.unwrap_or_else(|| jiff::ZonedDateTime::now().date());
                 let options = DueOptions {
                     include_tentative,
                     include_lapsed,

@@ -8,7 +8,8 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use thiserror::Error;
 
 use crate::domain::identity::Normalized;
@@ -92,7 +93,7 @@ pub trait MailSource {
 pub struct NewRawMessage {
     pub platform: Platform,
     pub key: MessageKey,
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
     pub subject: String,
     pub kind: MessageKind,
     pub dkim_pass: bool,
@@ -131,7 +132,7 @@ pub struct PendingMessage {
     pub key: MessageKey,
     pub kind: MessageKind,
     pub dkim_pass: bool,
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
     pub body_html: Option<String>,
     pub parse_state: ParseState,
     pub version: i32,
@@ -142,7 +143,7 @@ pub struct PendingMessage {
 pub struct StoredBody {
     pub platform: Platform,
     pub key: MessageKey,
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
     pub body_html: Option<String>,
 }
 
@@ -199,7 +200,7 @@ pub trait GroceryStore {
     /// and version; nothing is written then.
     async fn finish_parse(&self, finish: &ParseFinish<'_>) -> Result<(), StoreError>;
     async fn purchases(&self) -> Result<Vec<Purchase>, StoreError>;
-    async fn delivery_dates(&self) -> Result<Vec<NaiveDate>, StoreError>;
+    async fn delivery_dates(&self) -> Result<Vec<Date>, StoreError>;
     async fn muted_products(&self) -> Result<HashSet<ProductId>, StoreError>;
 }
 

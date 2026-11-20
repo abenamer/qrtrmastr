@@ -2,7 +2,7 @@
 //! whether the parser read it right. A parser (an adapter) produces a [`Receipt`]; the domain
 //! owns the shape and [`reconcile`] (REAS-ARCH-005).
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Serialize;
 
 use super::ids::OrderNumber;
@@ -137,7 +137,7 @@ pub struct Totals {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Receipt {
     pub order_number: OrderNumber,
-    pub delivery_date: NaiveDate,
+    pub delivery_date: Date,
     pub delivery_window: Option<String>,
     pub lines: Vec<LineItem>,
     pub anomalies: Vec<Anomaly>,
@@ -248,7 +248,7 @@ mod tests {
     fn receipt(lines: Vec<LineItem>, subtotal: i64, total: i64) -> Receipt {
         Receipt {
             order_number: OrderNumber::parse("12345678901").expect("order number"),
-            delivery_date: NaiveDate::from_ymd_opt(2026, 3, 3).expect("date"),
+            delivery_date: jiff::civil::date(2026, 3, 3),
             delivery_window: None,
             lines,
             anomalies: Vec::new(),

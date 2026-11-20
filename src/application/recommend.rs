@@ -1,6 +1,6 @@
 //! `qm due`: what the history says you are about to run out of.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Serialize;
 
 use super::ports::{Catalog, GroceryStore, ProductLabel, StoreError};
@@ -26,7 +26,7 @@ pub struct DueRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DueReport {
-    pub as_of: NaiveDate,
+    pub as_of: Date,
     pub orders: usize,
     pub order_cadence_days: Option<i64>,
     pub rows: Vec<DueRow>,
@@ -56,11 +56,7 @@ impl<S: GroceryStore + Catalog> Due<S> {
     }
 
     /// The gap rule. `as_of` is supplied by the caller; the domain never reads the clock.
-    pub async fn run(
-        &self,
-        as_of: NaiveDate,
-        options: DueOptions,
-    ) -> Result<DueReport, StoreError> {
+    pub async fn run(&self, as_of: Date, options: DueOptions) -> Result<DueReport, StoreError> {
         let purchases = self.store.purchases().await?;
         let dates = self.store.delivery_dates().await?;
         let muted = self.store.muted_products().await?;
@@ -125,6 +121,6 @@ impl<S: GroceryStore + Catalog> Due<S> {
     }
 }
 
-fn distinct_orders(dates: &[NaiveDate]) -> usize {
+fn distinct_orders(dates: &[Date]) -> usize {
     dates.len()
 }
