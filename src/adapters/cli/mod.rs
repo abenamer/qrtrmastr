@@ -1,6 +1,8 @@
 //! The command line, an inbound adapter: it turns arguments into use-case calls in `main.rs`
 //! and renders the reports the use cases return.
 
+pub mod page;
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -87,6 +89,10 @@ pub enum Command {
         /// Print JSON instead of a table.
         #[arg(long)]
         json: bool,
+        /// Print a web page instead of a table: `qm due --html > ~/next-order.html`, then open
+        /// the file in a browser. Not with --gap or --simple.
+        #[arg(long, conflicts_with_all = ["json", "gap", "simple"])]
+        html: bool,
     },
     /// Add an item to your next order by hand, with the reason. `qm due` lists your additions
     /// until an order is delivered after them. Without --reason the command asks.
