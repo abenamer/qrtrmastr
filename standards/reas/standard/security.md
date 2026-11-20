@@ -56,8 +56,8 @@ A dependency with a build script or a proc-macro runs code on the build machine;
 Prefer a version published more than a few days ago; flag a version published within days of the change for operator review.
 List each dependency that reads outside data and contains `unsafe` code.
 Review that unsafe code with `cargo vet` or a recorded manual review, or replace the dependency, before the first release that uses it.
-`cargo geiger` counts unsafe items; it does not review them.
-Document the project's own unsafe code as [REAS-SEC-004](#reas-sec-004) specifies.
+`cargo geiger` counts unsafe items; it does not review them. [REAS-NATIVE-002](native-code.md#reas-native-002) owns the count and its baseline.
+Document the project's own unsafe code as [REAS-SEC-004](#reas-sec-004) specifies, and treat every crossing into native code as [Native code](native-code.md) specifies.
 
 ### Verification
 
@@ -198,14 +198,12 @@ State the conditions and why they hold at that point.
 Do one unsafe operation in each `unsafe` block.
 For each public unsafe function, document the caller's obligations in a `# Safety` section.
 For an unsafe abstraction, test the boundary conditions.
-Run Miri on the module's tests in CI.
-Where Miri cannot run, for example across FFI, run AddressSanitizer.
-Record the Miri and sanitizer results, including checks that did not run.
+Exercise the module under Miri and, where Miri cannot execute the path, under a sanitizer, as [REAS-NATIVE-004](native-code.md#reas-native-004) specifies.
 
 ### Verification
 
 - Lint: the rustc `unsafe_code` lint; `clippy::undocumented_unsafe_blocks` and `clippy::multiple_unsafe_ops_per_block` set to `deny`.
-- CI: `cargo miri test` for the crate that contains the module.
+- CI: the Miri and sanitizer jobs of [REAS-NATIVE-004](native-code.md#reas-native-004).
 - Review question: which line of the safe API checks each precondition, and which `SAFETY` comment depends on it?
 
 <a id="reas-sec-005"></a>

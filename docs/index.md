@@ -49,7 +49,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0012](decisions/0012-the-next-order-as-a-page-that-is-a-file.md) - The next order as a page that is a file.
 * [ADR 0013](decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md) - New receipts are fetched from the Gmail API.
 * [ADR 0014](decisions/0014-dates-and-times-with-jiff-not-chrono.md) - Dates and times with jiff, not chrono.
-* [ADR 0015](decisions/0015-reas-1-6-0-draft-and-the-order-of-its-gaps.md) - REAS 1.6.0-draft, and the order in which its gaps close.
+* [ADR 0015](decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) - REAS 1.7.0-draft, and the order in which its gaps close.
 
 # Log
 
