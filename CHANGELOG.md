@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm due` counts the sizes of one product as one, and leaves out a product bought in bulk until the stock is expected to run out. [ADR 0010](docs/decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md).
 - `qm due` lists the products most often in your latest orders (the habit rule, `--top N`); the gap rule moved to `--gap`. A backtest over 60 held-out orders is in [ADR 0009](docs/decisions/0009-qm-due-ranks-by-recent-habit.md).
 - Receipts parse: the FreshDirect parser, version 2, reads the real receipt layout of 2017 to 2026, and a receipt without a DKIM pass is parsed and its order tagged `non-verified` instead of refused. Migration `0004_order_sender_check.sql`. [ADR 0008](docs/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md).
 - Redaction, versions 3 to 7: a pass for a long term without a word boundary; card digits after a brand, the word "card" or a wallet name; an email address is removed whole when a term inside it, in the local part or in the domain, was replaced first; the terms are replaced before the phone numbers as well as after, so the country code of a phone number no longer takes the last digit of the ZIP code of your address. The privacy canary's term mode skips the owner segment of a GitHub address. It scans a file with a NUL or a byte that is not UTF-8 as text, where it passed such a file before.

@@ -231,6 +231,7 @@ pub struct ProductLabel {
     pub id: ProductId,
     pub display_name: String,
     pub size_text: Option<String>,
+    pub sold_by: SoldBy,
     pub department: Option<String>,
     pub latest_raw_name: String,
 }

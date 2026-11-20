@@ -7,6 +7,7 @@
 pub mod identity;
 pub mod ids;
 pub mod money;
+pub mod pack;
 pub mod receipt;
 pub mod recommend;
 pub mod states;
