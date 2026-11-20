@@ -45,6 +45,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0009](decisions/0009-qm-due-ranks-by-recent-habit.md) - qm due ranks by recent habit.
 * [ADR 0010](decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md) - Sizes of one product count as one, and a bulk purchase is a stock.
 * [ADR 0011](decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md) - Essentials, extras, reminders, and additions with a reason.
+* [ADR 0012](decisions/0012-the-next-order-as-a-page-that-is-a-file.md) - The next order as a page that is a file.
 * [ADR 0014](decisions/0014-dates-and-times-with-jiff-not-chrono.md) - Dates and times with jiff, not chrono.
 
 # Log

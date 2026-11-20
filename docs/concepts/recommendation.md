@@ -35,6 +35,8 @@ Four lists ([ADR 0011](/decisions/0011-essentials-extras-reminders-and-additions
 * **Remember this?**: `--remember` products, 5 by default, that are in at least 3 orders of the history and in none of the latest 20. A shuffle picks them; its seed is the day, or `--seed`. It is a question, not a prediction.
 * **Your additions**: what you added with `qm add`, each with its reason: ran out, almost running out, making a recipe, new food to try, repeat favorite. An addition is listed until an order is delivered after the day it was added.
 
+`qm due --html` prints the four lists as one web page with a box to tick for each product ([ADR 0012](/decisions/0012-the-next-order-as-a-page-that-is-a-file.md)).
+
 The history gives about a third of an order. The additions are how the rest of the list is made, and their reasons are kept as data for a later rule.
 
 ## The gap rule (`--gap`)

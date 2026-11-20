@@ -12,6 +12,7 @@ use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use qrtrmastr::adapters::cli::page::render_habit_page;
 use qrtrmastr::adapters::cli::{
     Cli, Command, FixtureAction, ask_reason, render_added, render_due, render_habit, render_import,
     render_simple,
@@ -134,6 +135,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             gap,
             remember,
             seed,
+            html,
         } => {
             let store = connect(&settings).await?;
             let due = Due::new(store, settings.file.recommend.thresholds());
@@ -150,7 +152,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     }),
                 };
                 let report = due.run_habit(options, as_of).await?;
-                if json {
+                if html {
+                    print!("{}", render_habit_page(&report));
+                } else if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     print!("{}", render_habit(&report));

@@ -18,3 +18,6 @@ __pycache__/
 !/backups/.gitkeep
 *.dump
 *.sql.gz
+
+# The page of `qm due --html` holds your purchase history; it never enters git (ADR 0012).
+/*.html

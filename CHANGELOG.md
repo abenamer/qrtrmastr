@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm due --html` prints the next order as a web page; `scripts/due_page.sh` writes it to your exports directory. [ADR 0012](docs/decisions/0012-the-next-order-as-a-page-that-is-a-file.md).
 - `qm due` prints essentials, extras, a shuffled "remember this?" list and your own additions. `qm add ITEM` adds an item by hand and asks for the reason (ran out, almost running out, making a recipe, new food to try, repeat favorite); `qm drop NUMBER` removes it. Migrations `0005_list_additions.sql`, `0006_addition_reason_running_low.sql`. [ADR 0011](docs/decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md).
 - `qm due` counts the sizes of one product as one, and leaves out a product bought in bulk until the stock is expected to run out. [ADR 0010](docs/decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md).
 - `qm due` lists the products most often in your latest orders (the habit rule, `--top N`); the gap rule moved to `--gap`. A backtest over 60 held-out orders is in [ADR 0009](docs/decisions/0009-qm-due-ranks-by-recent-habit.md).
