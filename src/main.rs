@@ -130,9 +130,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         } => {
             let store = connect(&settings).await?;
             let due = Due::new(store, settings.file.recommend.thresholds());
+            let as_of = as_of.unwrap_or_else(|| jiff::ZonedDateTime::now().date());
             if !simple && !gap {
                 // The habit rule is the default (ADR 0009).
-                let report = due.run_habit(top).await?;
+                let report = due.run_habit(top, as_of).await?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
@@ -146,7 +147,6 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     print!("{}", render_simple(&report));
                 }
             } else {
-                let as_of = as_of.unwrap_or_else(|| jiff::ZonedDateTime::now().date());
                 let options = DueOptions {
                     include_tentative,
                     include_lapsed,

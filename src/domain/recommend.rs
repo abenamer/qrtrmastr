@@ -5,10 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use jiff::civil::Date;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::Serialize;
 
 use super::ids::{OrderNumber, ProductId};
 use super::money::{Money, Quantity};
+use super::pack::PackAmount;
 
 /// One line of one order, read through its alias to a product: the `purchases` view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +20,76 @@ pub struct Purchase {
     pub delivery_date: Date,
     pub quantity: Quantity,
     pub price: Money,
+    /// How much the line brought, to compare one purchase with another: the billed quantity,
+    /// or after [`merge_variants`] the quantity times the pack amount.
+    pub units: Decimal,
+}
+
+/// One product as [`merge_variants`] sees it: its name and what one pack of it holds. `pack`
+/// is `None` for a product sold by weight, whose quantity is the amount already, and for a
+/// size text that is not understood.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Variant<'a> {
+    pub product: ProductId,
+    pub name: &'a str,
+    pub pack: Option<PackAmount>,
+}
+
+/// Joins the sizes of one product (ADR 0010). Products with exactly the same name become the
+/// one of them bought last, so a case and a small pack share one history. When every size of
+/// a name is understood in one dimension, `units` is the quantity times the pack amount;
+/// otherwise it stays the quantity. A product that no variant names is left as it is.
+pub fn merge_variants(purchases: &[Purchase], variants: &[Variant<'_>]) -> Vec<Purchase> {
+    let mut by_name: BTreeMap<&str, Vec<&Variant<'_>>> = BTreeMap::new();
+    for variant in variants {
+        by_name.entry(variant.name).or_default().push(variant);
+    }
+    let mut last_bought: BTreeMap<ProductId, Date> = BTreeMap::new();
+    for purchase in purchases {
+        let date = last_bought
+            .entry(purchase.product)
+            .or_insert(purchase.delivery_date);
+        *date = (*date).max(purchase.delivery_date);
+    }
+    // product -> (the product that stands for its name, the amount of one pack)
+    let mut merged: BTreeMap<ProductId, (ProductId, Decimal)> = BTreeMap::new();
+    for group in by_name.values().filter(|group| group.len() > 1) {
+        let Some(canonical) = group
+            .iter()
+            .filter_map(|v| last_bought.get(&v.product).map(|date| (*date, v.product)))
+            .max()
+            .map(|(_, product)| product)
+        else {
+            continue;
+        };
+        let comparable = group.iter().all(|v| {
+            v.pack.map(|p| p.dimension) == group[0].pack.map(|p| p.dimension) && v.pack.is_some()
+        });
+        for variant in group {
+            let amount = match variant.pack {
+                Some(pack) if comparable => pack.amount,
+                _ => Decimal::ONE,
+            };
+            merged.insert(variant.product, (canonical, amount));
+        }
+    }
+    purchases
+        .iter()
+        .map(|purchase| match merged.get(&purchase.product) {
+            Some((canonical, amount)) => Purchase {
+                product: *canonical,
+                // A pack amount has at most six digits and a quantity ten, so the product
+                // fits; the quantity alone stands in if it ever did not.
+                units: purchase
+                    .quantity
+                    .as_decimal()
+                    .checked_mul(*amount)
+                    .unwrap_or_else(|| purchase.quantity.as_decimal()),
+                ..purchase.clone()
+            },
+            None => purchase.clone(),
+        })
+        .collect()
 }
 
 /// The knobs of the gap rule. They live in configuration so they can be tuned without a build.
@@ -215,6 +287,9 @@ pub fn rank(recommendations: &mut [Recommendation]) {
 /// How many of the latest orders the habit rule ranks by, and how many break a tie.
 pub const HABIT_RECENT_ORDERS: usize = 20;
 pub const HABIT_LONG_ORDERS: usize = 50;
+/// A last purchase of at least this many usual amounts is a stock: the product is not needed
+/// until that many usual gaps have passed.
+pub const STOCKED_RATIO: u32 = 3;
 
 /// The habit rule: how often a product is in the latest orders. It is the default of `qm due`
 /// because, on held-out orders, it names what the next order holds about twice as often as the
@@ -232,12 +307,59 @@ pub struct HabitRecommendation {
     pub last_bought: Date,
     pub typical_quantity: Quantity,
     pub last_price: Money,
+    /// Set when the last purchase was a stock ([`STOCKED_RATIO`]) that should last past
+    /// `as_of`: the day it is expected to run out.
+    pub stocked_until: Option<Date>,
+}
+
+/// The day a bulk purchase is expected to last until, when the last purchase of `history`
+/// (sorted by date) was one. The usual amount is the median over the earlier purchase days and
+/// the usual gap the median between all of them; a product with fewer than three purchase days
+/// has no usual amount. The amounts and the dates come from receipts: every step that could
+/// overflow is checked, and a history that cannot be computed with is not a stock.
+fn stocked_until(history: &[&Purchase]) -> Option<Date> {
+    let mut by_day: BTreeMap<Date, Decimal> = BTreeMap::new();
+    for purchase in history {
+        let units = by_day.entry(purchase.delivery_date).or_default();
+        *units = units.checked_add(purchase.units)?;
+    }
+    if by_day.len() < 3 {
+        return None;
+    }
+    let (last_day, last_units) = by_day.iter().next_back().map(|(d, u)| (*d, *u))?;
+    let mut earlier: Vec<Decimal> = by_day.values().rev().skip(1).copied().collect();
+    earlier.sort();
+    let mid = earlier.len() / 2;
+    let usual = if earlier.len() % 2 == 1 {
+        earlier[mid]
+    } else {
+        earlier[mid - 1]
+            .checked_add(earlier[mid])?
+            .checked_div(Decimal::TWO)?
+    };
+    if usual <= Decimal::ZERO {
+        return None;
+    }
+    let ratio = last_units.checked_div(usual)?;
+    if ratio < Decimal::from(STOCKED_RATIO) {
+        return None;
+    }
+    let mut gaps: Vec<i64> = by_day
+        .keys()
+        .zip(by_day.keys().skip(1))
+        .map(|(a, b)| days_between(*a, *b))
+        .collect();
+    let gap = median_days(&mut gaps)?;
+    let days = Decimal::from(gap).checked_mul(ratio)?.round().to_i64()?;
+    last_day
+        .checked_add(jiff::Span::new().try_days(days).ok()?)
+        .ok()
 }
 
 /// Every product in at least one of the latest [`HABIT_RECENT_ORDERS`] orders, the most
 /// habitual first: by its count in those orders, then in the latest [`HABIT_LONG_ORDERS`],
 /// then by the later last purchase.
-pub fn habit(purchases: &[Purchase]) -> Vec<HabitRecommendation> {
+pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
     let orders: BTreeMap<&OrderNumber, Date> = purchases
         .iter()
         .map(|p| (&p.order_number, p.delivery_date))
@@ -284,6 +406,7 @@ pub fn habit(purchases: &[Purchase]) -> Vec<HabitRecommendation> {
                 last_bought: last.delivery_date,
                 typical_quantity: median_quantity(&mut quantities).expect("at least one"),
                 last_price: last.price,
+                stocked_until: stocked_until(&history).filter(|day| *day > as_of),
             })
         })
         .collect();
@@ -370,6 +493,7 @@ mod tests {
             delivery_date: date,
             quantity: Quantity::parse(qty).expect("qty"),
             price: Money::from_cents(579),
+            units: Decimal::from_str_exact(qty).expect("qty"),
         }
     }
 
@@ -408,7 +532,7 @@ mod tests {
                 p.push(buy(4, &order, date, "3"));
             }
         }
-        let r = habit(&p);
+        let r = habit(&p, d(2026, 3, 1));
         let listed: Vec<(i64, usize, usize)> = r
             .iter()
             .map(|x| (x.product.get(), x.in_recent, x.in_long))
@@ -416,7 +540,119 @@ mod tests {
         assert_eq!(listed, [(1, 20, 50), (4, 10, 25), (3, 5, 5)]);
         assert_eq!((r[0].recent_orders, r[0].long_orders), (20, 50));
         assert_eq!(r[1].typical_quantity, Quantity::parse("3").expect("q"));
-        assert!(habit(&[]).is_empty());
+        assert!(habit(&[], d(2026, 3, 1)).is_empty());
+        assert!(r.iter().all(|x| x.stocked_until.is_none()));
+    }
+
+    #[test]
+    fn a_case_and_a_small_pack_are_one_product_and_the_case_is_a_stock() {
+        use crate::domain::pack::pack_amount;
+        // Product 1 is a pack of 3, bought two at a time every 14 days; product 2 is the same
+        // name as a case of 36, bought once, last. Product 3 has another name.
+        let mut p = Vec::new();
+        for n in 0..5i64 {
+            let date = d(2026, 1, 1) + jiff::Span::new().days(n * 14);
+            p.push(buy(1, &format!("1{n:010}"), date, "2"));
+            p.push(buy(3, &format!("1{n:010}"), date, "1"));
+        }
+        let case_day = d(2026, 3, 12);
+        p.push(buy(2, "10000000009", case_day, "1"));
+        let variants = [
+            Variant {
+                product: ProductId::new(1).expect("id"),
+                name: "Seaweed Snack",
+                pack: pack_amount("3ct, 0.17oz ea"),
+            },
+            Variant {
+                product: ProductId::new(2).expect("id"),
+                name: "Seaweed Snack",
+                pack: pack_amount("36ct, 0.17oz ea"),
+            },
+            Variant {
+                product: ProductId::new(3).expect("id"),
+                name: "Milk",
+                pack: pack_amount("1/2 gallon"),
+            },
+        ];
+        let merged = merge_variants(&p, &variants);
+        // The name is now the product bought last, the case; the units are pieces.
+        assert!(merged.iter().all(|x| x.product.get() != 1));
+        assert_eq!(merged[0].units, Decimal::from(6));
+        assert_eq!(merged.last().expect("case").units, Decimal::from(36));
+        // A product alone under its name keeps its quantity as units.
+        assert_eq!(merged[1].units, Decimal::ONE);
+
+        // 36 pieces against the usual 6: six usual gaps of 14 days from the case.
+        let r = habit(&merged, d(2026, 3, 20));
+        let seaweed = r.iter().find(|x| x.product.get() == 2).expect("listed");
+        assert_eq!(seaweed.in_recent, 6);
+        assert_eq!(seaweed.last_bought, case_day);
+        assert_eq!(
+            seaweed.stocked_until,
+            Some(case_day + jiff::Span::new().days(84))
+        );
+        let milk = r.iter().find(|x| x.product.get() == 3).expect("listed");
+        assert_eq!(milk.stocked_until, None);
+        // After the stock has run out, the product is listed as before.
+        let later = habit(&merged, d(2026, 7, 1));
+        assert!(later.iter().all(|x| x.stocked_until.is_none()));
+
+        // Sizes that do not compare are still one product, with the quantity as units.
+        let odd = [
+            Variant {
+                pack: None,
+                ..variants[0]
+            },
+            variants[1],
+        ];
+        let merged = merge_variants(&p, &odd);
+        assert_eq!(merged.last().expect("case").units, Decimal::ONE);
+        assert_eq!(merged.last().expect("case").product.get(), 2);
+    }
+
+    #[test]
+    fn amounts_too_large_to_compute_with_are_not_a_stock_and_do_not_stop_the_rule() {
+        // Four purchase days, two weeks apart, of one product. `units` is what a hostile
+        // size text or quantity could make of it.
+        let history = |units: [Decimal; 4]| -> Vec<Purchase> {
+            units
+                .iter()
+                .enumerate()
+                .map(|(n, units)| Purchase {
+                    units: *units,
+                    ..buy(
+                        1,
+                        &format!("1{n:010}"),
+                        d(2026, 1, 1)
+                            + jiff::Span::new().days(i64::try_from(n).expect("small") * 14),
+                        "1",
+                    )
+                })
+                .collect()
+        };
+        let tiny = Decimal::new(1, 10);
+        for units in [
+            // The sum of a day, the mean of two days, the ratio and the days all overflow.
+            [Decimal::MAX, Decimal::MAX, Decimal::MAX, Decimal::MAX],
+            [tiny, tiny, tiny, Decimal::MAX],
+            [Decimal::ONE, Decimal::ONE, Decimal::ONE, Decimal::MAX],
+        ] {
+            let mut purchases = history(units);
+            // A second line on the last day, so that the sum of that day overflows too.
+            purchases.push(purchases[3].clone());
+            let listed = habit(&purchases, d(2026, 3, 1));
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].stocked_until, None);
+        }
+        // An amount that is large and still computes is a stock, far ahead or not at all,
+        // never a panic: a million usual amounts, two weeks each.
+        let far = history([
+            Decimal::ONE,
+            Decimal::ONE,
+            Decimal::ONE,
+            Decimal::from(1_000_000),
+        ]);
+        assert_eq!(habit(&far, d(2026, 3, 1))[0].stocked_until, None);
     }
 
     #[test]

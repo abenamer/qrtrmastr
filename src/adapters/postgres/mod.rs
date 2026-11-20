@@ -102,7 +102,7 @@ use crate::application::ports::{
 use crate::domain::ids::{AliasId, MessageKey, OrderNumber, ProductId, RawMessageId};
 use crate::domain::money::{Money, Quantity};
 use crate::domain::recommend::Purchase;
-use crate::domain::states::{KeyKind, MessageKind, ParseState, Platform};
+use crate::domain::states::{KeyKind, MessageKind, ParseState, Platform, SoldBy};
 
 fn invalid_row(table: &'static str, id: i64, reason: impl ToString) -> StoreError {
     StoreError::InvalidRow {
@@ -406,6 +406,7 @@ impl GroceryStore for PostgresStore {
                         .map_err(|e| invalid_row("purchases", id, e))?,
                     price: Money::from_decimal(row.final_price)
                         .map_err(|e| invalid_row("purchases", id, e))?,
+                    units: row.billed_qty,
                 })
             })
             .collect()
@@ -437,6 +438,7 @@ struct LabelRow {
     id: i64,
     display_name: String,
     size_text: Option<String>,
+    sold_by: String,
     department: Option<String>,
     latest_raw_name: Option<String>,
 }
@@ -507,7 +509,7 @@ impl Catalog for PostgresStore {
 
     async fn product_labels(&self) -> Result<Vec<ProductLabel>, StoreError> {
         let rows: Vec<LabelRow> = sqlx::query_as(
-            "select p.id, p.display_name, p.size_text, p.department, \
+            "select p.id, p.display_name, p.size_text, p.sold_by, p.department, \
                     (select l.raw_name from grocery_order_lines l \
                        join product_aliases a on a.id = l.alias_id \
                        join grocery_orders o on o.order_number = l.order_number \
@@ -527,6 +529,10 @@ impl Catalog for PostgresStore {
                         .unwrap_or_else(|| row.display_name.clone()),
                     display_name: row.display_name,
                     size_text: row.size_text,
+                    sold_by: row
+                        .sold_by
+                        .parse::<SoldBy>()
+                        .map_err(|e| invalid_row("products", id, e))?,
                     department: row.department,
                 })
             })

@@ -17,7 +17,7 @@ generated: { by: "process:claude-code", at: "2026-11-18T19:00:00Z" }
 * The default of `qm due` is the habit rule: the products most often in the latest 20 orders, ties broken by the latest 50 orders, then by the later last purchase. `--top N` sets the length of the list; the default is 15.
 * The gap rule stays under `--gap` and the simple rule under `--simple`. Neither changed.
 * No fitted model ships. On this history it does not beat the habit rule.
-* Product variants are not merged by similar names. Such a merge changed the result by one point and joined products that differ (large and extra large eggs).
+* Product variants are not merged by similar names. Such a merge changed the result by one point and joined products that differ (large and extra large eggs). [ADR 0010](/decisions/0010-sizes-of-one-product-count-as-one-and-a-bulk-purchase-is-a-stock.md) later joined products with exactly the same name.
 
 ## Consequences
 

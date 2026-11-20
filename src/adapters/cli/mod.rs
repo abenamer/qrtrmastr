@@ -211,10 +211,24 @@ fn habit_table(out: &mut String, rows: &[crate::application::recommend::HabitRow
 
 pub fn render_habit(report: &HabitReport) -> String {
     let mut out = format!(
-        "{} orders; the products most often in your latest orders:\n",
-        report.orders
+        "as of {}, {} orders; the products most often in your latest orders:\n",
+        report.as_of, report.orders
     );
     habit_table(&mut out, &report.rows);
+    if !report.stocked.is_empty() {
+        out.push('\n');
+    }
+    for row in &report.stocked {
+        let r = &row.recommendation;
+        if let Some(until) = r.stocked_until {
+            out.push_str(&format!(
+                "stocked, left out: {} bought {}, expected to last until {}\n",
+                truncate(&label(&row.product), 56),
+                r.last_bought,
+                until
+            ));
+        }
+    }
     out
 }
 

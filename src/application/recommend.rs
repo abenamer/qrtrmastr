@@ -4,10 +4,12 @@ use jiff::civil::Date;
 use serde::Serialize;
 
 use super::ports::{Catalog, GroceryStore, ProductLabel, StoreError};
+use crate::domain::pack::pack_amount;
 use crate::domain::recommend::{
-    HabitRecommendation, Recommendation, SimpleRecommendation, Status, Thresholds, evaluate, habit,
-    order_cadence, rank, simple,
+    HabitRecommendation, Recommendation, SimpleRecommendation, Status, Thresholds, Variant,
+    evaluate, habit, merge_variants, order_cadence, rank, simple,
 };
+use crate::domain::states::SoldBy;
 
 /// Which items the list shows beyond the ones that are due.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -55,9 +57,13 @@ pub struct HabitRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HabitReport {
+    pub as_of: Date,
     pub orders: usize,
     /// The most habitual products first, cut to the length asked for.
     pub rows: Vec<HabitRow>,
+    /// Habitual products left out of `rows` because the last purchase was a stock that
+    /// should last past `as_of`.
+    pub stocked: Vec<HabitRow>,
 }
 
 pub struct Due<S: GroceryStore + Catalog> {
@@ -110,30 +116,41 @@ impl<S: GroceryStore + Catalog> Due<S> {
     }
 
     /// The habit rule, the default (ADR 0009): the products most often in the latest orders,
-    /// the first `top` of them.
-    pub async fn run_habit(&self, top: usize) -> Result<HabitReport, StoreError> {
+    /// the first `top` of them. The sizes of one product count as one (ADR 0010), and a
+    /// product whose last purchase was a stock that lasts past `as_of` is reported apart.
+    pub async fn run_habit(&self, top: usize, as_of: Date) -> Result<HabitReport, StoreError> {
         let purchases = self.store.purchases().await?;
         let dates = self.store.delivery_dates().await?;
         let muted = self.store.muted_products().await?;
         let labels = self.store.product_labels().await?;
-        let rows = habit(&purchases)
+        let variants: Vec<Variant<'_>> = labels
+            .iter()
+            .map(|label| Variant {
+                product: label.id,
+                name: &label.display_name,
+                pack: match label.sold_by {
+                    SoldBy::Each => label.size_text.as_deref().and_then(pack_amount),
+                    SoldBy::Weight => None,
+                },
+            })
+            .collect();
+        let merged = merge_variants(&purchases, &variants);
+        let label_of = |product| labels.iter().find(|label| label.id == product).cloned();
+        let (stocked, listed): (Vec<HabitRow>, Vec<HabitRow>) = habit(&merged, as_of)
             .into_iter()
             .filter(|r| !muted.contains(&r.product))
             .filter_map(|recommendation| {
-                labels
-                    .iter()
-                    .find(|label| label.id == recommendation.product)
-                    .cloned()
-                    .map(|product| HabitRow {
-                        product,
-                        recommendation,
-                    })
+                label_of(recommendation.product).map(|product| HabitRow {
+                    product,
+                    recommendation,
+                })
             })
-            .take(top)
-            .collect();
+            .partition(|row| row.recommendation.stocked_until.is_some());
         Ok(HabitReport {
+            as_of,
             orders: distinct_orders(&dates),
-            rows,
+            rows: listed.into_iter().take(top).collect(),
+            stocked,
         })
     }
 
