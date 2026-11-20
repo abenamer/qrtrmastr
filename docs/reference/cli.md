@@ -46,6 +46,8 @@ The command runs as a container: `docker compose run --rm qm <command>` ([Develo
 | `--simple` | The simple rule instead: in at least half your orders and missing from the last. |
 | `--json` | The same report as JSON: the product label, `product_id`, `times_bought`, `usual_gap_days`, `last_bought`, `days_since`, `typical_quantity`, `last_price`, and `status` with its `status` tag and its number. |
 
+A name on a receipt can hold a character that a terminal obeys: an escape sequence, a line break, a direction mark. The tables, the report of `qm import`, the question of `qm add` and the error line show such a character as text, `\u{1b}` for the escape character. `--json` writes it as a JSON escape, `\u001b`, and the value that a program reads is the same. `--html` has the encoding of HTML; see [where a text leaves the application](/concepts/application.md#where-a-text-leaves-the-application).
+
 ## The first run
 
 `qm --help` and `qm import --help` say what the tool needs: a Google Takeout export of your FreshDirect label, and your redaction terms in `config.toml` ([Export your FreshDirect mail and import it](/runbooks/takeout-export.md)). The two errors a first run meets name the fix: an export that cannot be opened prints the path it tried, the file to look for inside the unzipped archive and the runbook; a missing `[redaction]` section prints the section to add with placeholder values and where the file lives (`/config` in the container is `QM_CONFIG_DIR` on the host).

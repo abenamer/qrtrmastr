@@ -4,7 +4,7 @@
 
 use crate::application::recommend::{HabitReport, HabitRow};
 
-use super::label;
+use super::label_text;
 
 /// A text as HTML character data or a quoted attribute value.
 fn escape(text: &str) -> String {
@@ -93,7 +93,7 @@ fn habit_rows(out: &mut String, rows: &[HabitRow], ticked: bool) {
             "in {} of your latest {} orders \u{b7} last bought {} \u{b7} usually {} \u{b7} last paid {}",
             r.in_recent, r.recent_orders, r.last_bought, r.typical_quantity, r.last_price
         );
-        tick_row(out, &label(&row.product), &meta, ticked);
+        tick_row(out, &label_text(&row.product), &meta, ticked);
     }
     out.push_str("</ul>\n");
 }
@@ -160,7 +160,7 @@ pub fn render_habit_page(report: &HabitReport) -> String {
                 "in {} orders \u{b7} last bought {} \u{b7} last paid {}",
                 row.reminder.orders_with_product, row.reminder.last_bought, row.reminder.last_price
             );
-            tick_row(&mut out, &label(&row.product), &meta, false);
+            tick_row(&mut out, &label_text(&row.product), &meta, false);
         }
         out.push_str("</ul>\n");
     }
@@ -175,7 +175,7 @@ pub fn render_habit_page(report: &HabitReport) -> String {
             if let Some(until) = row.recommendation.stocked_until {
                 out.push_str(&format!(
                     "<li><span class=\"name\">{}</span><br><span class=\"meta\">bought {} \u{b7} expected to last until {}</span></li>\n",
-                    escape(&label(&row.product)),
+                    escape(&label_text(&row.product)),
                     row.recommendation.last_bought,
                     until
                 ));
@@ -238,6 +238,83 @@ mod tests {
                 stocked_until,
             },
         }
+    }
+
+    /// A report with one product in each list that prints a product, all with the same name.
+    fn report_with_name(name: &str) -> HabitReport {
+        HabitReport {
+            as_of: day(7),
+            orders: 42,
+            essentials: vec![habit_row(1, name, None)],
+            extras: vec![habit_row(2, name, None)],
+            remember: vec![ReminderRow {
+                product: product(3, name),
+                reminder: Reminder {
+                    product: ProductId::new(3).expect("id"),
+                    orders_with_product: 16,
+                    last_bought: day(1),
+                    last_price: Money::from_cents(399),
+                },
+            }],
+            seed: 1,
+            additions: vec![Addition {
+                id: AdditionId::new(9).expect("id"),
+                // An item text refuses control characters and admits a direction mark.
+                item: ItemText::parse("miso \u{202e}etsap").expect("text"),
+                product: None,
+                reason: AddReason::NewFood,
+                added_on: day(5),
+            }],
+            stocked: vec![habit_row(4, name, Some(day(30)))],
+        }
+    }
+
+    #[test]
+    fn one_name_from_a_receipt_is_encoded_for_each_sink_and_stays_whole_in_the_report() {
+        // What a forged or a badly built receipt could print as a product name: an escape
+        // sequence that clears the screen, a bell, a line break with a line that looks like
+        // output of the program, the one-character sequence starter, a direction mark, and
+        // the characters that are syntax in HTML and in JSON.
+        let name = "Milk\u{1b}[2J\u{7}\r\nESSENTIALS: forged\u{9b}31m\u{202e}x <b>\"A&B\"</b> \\";
+        let hostile = report_with_name(name);
+        let plain = report_with_name("Milk");
+
+        // The terminal: no character that it obeys, and no line more than for a plain name.
+        let table = super::super::render_habit(&hostile);
+        assert!(
+            !table.contains(|c: char| (c.is_control() && c != '\n') || c == '\u{202e}'),
+            "{table:?}"
+        );
+        assert_eq!(
+            table.lines().count(),
+            super::super::render_habit(&plain).lines().count()
+        );
+        assert!(table.contains("Milk\\u{1b}[2J\\u{7}\\u{d}\\u{a}ESSENTIALS: forged"));
+        assert!(table.contains("miso \\u{202e}etsap"));
+        // The control for the assertions above: the plain name is printed as it is.
+        assert!(super::super::render_habit(&plain).contains("\nMilk (1/2 gallon) "));
+
+        // JSON, as `qm due --json` writes it: valid, nothing that a terminal obeys, and the
+        // name comes back whole.
+        let json = super::super::json_text(&hostile).expect("json");
+        assert!(
+            !json.contains(|c: char| (c.is_control() && c != '\n') || c == '\u{202e}'),
+            "{json:?}"
+        );
+        assert!(json.contains("Milk\\u001b[2J\\u0007\\r\\nESSENTIALS: forged\\u009b31m\\u202ex"));
+        let back: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(back["essentials"][0]["product"]["display_name"], name);
+
+        // The page: the name is text, never markup, and it has the encoding of HTML only. The
+        // encoding of the terminal is not in it, so "Copy ticked" copies the name itself.
+        let page = render_habit_page(&hostile);
+        assert!(page.contains("&lt;b&gt;&quot;A&amp;B&quot;&lt;/b&gt;"));
+        assert!(!page.contains("<b>"));
+        assert!(page.contains("data-name=\"Milk\u{1b}[2J\u{7}"));
+        assert!(!page.contains("\\u{1b}") && !page.contains("\\u001b"));
+
+        // No sink changed the value that the others read.
+        assert_eq!(hostile.essentials[0].product.display_name, name);
     }
 
     #[test]

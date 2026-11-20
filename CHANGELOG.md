@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- A character that a terminal obeys (an escape sequence, a line break, a direction mark) in a product name from a receipt, in the Message-ID of a mail or in a file name is shown as text, `\u{1b}`, in the tables of `qm due`, the report of `qm import` and `qm fetch`, the error line and the log. `qm due --json` writes such a character as a JSON escape; the value is the same.
 - `rust-toolchain.toml` pins Rust 1.99.1 for development and CI, the version the image is built with.
 - A mail whose Message-ID or link holds a `%`, one character and then a character of more than one byte no longer stops `qm import` and `qm fetch`. In a release build an arithmetic overflow stops the program with an error; the number does not wrap. `Cargo.toml` declares the lint levels of REAS 1.6.0-draft; `docs/runbooks/develop.md` says how to work with them.
 - The project follows REAS 1.7.0-draft (it was 1.4.0-draft): the vendored copy in `standards/reas/` is new, the [self-audit](docs/self-audit.md) lists each rule with its status, and [ADR 0015](docs/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) gives the ten steps that close the gaps. No behaviour of `qm` changed.

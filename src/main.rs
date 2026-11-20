@@ -13,10 +13,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::page::render_habit_page;
 use qrtrmastr::adapters::cli::{
-    Cli, Command, FixtureAction, GmailAction, ask_reason, log_line_is_safe, render_added,
-    render_due, render_habit, render_import, render_simple,
+    Cli, Command, FixtureAction, GmailAction, ask_reason, json_text, log_line_is_safe,
+    render_added, render_due, render_habit, render_import, render_simple, terminal_lines,
+    terminal_text,
 };
-use qrtrmastr::adapters::config::Settings;
+use qrtrmastr::adapters::config::{ConfigError, Settings};
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::gmail::{self, Endpoints, GmailApi, GmailError, SignIn, TokenFile};
@@ -75,7 +76,7 @@ fn main() -> ExitCode {
     match runtime.block_on(run(cli)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error:#}");
+            eprintln!("error: {}", error_text(&error));
             ExitCode::FAILURE
         }
     }
@@ -151,6 +152,22 @@ async fn gmail_login(settings: &Settings) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The text of a failed command for the terminal (REAS-SEC-006).
+///
+/// An error can quote a stored value, a path or an answer of a server, so its text is
+/// encoded as one line. A configuration error is the exception: its text is the program's own,
+/// it holds configuration only, and the one for missing redaction terms prints the section to
+/// add over several lines. Its line breaks stay; each line is still encoded. The error must be
+/// the configuration error alone: with a context beside it, the text is one line like any other.
+fn error_text(error: &anyhow::Error) -> String {
+    let text = format!("{error:#}");
+    if error.chain().len() == 1 && error.downcast_ref::<ConfigError>().is_some() {
+        terminal_lines(&text)
+    } else {
+        terminal_text(&text)
+    }
+}
+
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let settings = Settings::load()?;
     match cli.command {
@@ -158,7 +175,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             let store = connect(&settings).await?;
             let report = Migrate::new(store).run().await?;
             for applied in &report.applied {
-                println!("applied {applied}");
+                println!("applied {}", terminal_text(&applied.to_string()));
             }
             println!(
                 "{} applied now, {} already applied",
@@ -247,14 +264,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 if html {
                     print!("{}", render_habit_page(&report));
                 } else if json {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    println!("{}", json_text(&report)?);
                 } else {
                     print!("{}", render_habit(&report));
                 }
             } else if simple {
                 let report = due.run_simple().await?;
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    println!("{}", json_text(&report)?);
                 } else {
                     print!("{}", render_simple(&report));
                 }
@@ -266,7 +283,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 };
                 let report = due.run(as_of, options).await?;
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    println!("{}", json_text(&report)?);
                 } else {
                     print!("{}", render_due(&report));
                 }
@@ -311,11 +328,47 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 Some(body) => match write_fixture(&dir, &body)? {
                     None => anyhow::bail!("message {key} has no HTML body to write"),
                     Some(path) => {
-                        println!("wrote {}", path.display());
+                        println!("wrote {}", terminal_text(&path.display().to_string()));
                         Ok(())
                     }
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn a_configuration_error_keeps_its_lines_and_any_other_error_is_one_line() {
+        // The help for missing redaction terms is several lines of the program's own text.
+        let config = anyhow::Error::from(ConfigError::NoRedactionTerms(PathBuf::from(
+            "/config/a\u{1b}[2J.toml",
+        )));
+        let shown = error_text(&config);
+        assert!(shown.contains("\n\n[redaction]\nnames = "), "{shown:?}");
+        assert!(shown.starts_with("no [redaction] section in /config/a\\u{1b}[2J.toml;"));
+        assert!(!shown.contains('\u{1b}'));
+
+        // A configuration error with a context is not the program's own text alone.
+        let with_context = anyhow::Error::from(ConfigError::NoRedactionTerms(PathBuf::from(
+            "/config/config.toml",
+        )))
+        .context("stored value x\nerror: forged");
+        let shown = error_text(&with_context);
+        assert!(!shown.contains('\n'), "{shown:?}");
+        assert!(shown.starts_with("stored value x\\u{a}error: forged: no [redaction] section"));
+
+        // Any other error can quote outside data: a line break in it would forge a line.
+        let other = anyhow::anyhow!("row 7 holds \"x\nerror: forged\u{1b}[2J\"");
+        let shown = error_text(&other.context("list the purchases"));
+        assert_eq!(
+            shown,
+            "list the purchases: row 7 holds \"x\\u{a}error: forged\\u{1b}[2J\""
+        );
     }
 }

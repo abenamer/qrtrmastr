@@ -185,16 +185,19 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
         out.push_str(&format!("new by platform: {}\n", by_platform.join(", ")));
     }
     for m in &import.malformed {
-        out.push_str(&format!("malformed: {m}\n"));
+        out.push_str(&format!("malformed: {}\n", terminal_text(m)));
     }
     // One line per message up to a screenful; beyond that the causes say more than the keys.
     if import.redaction_failures.len() <= MAX_REFUSED_LINES {
         for r in &import.redaction_failures {
-            out.push_str(&format!("REFUSED, personal data survived redaction: {r}\n"));
+            out.push_str(&format!(
+                "REFUSED, personal data survived redaction: {}\n",
+                terminal_text(r)
+            ));
         }
     }
     for (cause, count) in &import.refused_by_cause {
-        out.push_str(&format!("REFUSED {count}: {cause}\n"));
+        out.push_str(&format!("REFUSED {count}: {}\n", terminal_text(cause)));
     }
     out.push_str(&format!(
         "freshdirect receipts parsed {}, partial {}, failed {}, unsupported {}, left for later {}, anomalies {}",
@@ -207,11 +210,103 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     out
 }
 
-fn label(row_product: &crate::application::ports::ProductLabel) -> String {
+/// A text as one piece of a line of the terminal (REAS-SEC-006).
+///
+/// The terminal is an output context with its own syntax: a control character moves the
+/// cursor, clears the screen or starts an escape sequence, and a direction mark reorders what
+/// the reader sees. A product name comes from a receipt and an error can quote a stored value,
+/// so both are outside data here. Each such character is written as `\u{..}`, which the
+/// terminal shows as text; nothing is removed, so the reader sees that it was there.
+///
+/// The encoding belongs to this sink only. `qm due --json` and the page of `qm due --html`
+/// have their own, and the stored text stays as it is. A backslash is not encoded, so a name
+/// that holds the six characters `\u{1b}` reads like an encoded one; nothing follows from it.
+pub fn terminal_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        if acts_on_a_terminal(character) {
+            out.extend(character.escape_unicode());
+        } else {
+            out.push(character);
+        }
+    }
+    out
+}
+
+/// A text of several lines that the program itself wrote, such as the help of a
+/// configuration error: each line is encoded as [`terminal_text`] does, and the line breaks
+/// stay. Not for a text that can hold outside data, where a line break could forge a line.
+pub fn terminal_lines(text: &str) -> String {
+    text.split('\n')
+        .map(terminal_text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Whether a terminal obeys the character or hides it from the reader: a control character,
+/// a mark that changes the direction of the text after it, one of the two separators that a
+/// terminal can take for a line break, or a tag character, which no terminal shows and which
+/// a program that reads the output still receives. The characters that join an emoji or a
+/// script (the zero-width joiners, the variation selectors) are not in the set: text needs
+/// them, and they move nothing.
+fn acts_on_a_terminal(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{61c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{e0000}'..='\u{e007f}'
+        )
+}
+
+/// A report as JSON for `--json` (REAS-SEC-006).
+///
+/// `serde_json` writes the control characters below U+0020 as escapes, which JSON requires,
+/// and every other character as itself. Standard output is often a terminal, so this
+/// function also writes as `\uXXXX` each other character that a terminal obeys or hides. The
+/// result is the same JSON value: a reader decodes each escape back to the character.
+///
+/// The pass works on the serialized text. That is correct because `serde_json` writes ASCII
+/// only outside a string, and inside a string it never writes a line break as itself; the
+/// only characters the pass changes are therefore inside strings. A `serde_json` raw value
+/// would break that, because it is written as it is; no report holds one.
+///
+/// # Errors
+///
+/// The error of `serde_json` when the value cannot be serialized.
+pub fn json_text<T: serde::Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    let pretty = serde_json::to_string_pretty(value)?;
+    let mut out = String::with_capacity(pretty.len());
+    let mut units = [0u16; 2];
+    for character in pretty.chars() {
+        if character != '\n' && acts_on_a_terminal(character) {
+            for unit in character.encode_utf16(&mut units) {
+                out.push_str(&format!("\\u{unit:04x}"));
+            }
+        } else {
+            out.push(character);
+        }
+    }
+    Ok(out)
+}
+
+/// The name of a product with its size, as the receipt printed them. Each output context
+/// encodes it for itself: the tables through [`label`], the page through its own `escape`.
+fn label_text(row_product: &crate::application::ports::ProductLabel) -> String {
     match &row_product.size_text {
         Some(size) => format!("{} ({size})", row_product.display_name),
         None => row_product.display_name.clone(),
     }
+}
+
+/// The name of a product with its size, for a table on the terminal.
+fn label(row_product: &crate::application::ports::ProductLabel) -> String {
+    terminal_text(&label_text(row_product))
 }
 
 fn status_text(status: Status) -> String {
@@ -314,7 +409,7 @@ pub fn render_habit(report: &HabitReport) -> String {
         out.push_str(&format!(
             "{:>4}  {:<50} {:<16} {:>11}\n",
             addition.id,
-            truncate(addition.item.as_str(), 50),
+            truncate(&terminal_text(addition.item.as_str()), 50),
             addition.reason.phrase(),
             addition.added_on
         ));
@@ -344,7 +439,7 @@ pub fn render_added(added: &Added) -> String {
     format!(
         "added {}: {} ({}){product}\n",
         added.id,
-        added.item,
+        terminal_text(added.item.as_str()),
         added.reason.phrase()
     )
 }
@@ -356,7 +451,7 @@ pub fn ask_reason(
     mut input: impl std::io::BufRead,
     mut output: impl std::io::Write,
 ) -> std::io::Result<Option<AddReason>> {
-    writeln!(output, "Why are you adding {item}?")?;
+    writeln!(output, "Why are you adding {}?", terminal_text(item))?;
     for (n, reason) in AddReason::ALL.iter().enumerate() {
         writeln!(output, "  {}  {}", n + 1, reason.phrase())?;
     }
@@ -504,6 +599,155 @@ mod tests {
         assert!(Cli::try_parse_from(["qm", "launch"]).is_err());
         assert!(Cli::try_parse_from(["qm", "due", "--as-of", "yesterday"]).is_err());
         assert!(Cli::try_parse_from(["qm", "import"]).is_err());
+    }
+
+    #[test]
+    fn a_text_for_the_terminal_keeps_its_letters_and_shows_its_controls_as_text() {
+        // Letters of any script, signs and spaces stay as they are.
+        for plain in [
+            "Whole Milk (1/2 gallon)",
+            "Cr\u{e8}me Fra\u{ee}che, 8oz",
+            "\u{8c46}\u{8150} tofu \u{1f34b} 50% off & more",
+            "",
+        ] {
+            assert_eq!(terminal_text(plain), plain);
+        }
+        // Each character that a terminal obeys is written as text, and nothing is removed.
+        assert_eq!(terminal_text("a\u{1b}[2Jb"), "a\\u{1b}[2Jb");
+        assert_eq!(terminal_text("a\nb\rc\td"), "a\\u{a}b\\u{d}c\\u{9}d");
+        assert_eq!(terminal_text("\u{7}\u{8}\u{7f}"), "\\u{7}\\u{8}\\u{7f}");
+        // The one-character form of the escape sequence starter, in the second control block.
+        assert_eq!(terminal_text("x\u{9b}31m"), "x\\u{9b}31m");
+        // Direction marks and the two separators are not control characters for `char`.
+        assert_eq!(terminal_text("a\u{202e}b"), "a\\u{202e}b");
+        assert_eq!(
+            terminal_text("\u{2066}\u{2069}\u{200f}"),
+            "\\u{2066}\\u{2069}\\u{200f}"
+        );
+        assert_eq!(
+            terminal_text("a\u{2028}b\u{2029}c"),
+            "a\\u{2028}b\\u{2029}c"
+        );
+        // The characters on each side of the two ranges stay.
+        assert_eq!(terminal_text("\u{2029}\u{202a}"), "\\u{2029}\\u{202a}");
+        assert_eq!(
+            terminal_text("\u{202f}\u{2065}\u{206a}"),
+            "\u{202f}\u{2065}\u{206a}"
+        );
+        assert_eq!(terminal_text("\u{a0}\u{1f}\u{20}"), "\u{a0}\\u{1f} ");
+        // A tag character: no terminal shows it, and a program that reads the output gets it.
+        assert_eq!(
+            terminal_text("a\u{e0041}\u{e007f}b"),
+            "a\\u{e0041}\\u{e007f}b"
+        );
+        assert_eq!(terminal_text("\u{dffff}\u{e0080}"), "\u{dffff}\u{e0080}");
+        // What joins an emoji stays: a family of two, and a sign with its variation selector.
+        let joined = "\u{1f468}\u{200d}\u{1f467} \u{2764}\u{fe0f}";
+        assert_eq!(terminal_text(joined), joined);
+    }
+
+    #[test]
+    fn a_text_of_several_lines_keeps_its_line_breaks_and_nothing_else() {
+        assert_eq!(terminal_lines("one\ntwo\n\nfour"), "one\ntwo\n\nfour");
+        assert_eq!(
+            terminal_lines("a\u{1b}[2J\nb\rc\n\u{202e}d"),
+            "a\\u{1b}[2J\nb\\u{d}c\n\\u{202e}d"
+        );
+        assert_eq!(terminal_lines(""), "");
+    }
+
+    #[test]
+    fn the_import_report_shows_a_control_character_of_a_message_key_as_text() {
+        // A Message-ID is read before the sender check, and a mail library keeps a folded
+        // line break inside it. The second key forges a line of the report.
+        let hostile = "a\u{1b}[2J@x.example";
+        let forged = "b\r\n messages read 0, new 0@x.example";
+        let import = ImportReport {
+            read: 2,
+            inserted: 0,
+            inserted_by_platform: std::collections::BTreeMap::new(),
+            already_known: 0,
+            other_sender: 0,
+            malformed: vec![hostile.to_owned(), forged.to_owned()],
+            redaction_failures: vec![hostile.to_owned(), forged.to_owned()],
+            refused_by_cause: std::collections::BTreeMap::from([(
+                "freshdirect receipt, text part: a name in the text".to_owned(),
+                2,
+            )]),
+        };
+        let report = render_import(&import, &ParseReport::default());
+        assert!(
+            !report.contains(|c: char| c.is_control() && c != '\n'),
+            "{report:?}"
+        );
+        // The first line, two lines for each of the two lists, the cause, the parse line.
+        assert_eq!(report.lines().count(), 7, "{report:?}");
+        assert!(report.contains("malformed: a\\u{1b}[2J@x.example\n"));
+        assert!(report.contains(
+            "REFUSED, personal data survived redaction: b\\u{d}\\u{a} messages read 0, new 0@x.example\n"
+        ));
+        // A cause is the program's own text and is printed as it is.
+        assert!(report.contains("REFUSED 2: freshdirect receipt, text part: a name in the text\n"));
+    }
+
+    #[test]
+    fn a_report_as_json_has_no_character_that_a_terminal_obeys_and_is_the_same_value() {
+        // Every class that `serde_json` leaves as the character itself, and two that it
+        // escapes: the delete character, the second control block, a direction mark, the line
+        // separators, a tag character; a tab and an escape character.
+        let text = "a\u{7f}b\u{9b}31m\u{85}c\u{202e}d\u{2028}e\u{2029}f\u{e0041}g\th\u{1b}i \"q\" \\ \u{e9}\u{1f34b}";
+        let value = serde_json::json!({ "name": text, "list": [text, "plain"], "n": 3 });
+        let json = json_text(&value).expect("json");
+
+        assert!(
+            !json.contains(|c: char| acts_on_a_terminal(c) && c != '\n'),
+            "{json:?}"
+        );
+        assert!(json.contains(
+            "a\\u007fb\\u009b31m\\u0085c\\u202ed\\u2028e\\u2029f\\udb40\\udc41g\\th\\u001bi"
+        ));
+        // Letters and signs that are not in the set stay as they are.
+        assert!(json.contains("\u{e9}\u{1f34b}"));
+        // The same value comes back, and the layout is the one of the pretty printer.
+        let back: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(back, value);
+        assert_eq!(
+            json.lines().count(),
+            serde_json::to_string_pretty(&value)
+                .expect("json")
+                .lines()
+                .count()
+        );
+    }
+
+    #[test]
+    fn the_line_of_an_added_item_shows_a_direction_mark_as_text() {
+        use crate::domain::ids::AdditionId;
+        use crate::domain::list::ItemText;
+
+        // An item text refuses control characters when it is made, and admits a direction mark.
+        let added = Added {
+            id: AdditionId::new(4).expect("id"),
+            item: ItemText::parse("miso \u{202e}etsap").expect("text"),
+            reason: AddReason::NewFood,
+            product: None,
+        };
+        assert_eq!(
+            render_added(&added),
+            "added 4: miso \\u{202e}etsap (new food to try)\n"
+        );
+    }
+
+    #[test]
+    fn the_reason_prompt_shows_a_control_character_of_the_item_as_text() {
+        let mut shown = Vec::new();
+        ask_reason("miso\u{1b}[2J\npaste", "1\n".as_bytes(), &mut shown).expect("io");
+        let shown = String::from_utf8(shown).expect("utf-8");
+        assert!(
+            shown.starts_with("Why are you adding miso\\u{1b}[2J\\u{a}paste?\n"),
+            "{shown:?}"
+        );
+        assert!(!shown.contains('\u{1b}'));
     }
 
     #[test]

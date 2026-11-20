@@ -159,7 +159,7 @@ impl TakeoutExport {
             }
             mailboxes += 1;
             // The entry is named by its index: its name comes from inside the archive.
-            tracing::info!(archive = %path.display(), entry = index, "reading a mailbox");
+            tracing::info!(archive = ?path, entry = index, "reading a mailbox");
             let reader = BufReader::with_capacity(READ_BUFFER, entry);
             if Self::send_mailbox(reader, path, tx)?.is_err() {
                 return Ok(Err(ReceiverGone));
@@ -168,6 +168,9 @@ impl TakeoutExport {
         Ok(Ok(mailboxes))
     }
 
+    // A log line is an output context (REAS-SEC-006): a path goes into it with `?`, the debug
+    // form, which writes a control character or a line break of a file name as an escape. With
+    // `%` the name is written as it is, and a line break in it starts a line of its own.
     fn send_all(
         path: &Path,
         tx: &mpsc::Sender<Result<RawMail, MailError>>,
@@ -176,11 +179,11 @@ impl TakeoutExport {
         for container in Self::containers(path)? {
             match container {
                 Container::Archive(archive) => {
-                    tracing::info!(archive = %archive.display(), "opening an archive");
+                    tracing::info!(archive = ?archive, "opening an archive");
                     match Self::send_archive(&archive, tx)? {
                         Ok(count) => {
                             tracing::info!(
-                                archive = %archive.display(),
+                                archive = ?archive,
                                 mailboxes = count,
                                 "archive done"
                             );
@@ -190,7 +193,7 @@ impl TakeoutExport {
                     }
                 }
                 Container::Mailbox(file) => {
-                    tracing::info!(file = %file.display(), "reading a mailbox");
+                    tracing::info!(file = ?file, "reading a mailbox");
                     let reader = BufReader::with_capacity(
                         READ_BUFFER,
                         File::open(&file).map_err(|e| read_error(&file, e))?,
@@ -268,6 +271,86 @@ mod tests {
             writer.write_all(content.as_bytes()).expect("write");
         }
         writer.finish().expect("finish");
+    }
+
+    /// Collects what the log layer writes, for a test that reads the log lines.
+    #[derive(Clone, Default)]
+    struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("log").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+        type Writer = Captured;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn a_file_name_with_control_characters_is_one_log_line_without_them() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The name clears the screen and then starts a second line that looks like a log line.
+        let path = dir.path().join("a\u{1b}[2J\nWARN forged line\r\u{9b}31m");
+        std::fs::write(&path, ONE).expect("write");
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(captured.clone())
+            .with_ansi(false)
+            .finish();
+        let (tx, mut rx) = mpsc::channel(8);
+        tracing::subscriber::with_default(subscriber, || {
+            TakeoutExport::send_all(&path, &tx).expect("read");
+        });
+        assert!(rx.try_recv().expect("one message").is_ok());
+
+        let log = String::from_utf8(captured.0.lock().expect("log").clone()).expect("utf-8");
+        // The positive control: the line of this file is in the log, with the name in it.
+        assert!(log.contains("reading a mailbox"), "{log:?}");
+        assert!(log.contains("forged line"), "{log:?}");
+        // One event, one line: the name added no line of its own.
+        assert_eq!(log.lines().count(), 1, "{log:?}");
+        assert!(
+            !log.trim_end_matches('\n')
+                .contains(|c: char| c.is_control()),
+            "{log:?}"
+        );
+    }
+
+    #[test]
+    fn an_archive_name_with_control_characters_adds_no_log_line_either() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t\u{1b}[2J\nWARN forged line\r.zip");
+        write_archive(&path, &[("Takeout/Mail/FreshDirect.mbox", ONE)]);
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(captured.clone())
+            .with_ansi(false)
+            .finish();
+        let (tx, mut rx) = mpsc::channel(8);
+        tracing::subscriber::with_default(subscriber, || {
+            TakeoutExport::send_all(&path, &tx).expect("read");
+        });
+        assert!(rx.try_recv().expect("one message").is_ok());
+
+        let log = String::from_utf8(captured.0.lock().expect("log").clone()).expect("utf-8");
+        // Three events name the archive: it is opened, one mailbox in it is read, it is done.
+        for event in ["opening an archive", "reading a mailbox", "archive done"] {
+            assert!(log.contains(event), "{log:?}");
+        }
+        assert_eq!(log.matches("forged line").count(), 3, "{log:?}");
+        assert_eq!(log.lines().count(), 3, "{log:?}");
+        assert!(
+            !log.contains(|c: char| c.is_control() && c != '\n'),
+            "{log:?}"
+        );
     }
 
     #[tokio::test]
