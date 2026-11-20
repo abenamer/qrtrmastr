@@ -13,7 +13,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::{
-    Cli, Command, FixtureAction, render_due, render_import, render_simple,
+    Cli, Command, FixtureAction, render_due, render_habit, render_import, render_simple,
 };
 use qrtrmastr::adapters::config::Settings;
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
@@ -125,10 +125,20 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             include_not_due,
             simple,
             json,
+            top,
+            gap,
         } => {
             let store = connect(&settings).await?;
             let due = Due::new(store, settings.file.recommend.thresholds());
-            if simple {
+            if !simple && !gap {
+                // The habit rule is the default (ADR 0009).
+                let report = due.run_habit(top).await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{}", render_habit(&report));
+                }
+            } else if simple {
                 let report = due.run_simple().await?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);

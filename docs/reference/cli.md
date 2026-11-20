@@ -23,14 +23,16 @@ The command runs as a container: `docker compose run --rm qm <command>` ([Develo
 | --- | --- | --- |
 | `qm migrate` | Applies the pending migrations. A second run applies nothing. | One line per applied migration, then `N applied now, M already applied`. |
 | `qm import --takeout <path>` | Reads Takeout exports: a folder of `.zip` archives and `.mbox` files, one archive, or one mailbox file. Archives are read in place and nothing is extracted; one message is in memory at a time. `--mbox` is an alias. One archive is open at a time. Stores each new message of FreshDirect and of the restaurant platforms redacted, then parses every stored FreshDirect receipt that waits ([Import](/concepts/import.md)). Idempotent. Needs the `[redaction]` section of the configuration. A path that cannot be opened, a folder or archive without mail, a broken archive, or a missing `[redaction]` section, is an error with status 1 whose text says what the file is, how to request it, or which section to add. | Three lines of counts (the second, new messages by platform, only when there are new ones): messages read, new, already known, from other senders; receipts parsed, partial, failed, unsupported, left for later, anomalies. A `REFUSED` line per message in which personal data survived, and one `REFUSED <count>: <cause>` line per cause; above twenty refusals only the lines per cause. A cause names the platform, the message kind, the part and the check, never the text. The command then exits with status 1. |
-| `qm due` | What you are about to run out of, by the gap rule ([Recommendation](/concepts/recommendation.md)). | A header with the day, the order count and the order cadence, then one row per item: product, times bought, usual gap, last bought, days since, typical quantity, status. |
+| `qm due` | What your next order most likely holds, by the habit rule ([Recommendation](/concepts/recommendation.md)): the products most often in your latest orders. With `--gap`: what you are about to run out of, by the gap rule. | The order count, then one row per product: how many of the latest 20 and of the latest 50 orders hold it, the last purchase, the typical quantity. With `--gap`: a header with the day, the order count and the order cadence, then one row per item: product, times bought, usual gap, last bought, days since, typical quantity, status. |
 | `qm fixture add <key> [--dir DIR]` | Writes the stored, redacted HTML of the message with that key under `DIR/<platform>/<year>/`. The default `tests/fixtures/local` is resolved against the repository root, not the working directory, so it lands in the ignored path from any subdirectory. | The path written. |
 
 ### `qm due` options
 
 | Option | Effect |
 | --- | --- |
-| `--as-of YYYY-MM-DD` | The day to judge from; today when omitted. |
+| `--top N` | How many products the habit rule lists; 15 when omitted. |
+| `--as-of YYYY-MM-DD` | The day the gap rule judges from; today when omitted. |
+| `--gap` | The gap rule instead. The three options below apply to it. |
 | `--include-tentative` | Also items bought only twice. |
 | `--include-lapsed` | Also items not bought for more than three usual gaps. |
 | `--include-not-due` | Also items that are not due yet. |

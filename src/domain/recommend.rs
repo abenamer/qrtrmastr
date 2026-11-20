@@ -212,6 +212,91 @@ pub fn rank(recommendations: &mut [Recommendation]) {
     });
 }
 
+/// How many of the latest orders the habit rule ranks by, and how many break a tie.
+pub const HABIT_RECENT_ORDERS: usize = 20;
+pub const HABIT_LONG_ORDERS: usize = 50;
+
+/// The habit rule: how often a product is in the latest orders. It is the default of `qm due`
+/// because, on held-out orders, it names what the next order holds about twice as often as the
+/// gap rule and as often as a fitted model (ADR 0009). No dates and no gaps: an order counts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HabitRecommendation {
+    #[serde(rename = "product_id")]
+    pub product: ProductId,
+    /// Of the latest `recent_orders` orders, how many hold the product.
+    pub in_recent: usize,
+    pub recent_orders: usize,
+    /// The same over the latest `long_orders` orders.
+    pub in_long: usize,
+    pub long_orders: usize,
+    pub last_bought: Date,
+    pub typical_quantity: Quantity,
+    pub last_price: Money,
+}
+
+/// Every product in at least one of the latest [`HABIT_RECENT_ORDERS`] orders, the most
+/// habitual first: by its count in those orders, then in the latest [`HABIT_LONG_ORDERS`],
+/// then by the later last purchase.
+pub fn habit(purchases: &[Purchase]) -> Vec<HabitRecommendation> {
+    let orders: BTreeMap<&OrderNumber, Date> = purchases
+        .iter()
+        .map(|p| (&p.order_number, p.delivery_date))
+        .collect();
+    let mut latest: Vec<(Date, &OrderNumber)> = orders
+        .iter()
+        .map(|(number, date)| (*date, *number))
+        .collect();
+    latest.sort();
+    latest.reverse();
+    let long: BTreeSet<&OrderNumber> = latest
+        .iter()
+        .take(HABIT_LONG_ORDERS)
+        .map(|(_, number)| *number)
+        .collect();
+    let recent: BTreeSet<&OrderNumber> = latest
+        .iter()
+        .take(HABIT_RECENT_ORDERS)
+        .map(|(_, number)| *number)
+        .collect();
+
+    let mut by_product: BTreeMap<ProductId, Vec<&Purchase>> = BTreeMap::new();
+    for purchase in purchases.iter().filter(|p| long.contains(&p.order_number)) {
+        by_product
+            .entry(purchase.product)
+            .or_default()
+            .push(purchase);
+    }
+
+    let mut out: Vec<HabitRecommendation> = by_product
+        .into_iter()
+        .filter_map(|(product, mut history)| {
+            history.sort_by_key(|p| p.delivery_date);
+            let in_long: BTreeSet<&OrderNumber> = history.iter().map(|p| &p.order_number).collect();
+            let in_recent = in_long.iter().filter(|n| recent.contains(*n)).count();
+            let last = history.last()?;
+            let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
+            (in_recent > 0).then(|| HabitRecommendation {
+                product,
+                in_recent,
+                recent_orders: recent.len(),
+                in_long: in_long.len(),
+                long_orders: long.len(),
+                last_bought: last.delivery_date,
+                typical_quantity: median_quantity(&mut quantities).expect("at least one"),
+                last_price: last.price,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.in_recent
+            .cmp(&a.in_recent)
+            .then_with(|| b.in_long.cmp(&a.in_long))
+            .then_with(|| b.last_bought.cmp(&a.last_bought))
+            .then_with(|| a.product.cmp(&b.product))
+    });
+    out
+}
+
 /// The simple rule: products present in at least half of all orders and absent from the most
 /// recent one, ranked by the share of orders they appear in. No dates involved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -301,6 +386,37 @@ mod tests {
         assert_eq!(order_cadence(&dates), Some(7));
         assert_eq!(order_cadence(&[d(2026, 1, 1)]), None);
         assert_eq!(median_days(&mut [7, 14]), Some(10));
+    }
+
+    #[test]
+    fn the_habit_rule_ranks_by_the_latest_orders_and_forgets_what_was_dropped() {
+        // 60 weekly orders. Product 1 is in every order; product 2 in the first 35 only, so it
+        // is outside the latest 20 and not listed; product 3 in the latest 5; product 4 in
+        // every other order.
+        let mut p = Vec::new();
+        for week in 0..60u32 {
+            let date = d(2025, 1, 1) + jiff::Span::new().days(i64::from(week) * 7);
+            let order = format!("1{:010}", week);
+            p.push(buy(1, &order, date, "2"));
+            if week < 35 {
+                p.push(buy(2, &order, date, "1"));
+            }
+            if week >= 55 {
+                p.push(buy(3, &order, date, "1"));
+            }
+            if week % 2 == 0 {
+                p.push(buy(4, &order, date, "3"));
+            }
+        }
+        let r = habit(&p);
+        let listed: Vec<(i64, usize, usize)> = r
+            .iter()
+            .map(|x| (x.product.get(), x.in_recent, x.in_long))
+            .collect();
+        assert_eq!(listed, [(1, 20, 50), (4, 10, 25), (3, 5, 5)]);
+        assert_eq!((r[0].recent_orders, r[0].long_orders), (20, 50));
+        assert_eq!(r[1].typical_quantity, Quantity::parse("3").expect("q"));
+        assert!(habit(&[]).is_empty());
     }
 
     #[test]
