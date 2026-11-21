@@ -24,3 +24,7 @@ __pycache__/
 
 # The Gmail refresh token of `qm fetch` (ADR 0013). Its place is the state directory.
 gmail-token.json*
+
+# A snapshot that a failed test leaves beside the committed one. Read it, then delete it; the
+# committed snapshot is written by the command that docs/reference/files.md names.
+*.snap.new

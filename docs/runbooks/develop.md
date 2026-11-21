@@ -74,7 +74,8 @@ The release profile sets `overflow-checks = true`: an arithmetic overflow stops 
 * a heading of `docs/log.md` at level two that is not a date;
 * a retired term of [the terminology](/terminology.md) in the text outside code, in the title of a link, in HTML, or in the `title` or the `description` of the front matter. The table itself, the log, the changelog, the language review and `standards/` can name one;
 * a file with the extension `.MD` or `.markdown`, and a Markdown file that is a symbolic link;
-* a gate that looked at nothing: no concept, no local link, no fragment, no retired term, or no rule declaration (the vendored standard holds them).
+* an entry in the index of git that no row of [Files and their authority class](/reference/files.md) matches, a row that no file takes, a class that is not one of the four, a derived row whose third cell holds no code span, and a table that is not in the form that the page describes (REAS-DOC-002). A new file is checked once it is staged;
+* a gate that looked at nothing: no concept, no local link, no fragment, no retired term, no rule declaration (the vendored standard holds them), or no file with a class.
 
 It prints a warning for a concept whose `updated` date is older than 90 days (an audit report), 180 days (a technical reference or a review procedure) or 365 days (any other type). Read the page against the code, and then move the date or remove the page. `--strict-freshness` makes the warning an error; CI does not use it.
 
@@ -83,6 +84,7 @@ It prints a warning for a concept whose `updated` date is older than 90 days (an
 The checker has limits:
 
 * It does not fetch an external link, and it does not check the language.
+* It checks that each file has a class, not that the class is right, and not that a derived file was written by its command.
 * It searches a retired term as plain text. It does not find a term with an invisible character in it, or with a letter of another alphabet that looks the same. In a block of HTML it does not find a term with a tag or an entity inside the word. A term of two words is also found when a line or a paragraph ends between the two words.
 * It searches the `title` and the `description` of the front matter, and no other key.
 * A term in the table of retired terms is plain text with single spaces. The checker refuses a term with markup; a term with an entity or two spaces in it finds nothing.

@@ -10,8 +10,9 @@ Read each file with a Markdown extension, and no symbolic link. Parse CommonMark
 images, headings, and HTML href/src/id attributes. Resolve heading fragments with
 GitHub-style slugs. Do not fetch external URLs. Check that each concept has a
 type and an `updated` date and can be reached from the index, that no document outside the
-exempt list uses a retired term from the terminology table, and that each gate looked at
-something (REAS-DOC-006). Report a concept whose `updated` date is older than the threshold
+exempt list uses a retired term from the terminology table, that each file in the index of
+git has an authority class in `docs/reference/files.md` (REAS-DOC-002), and that each gate
+looked at something (REAS-DOC-006). Report a concept whose `updated` date is older than the threshold
 for its type as a warning, not an error.
 """
 from __future__ import annotations
@@ -19,9 +20,12 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from datetime import date, datetime
+import fnmatch
 from html.parser import HTMLParser
+import os
 from pathlib import Path
 import re
+import subprocess
 import unicodedata
 from urllib.parse import unquote, urlsplit
 
@@ -33,6 +37,11 @@ VENDORED = "standards"
 RULE = re.compile(r"^(REAS-[A-Z]+-\d{3})(?=$|[\s:])")
 TERMINOLOGY = f"{BUNDLE}/terminology.md"
 RETIRED_TERMS_HEADING = "## Retired terms"
+# The page that gives each committed file its authority class (REAS-DOC-002).
+FILES = f"{BUNDLE}/reference/files.md"
+FILES_HEADING = "## The class of each file"
+AUTHORITY_CLASSES = ("Authored", "Derived, committed", "Evidence", "Companion")
+CODE_SPAN = re.compile(r"`[^`]+`")
 # Documents that name a retired term on purpose: the table that retires it, the two records
 # of what was done on a past day, and the language-review record.
 RETIRED_TERM_EXEMPT = frozenset({
@@ -136,6 +145,7 @@ class Counts:
     retired_terms: int = 0
     documents_read_for_terms: int = 0
     rules: int = 0
+    files_with_a_class: int = 0
 
     def floor_errors(self) -> list[str]:
         errors = []
@@ -149,13 +159,15 @@ class Counts:
             errors.append("Floor: no document was read for a retired term")
         if self.rules == 0:
             errors.append(f"Floor: no rule declaration was found; is {VENDORED}/ present?")
+        if self.files_with_a_class == 0:
+            errors.append("Floor: no file was given an authority class")
         return errors
 
     def summary(self) -> str:
         return (
             f"{self.concepts} concepts, {self.links} local links, {self.fragments} fragments, "
             f"{self.retired_terms} retired terms in {self.documents_read_for_terms} documents, "
-            f"{self.rules} rule declarations"
+            f"{self.rules} rule declarations, {self.files_with_a_class} files with an authority class"
         )
 
 
@@ -258,6 +270,134 @@ def retired_terms(text: str) -> list[tuple[str, str]] | None:
         if len(cells) >= 2 and cells[0]:
             rows.append((cells[0], cells[1]))
     return rows
+
+
+def authority_rows(text: str) -> list[tuple[str, str, str]] | str | None:
+    """Read the table of authority classes: (path, class, how the file is written) rows.
+
+    Return None when the section is absent, and a text that says what is wrong when the
+    section is not one plain table: the reader takes each line that starts with `|`, so a
+    row in a comment or in a code block would count as a row.
+    """
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == FILES_HEADING)
+    except StopIteration:
+        return None
+    table_lines = []
+    for line in lines[start + 1:]:
+        if line.startswith("#"):
+            break
+        if "<!--" in line or line.lstrip().startswith(("```", "~~~")):
+            return "The section must hold no comment and no code block"
+        if line.lstrip().startswith("|"):
+            if not line.startswith("|"):
+                return "A line of the table must start at the margin"
+            table_lines.append(line)
+    if not table_lines:
+        return []
+    header = [cell.strip() for cell in table_lines[0].strip().strip("|").split("|")]
+    if header[:2] != ["Path", "Class"] or len(header) != 3:
+        return "The table must start with the header row: Path, Class and one more column"
+    rows = []
+    for line in table_lines[2:]:
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        cells += [""] * (3 - len(cells))
+        rows.append((cells[0], cells[1], " | ".join(cells[2:])))
+    return rows
+
+
+def path_matches(pattern: str, path: str) -> bool:
+    """A pattern is one file, a directory with a slash at its end, or a name with `*`.
+
+    `*` stands for any text, a slash too. No other character is special; `authority_errors`
+    refuses a pattern with `?` or `[`, which the matcher would read as wildcards.
+    """
+    if pattern.endswith("/"):
+        return path.startswith(pattern)
+    if "*" in pattern:
+        return fnmatch.fnmatchcase(path, pattern)
+    return path == pattern
+
+
+def committed_files(root: Path) -> list[str] | None:
+    """The entries in the index of git: each committed file, and a new file once it is staged.
+
+    A directory that is not a repository, such as the fixture of a test, gives every file
+    below it. Return None when git cannot list the files of a repository.
+    """
+    if (root / ".git").exists():
+        try:
+            listed = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "-z", "--cached"],
+                capture_output=True,
+            )
+        except OSError:
+            return None
+        if listed.returncode != 0:
+            return None
+        # Every entry counts, also a submodule and a file that is not in the working tree.
+        return sorted(
+            {name for name in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if name}
+        )
+    files = []
+    for directory, directories, names in os.walk(root):
+        # As for the Markdown files: a build or tool directory is left out at the top only.
+        at_the_top = Path(directory) == root
+        directories[:] = sorted(
+            d for d in directories if not (at_the_top and d in SKIPPED_DIRECTORIES)
+        )
+        for name in names:
+            files.append((Path(directory) / name).relative_to(root).as_posix())
+    return sorted(files)
+
+
+def authority_errors(rows: list[tuple[str, str, str]], files: list[str]) -> tuple[list[str], int]:
+    """Give each file the class of the first row that matches it (REAS-DOC-002).
+
+    Return the errors and the number of files that got a class.
+    """
+    errors = []
+    patterns = []
+    for cell, authority, how in rows:
+        if not re.fullmatch(r"`[^`]+`", cell):
+            errors.append(f"{FILES}: '{cell}': The path of a row must be one code span")
+            continue
+        pattern = cell.strip("`")
+        if not pattern.strip("*/") or "?" in pattern or "[" in pattern:
+            # A row for everything would give a class to a file that nobody looked at.
+            errors.append(
+                f"{FILES}: '{pattern}': A path must name a file, a directory or a part of a "
+                "name; `*` is the one wildcard"
+            )
+            continue
+        if authority not in AUTHORITY_CLASSES:
+            errors.append(f"{FILES}: '{pattern}': '{authority}' is not an authority class")
+        elif authority == "Derived, committed" and not CODE_SPAN.search(how):
+            errors.append(
+                f"{FILES}: '{pattern}': A derived file must name, in a code span, the command "
+                "or the record that says how it is written"
+            )
+        elif authority == "Companion" and not how:
+            errors.append(f"{FILES}: '{pattern}': A companion file must name what it summarizes")
+        patterns.append(pattern)
+    first_matches = {pattern: 0 for pattern in patterns}
+    with_a_class = 0
+    for name in files:
+        for pattern in patterns:
+            if path_matches(pattern, name):
+                first_matches[pattern] += 1
+                with_a_class += 1
+                break
+        else:
+            errors.append(f"{name}: No authority class; add a row to {FILES}")
+    for pattern, count in first_matches.items():
+        if count == 0:
+            errors.append(
+                f"{FILES}: '{pattern}': No file has this row as its first match; "
+                "remove the row or move it above the row that takes its files"
+            )
+    return errors, with_a_class
 
 
 def parse_updated(value) -> date | None:
@@ -551,6 +691,23 @@ def check(root: Path, today: date | None = None) -> Result:
                 for term, replacement in retired:
                     if term.lower() in plain:
                         errors.append(f"{rel}: Retired term '{term}'; use {replacement}")
+    files_page = root / FILES
+    if not files_page.is_file() or files_page.is_symlink():
+        errors.append(f"{FILES}: The page of the authority classes is missing")
+    else:
+        rows = authority_rows(files_page.read_text(encoding="utf-8", errors="replace"))
+        files = committed_files(root)
+        if rows is None:
+            errors.append(f"{FILES}: The section '{FILES_HEADING}' is missing")
+        elif isinstance(rows, str):
+            errors.append(f"{FILES}: {rows}")
+        elif not rows:
+            errors.append(f"{FILES}: The table of the authority classes is empty")
+        elif files is None:
+            errors.append(f"{FILES}: git cannot list the files of the repository")
+        else:
+            found, counts.files_with_a_class = authority_errors(rows, files)
+            errors.extend(found)
     errors.extend(counts.floor_errors())
     return result
 
@@ -578,7 +735,7 @@ def main(argv=None):
         print(f"FAIL: {len(errors)} errors")
         return 1
     print("PASS: OKF metadata, updated dates, index reachability, retired terms, "
-          "local links and fragments")
+          "local links and fragments, authority classes")
     print(f"CHECKED: {result.counts.summary()}")
     print("NOT CHECKED: full OKF conformance, STE language, external URLs, technical accuracy")
     return 0

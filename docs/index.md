@@ -26,6 +26,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [Database schema](reference/schema.md) - Every table, its purpose, and the migration that made it.
 * [Command line](reference/cli.md) - The `qm` commands and their exit status.
 * [Configuration](reference/configuration.md) - Every variable the application reads.
+* [Files and their authority class](reference/files.md) - Each committed file with its class: authored, derived, evidence or companion.
 
 # Runbooks
 
