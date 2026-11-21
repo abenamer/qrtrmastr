@@ -58,6 +58,8 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 * To suppress a lint, write `#[expect(lint, reason = "...")]`. `#[allow]` does not pass. When the suppressed finding goes away, the compiler reports the attribute, and you remove it.
 * `clippy.toml` leaves `unwrap` and `expect` free inside a test function and a test module. A helper function in `tests/` is outside both; `tests/database.rs` has one attribute for the file.
 
+* `examples/lint_canary.rs` holds one planted violation of each lint of the table, compiled only with the flag `lint_canary`. `scripts/check.sh planted` runs Clippy on it with that flag and fails unless each lint fires there at the level of `Cargo.toml`, and unless the table and the list `LINT_LEVELS` of the script name the same lints at the same levels. It also fails on a line of the lint table in another form than `name = "level"`, on a second lint table, on a setting of `clippy.toml` beside the three allowances for test code, and on the flag in `src/` or `tests/`. It proves the levels of the table; that a warning fails the build is the `-D warnings` of the Clippy command in the `rust` group. When you add a lint to `Cargo.toml`, add its violation to that file and its name to that list in the same change. An `#[expect]` on a planted violation proves nothing: it switches the lint on for its own scope.
+
 The release profile sets `overflow-checks = true`: an arithmetic overflow stops the program with an error and a failure exit status; the number does not wrap.
 
 ## Develop: the documentation checker
@@ -99,7 +101,8 @@ The checker has limits:
 | Group | What it runs | CI job |
 | --- | --- | --- |
 | `toolchain` | `rust-toolchain.toml`, `rustc` and, in CI, the toolchain that the workflow installed name one version | `rust` |
-| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the `planted` group, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `planted` | Clippy on `examples/lint_canary.rs` with its flag: each of the 14 lints of `Cargo.toml` fires on its planted violation at its level | `rust`, as a part of the `rust` group |
 | `compile` | `cargo check` only | none; the Stop hook |
 | `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
 | `database` | `cargo test` for every test target, with the integration tests; needs `DATABASE_URL` | `rust` |
@@ -130,7 +133,7 @@ Which job reads a path that a change can touch:
 
 | Path | Read by |
 | --- | --- |
-| `src/`, `tests/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
+| `src/`, `tests/`, `examples/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
 | `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
 | Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
 | `.claude/hooks/guard-bash.sh` and its test, `scripts/check.sh` and its test | `privacy`, the `hooks` group runs the two tests; each job that calls the script runs a part of it |
