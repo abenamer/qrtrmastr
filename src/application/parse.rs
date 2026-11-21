@@ -12,24 +12,44 @@ use crate::domain::identity::normalize;
 use crate::domain::receipt::{Anomaly, Receipt, reconcile};
 use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SenderCheck};
 
-/// The parser tag recorded when no parser ran at all.
+/// The parser tag of an attempt that no parser took: the message has no stored HTML body, or
+/// no parser recognized the layout.
 const REFUSED: ParserTag = ParserTag {
     name: "refused",
     version: 1,
 };
 
+/// What one parse run did, as counts of messages. After a run that ends without an error,
+/// `pending` is the sum of `left_for_later`, `parsed`, `partial`, `failed` and `unsupported`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ParseReport {
+    /// How many messages of the platform were in state `fetched` when the run started.
     pub pending: usize,
+    /// How many pending messages are of kind `placed`, `updated` or `unknown`. No parser
+    /// reads these kinds yet; the messages stay in `fetched`.
     pub left_for_later: usize,
+    /// How many receipts gave an order that reconciles: outcome `ok`.
     pub parsed: usize,
+    /// How many receipts gave an order that does not reconcile: outcome `partial`.
     pub partial: usize,
+    /// How many receipts have no stored HTML body, or have a layout that a parser recognized
+    /// and could not read: outcome `failed`.
     pub failed: usize,
+    /// How many receipts have a layout that no parser recognizes: outcome `unsupported`.
     pub unsupported: usize,
+    /// How many attempts stored no order and no attempt record because the state or the
+    /// version of the message changed after it was read. A product or an alias that such an
+    /// attempt made before that write stays. The outcome of such an attempt is counted before the
+    /// write, so the message is also in one of the four counts above.
     pub conflicts: usize,
+    /// The anomalies of all the receipts counted in `parsed` and `partial`: the rows that no
+    /// parser rule classified and the mismatches of the reconciliation.
     pub anomalies: usize,
 }
 
+/// The second half of an import: for each stored receipt that waits, it runs the parsers,
+/// reconciles the receipt, resolves each line to an alias, and writes the attempt with its
+/// order in one transaction.
 pub struct ParsePending<S, P>
 where
     S: RawMessageStore + GroceryStore + Catalog,
@@ -44,10 +64,24 @@ where
     S: RawMessageStore + GroceryStore + Catalog,
     P: ReceiptParsing,
 {
+    /// Builds the use case over the store and the receipt parsers.
     pub fn new(store: S, parsers: P) -> Self {
         Self { store, parsers }
     }
 
+    /// Parses every message of `platform` in state `fetched`, oldest first. A conflict on one
+    /// message is counted and the run goes on.
+    ///
+    /// # Errors
+    ///
+    /// The run stops at the first error. The attempts written before it stay written.
+    ///
+    /// - [`StoreError::Database`] when the connection fails, or the statement that lists the
+    ///   pending messages, one that resolves an alias, or one that writes an attempt fails.
+    /// - [`StoreError::InvalidRow`] when a pending message or the identity of an alias is not
+    ///   a value that the domain accepts.
+    ///
+    /// A [`StoreError::Conflict`] is not returned; it is counted in the report.
     pub async fn run(&self, platform: Platform) -> Result<ParseReport, StoreError> {
         let mut report = ParseReport::default();
         let pending = self.store.pending(platform).await?;

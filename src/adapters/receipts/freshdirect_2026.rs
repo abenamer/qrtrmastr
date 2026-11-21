@@ -22,9 +22,15 @@ use crate::domain::receipt::{
     Anomaly, Flags, LineItem, PricePer, Receipt, Totals, UnitPrice, Weight,
 };
 
+/// The parser of the FreshDirect receipt layout of this module. It holds no state: its rules
+/// are the patterns below.
 pub struct FreshDirect2026;
 
+/// The name of this parser, as `parse_attempts.parser_name` and `grocery_orders.parser_name`
+/// store it.
 pub const NAME: &str = "fd_receipt_2026";
+/// The version of this parser's rules, stored beside the name, so that an attempt and an
+/// order say which rules read the receipt. Version 2 reads the real layout (ADR 0008).
 pub const VERSION: i32 = 2;
 
 static ORDER_NUMBER: LazyLock<Regex> =

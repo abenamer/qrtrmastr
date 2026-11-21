@@ -49,41 +49,82 @@ const MESSAGE_RESPONSE: u64 = 64 * 1024 * 1024;
 /// What the tool keeps of an error code Google returns: a short identifier, never free text.
 const ERROR_CODE_MAX: usize = 48;
 
+/// Why a sign-in or a fetch through the Gmail API did not work. No variant carries a token,
+/// an authorization code, a message body or free text of an answer from Google.
 #[derive(Debug, Error)]
 pub enum GmailError {
+    /// `QM_GMAIL_CLIENT_ID` and `QM_GMAIL_CLIENT_SECRET` are not both set, so the settings
+    /// hold no OAuth client. The composition root makes this value for `qm gmail login` and
+    /// `qm fetch`.
     #[error(
         "Gmail is not set up: QM_GMAIL_CLIENT_ID and QM_GMAIL_CLIENT_SECRET are not set. \
          How to create them: docs/runbooks/gmail-fetch.md"
     )]
     NoCredentials,
+    /// The token file does not exist: no sign-in was stored yet. The value is the path where
+    /// the file was looked for.
     #[error("no Gmail sign-in is stored at {0}; run `qm gmail login` first")]
     NoToken(PathBuf),
+    /// The token file exists and cannot be read, does not hold a refresh token, or cannot be
+    /// written.
     #[error("the token file {path}: {reason}")]
-    TokenFile { path: PathBuf, reason: String },
+    TokenFile {
+        /// The path of the token file.
+        path: PathBuf,
+        /// The kind of the file system error, or a fixed text. Never a part of the file.
+        reason: String,
+    },
+    /// The address that the user pasted at `qm gmail login` is not the redirect of this
+    /// sign-in attempt. The value is a fixed text that says what is wrong: not an address,
+    /// another host or port, the state of another attempt, or no code.
     #[error("the pasted address cannot be used: {0}")]
     Redirect(&'static str),
+    /// The pasted address carries an `error` parameter: the consent was not given. The value
+    /// is that error code, cut to letters, digits, underscores and spaces, at most 48.
     #[error("Google did not give access: {0}")]
     Denied(String),
+    /// A call answered with the error code `invalid_grant`, which the token endpoint gives.
+    /// For a token refresh that means the stored refresh token expired or was revoked. The
+    /// exchange of a sign-in code that is wrong or was used before gets this error too.
     #[error(
         "the stored Gmail sign-in is no longer valid (expired or revoked); run `qm gmail login` again"
     )]
     SignInExpired,
+    /// Google answered a call with an HTTP status outside 200 to 299, and the error code is
+    /// not `invalid_grant`.
     #[error("Google answered {what} with status {status} ({code})")]
     Status {
+        /// The call in words: the sign-in, the token refresh, the message list or a message.
         what: &'static str,
+        /// The HTTP status of the answer.
         status: u16,
+        /// The short error code of the answer, cut to letters, digits, underscores and
+        /// spaces, at most 48; it can be empty. `no code` when the answer names none.
         code: String,
     },
+    /// A call got no HTTP answer: a timeout, a host name that does not resolve, a connection
+    /// that failed, or an address that is not HTTPS. A redirect is not followed and is a
+    /// [`GmailError::Status`] with its 3xx status.
     #[error("cannot reach Google for {what}: {reason}")]
     Transport {
+        /// The call in words: the sign-in, the token refresh, the message list or a message.
         what: &'static str,
+        /// A fixed text for the kind of failure. The text of the HTTP client's error is not
+        /// used, because it can name a URL.
         reason: &'static str,
     },
+    /// Google answered a call with a success status, and the answer cannot be used: it is
+    /// not the expected JSON, it is larger than the size limit of the call, or a value in it
+    /// is missing or has the wrong form.
     #[error("Google's answer to {what} cannot be read: {reason}")]
     Answer {
+        /// The call in words: the sign-in, the token refresh, the message list or a message.
         what: &'static str,
+        /// A fixed text that says what is wrong with the answer. Never a part of the answer.
         reason: &'static str,
     },
+    /// The operating system gave no random bytes for the PKCE verifier or the state of a
+    /// sign-in attempt.
     #[error("the system gave no random numbers")]
     Random,
 }
@@ -91,8 +132,14 @@ pub enum GmailError {
 /// The three addresses the adapter talks to. Google's by default; a test names a local server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoints {
+    /// The consent page: the address, with the parameters of a sign-in attempt, that the
+    /// user opens in a browser.
     pub authorize: String,
+    /// The token endpoint: it trades an authorization code for a refresh token, and a
+    /// refresh token for an access token.
     pub token: String,
+    /// The base address of the Gmail API: scheme and host, with no path and no slash at the
+    /// end. The path of each call is appended to it.
     pub api: String,
 }
 
@@ -110,7 +157,11 @@ impl Default for Endpoints {
 /// application is not confidential in Google's sense, but it is kept out of logs all the same.
 #[derive(Debug, Clone)]
 pub struct Credentials {
+    /// `QM_GMAIL_CLIENT_ID`, without spaces at its ends. Not a secret: it is part of the
+    /// address that the user opens in a browser.
     pub client_id: String,
+    /// `QM_GMAIL_CLIENT_SECRET`, without spaces at its ends. It goes to the token endpoint
+    /// only, in the body of the request.
     pub client_secret: SecretString,
 }
 
@@ -209,6 +260,12 @@ fn challenge(verifier: &str) -> String {
 }
 
 impl SignIn {
+    /// Starts a sign-in attempt with a new verifier of 32 random bytes and a new state of 16
+    /// random bytes, each as base64url text.
+    ///
+    /// # Errors
+    ///
+    /// [`GmailError::Random`] when the operating system gives no random bytes.
     pub fn begin() -> Result<Self, GmailError> {
         Ok(Self {
             verifier: SecretString::from(random_token(32)?),
@@ -217,6 +274,12 @@ impl SignIn {
     }
 
     /// The address the user opens in a browser to give read-only access.
+    ///
+    /// # Panics
+    ///
+    /// When `endpoints.authorize` is not a valid URL. That cannot occur in `qm`: the endpoint
+    /// is a constant of `Endpoints::default`, and in a test it is the address of a local
+    /// server. Neither comes from outside data.
     pub fn authorization_url(&self, endpoints: &Endpoints, credentials: &Credentials) -> String {
         #[expect(
             clippy::expect_used,
@@ -243,6 +306,19 @@ impl SignIn {
 
     /// The authorization code in the address Google sent the browser to. The address must be
     /// the redirect of this attempt: same host and port, same state.
+    ///
+    /// # Errors
+    ///
+    /// - [`GmailError::Redirect`] when the pasted text is not an address, when its scheme,
+    ///   host or port is not that of [`REDIRECT_URI`], when its `state` is not the state of
+    ///   this attempt, or when it has no `code` or an empty one.
+    /// - [`GmailError::Denied`] when the address carries an `error` parameter. This is
+    ///   checked before the state.
+    ///
+    /// # Panics
+    ///
+    /// When [`REDIRECT_URI`] is not a valid URL. That cannot occur: it is a constant of the
+    /// source.
     pub fn code_from_redirect(&self, pasted: &str) -> Result<SecretString, GmailError> {
         let url = Url::parse(pasted.trim())
             .map_err(|_| GmailError::Redirect("it is not an address; copy the whole line"))?;
@@ -281,6 +357,14 @@ impl SignIn {
     }
 
     /// Trades the code for the refresh token. Blocking.
+    ///
+    /// # Errors
+    ///
+    /// - [`GmailError::Transport`] when the token endpoint gives no HTTP answer.
+    /// - [`GmailError::SignInExpired`] when it answers with the error code `invalid_grant`.
+    /// - [`GmailError::Status`] when it answers with another error.
+    /// - [`GmailError::Answer`] when its answer is not the expected JSON, is larger than
+    ///   1 MiB, or holds no refresh token.
     pub fn exchange(
         &self,
         agent: &ureq::Agent,
@@ -317,6 +401,15 @@ impl SignIn {
 }
 
 /// A fresh access token for the stored sign-in. Blocking.
+///
+/// # Errors
+///
+/// - [`GmailError::Transport`] when the token endpoint gives no HTTP answer.
+/// - [`GmailError::SignInExpired`] when it answers with the error code `invalid_grant`: the
+///   refresh token expired or was revoked.
+/// - [`GmailError::Status`] when it answers with another error.
+/// - [`GmailError::Answer`] when its answer is not JSON with an access token, or is larger
+///   than 1 MiB.
 pub fn access_token(
     agent: &ureq::Agent,
     endpoints: &Endpoints,
@@ -352,12 +445,15 @@ struct StoredToken {
 }
 
 impl TokenFile {
+    /// The token file of a state directory: the file named [`TOKEN_FILE_NAME`] in it. Nothing
+    /// is read or created here.
     pub fn in_dir(state_dir: &Path) -> Self {
         Self {
             path: state_dir.join(TOKEN_FILE_NAME),
         }
     }
 
+    /// The path of the token file, whether or not the file exists.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -369,6 +465,14 @@ impl TokenFile {
         }
     }
 
+    /// Reads the refresh token that `qm gmail login` stored.
+    ///
+    /// # Errors
+    ///
+    /// - [`GmailError::NoToken`] when the file does not exist.
+    /// - [`GmailError::TokenFile`] when the file cannot be read, with the kind of the file
+    ///   system error, or when its content is not JSON with a refresh token. The error does
+    ///   not quote the file.
     pub fn load(&self) -> Result<SecretString, GmailError> {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,
@@ -385,6 +489,12 @@ impl TokenFile {
 
     /// Writes the token to a new file with mode 0600 and moves it into place, so the token is
     /// never in a file that others can read and a failed write leaves the old file.
+    ///
+    /// # Errors
+    ///
+    /// [`GmailError::TokenFile`], with the kind of the file system error, when the new file
+    /// cannot be created (the state directory does not exist, for example), written, flushed
+    /// to disk or moved into place.
     pub fn save(&self, refresh_token: &SecretString) -> Result<(), GmailError> {
         use std::os::unix::fs::OpenOptionsExt;
 
@@ -465,6 +575,11 @@ const RAW_ENCODING: GeneralPurpose = GeneralPurpose::new(
 );
 
 impl GmailApi {
+    /// A source for one fetch. `access_token` comes from [`access_token`] and `query` from
+    /// [`search_query`]. Of `endpoints` only the API address is used. `max_messages` is the
+    /// most messages that one run reads (`qm fetch --max`): when more match the search, the
+    /// run stops there and the log has a warning. Nothing is sent to Google until the use
+    /// case asks for the messages.
     pub fn new(
         agent: ureq::Agent,
         endpoints: &Endpoints,

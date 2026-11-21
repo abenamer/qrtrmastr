@@ -55,8 +55,11 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 * A pattern that is a constant of the source is compiled with `domain::pattern::fixed`, which sets `SIZE_LIMIT`, 1 MiB, as the most memory of the compiled pattern. A pattern built from data sets the same limit and returns an error when it does not compile.
 * Arithmetic outside test code is written with a `checked_` or a `saturating_` method, or in a form that cannot overflow; `+`, `-` and `*` on a number that is not a constant do not pass (`clippy::arithmetic_side_effects`, REAS-SEC-003). Use `checked_` and return an error or `None` when a wrong number would be read later. Use `saturating_` only when a comment can say why the bound of the type gives the right answer. A counter of a run report goes up with `application::count`.
 * A slice, a vector or a text is read with `get`, `first`, a slice pattern or an iterator; `v[i]`, `v[a..b]` and `&text[a..b]` do not pass outside test code (`clippy::indexing_slicing`, `clippy::string_slice`). `clippy.toml` leaves an index free in test code. The index of a capture group, `caps[1]`, is not covered: use it only for a group that takes part in every match of the pattern.
+* A public item has a doc comment (`missing_docs`). A public function that returns `Result` has an `# Errors` section that names each variant and its condition, and a public function that can panic has a `# Panics` section (`clippy::missing_errors_doc`, `clippy::missing_panics_doc`, REAS-RUST-009). Say what the reader cannot see from the name and the type, and state only what the code does: read the function and what it calls. Clippy does not see a panic in a function that is called.
 * To suppress a lint, write `#[expect(lint, reason = "...")]`. `#[allow]` does not pass. When the suppressed finding goes away, the compiler reports the attribute, and you remove it.
 * `clippy.toml` leaves `unwrap` and `expect` free inside a test function and a test module. A helper function in `tests/` is outside both; `tests/database.rs` has one attribute for the file.
+
+* `examples/lint_canary.rs` holds one planted violation of each lint of the table, compiled only with the flag `lint_canary`. `scripts/check.sh planted` runs Clippy on it with that flag and fails unless each lint fires there at the level of `Cargo.toml`, and unless the table and the list `LINT_LEVELS` of the script name the same lints at the same levels. It also fails on a line of the lint table in another form than `name = "level"`, on a second lint table, on a setting of `clippy.toml` beside the three allowances for test code, and on the flag in `src/` or `tests/`. It proves the levels of the table; that a warning fails the build is the `-D warnings` of the Clippy command in the `rust` group. When you add a lint to `Cargo.toml`, add its violation to that file and its name to that list in the same change. An `#[expect]` on a planted violation proves nothing: it switches the lint on for its own scope.
 
 The release profile sets `overflow-checks = true`: an arithmetic overflow stops the program with an error and a failure exit status; the number does not wrap.
 
@@ -99,7 +102,8 @@ The checker has limits:
 | Group | What it runs | CI job |
 | --- | --- | --- |
 | `toolchain` | `rust-toolchain.toml`, `rustc` and, in CI, the toolchain that the workflow installed name one version | `rust` |
-| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the `planted` group, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `planted` | Clippy on `examples/lint_canary.rs` with its flag: each of the 17 lints of `Cargo.toml` fires on its planted violation at its level | `rust`, as a part of the `rust` group |
 | `compile` | `cargo check` only | none; the Stop hook |
 | `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
 | `database` | `cargo test` for every test target, with the integration tests; needs `DATABASE_URL` | `rust` |
@@ -130,7 +134,7 @@ Which job reads a path that a change can touch:
 
 | Path | Read by |
 | --- | --- |
-| `src/`, `tests/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
+| `src/`, `tests/`, `examples/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
 | `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
 | Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
 | `.claude/hooks/guard-bash.sh` and its test, `scripts/check.sh` and its test | `privacy`, the `hooks` group runs the two tests; each job that calls the script runs a part of it |

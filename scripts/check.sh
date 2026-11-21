@@ -3,7 +3,9 @@
 # CI and the Stop hook call the groups of this script; CLAUDE.md, the README and the runbook
 # point here. A check that is added to a group runs in each of those places.
 #
-#   scripts/check.sh rust       toolchain, format, compile, lint, unit tests, doc tests, documentation build
+#   scripts/check.sh rust       toolchain, format, compile, lint, the planted lint violations, unit tests,
+#                               doc tests, documentation build
+#   scripts/check.sh planted    each lint of Cargo.toml fires on examples/lint_canary.rs at its level
 #   scripts/check.sh toolchain  rust-toolchain.toml, rustc and (in CI) the installed toolchain agree
 #   scripts/check.sh compile    compile only; what the Stop hook runs after a change to the code
 #   scripts/check.sh database   every test target, with the integration tests; needs DATABASE_URL
@@ -30,7 +32,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GROUPS_IN_ORDER=(rust toolchain compile database sqlx deny audit docs privacy hooks lists all)
+GROUPS_IN_ORDER=(rust planted toolchain compile database sqlx deny audit docs privacy hooks lists all)
 # What the workflow of pull requests must call, the daily workflow, and the Stop hook.
 CI_GROUPS=(toolchain rust sqlx database audit docs privacy hooks lists)
 SCAN_GROUPS=(audit)
@@ -44,6 +46,32 @@ RISKY_KEY='^[0-9]+:[[:space:]]*(-[[:space:]]+)?(if|needs|continue-on-error|shell
 # One `if` is known: the dependency review runs on a pull request only.
 KNOWN_IF="^[0-9]+:    if: github\.event_name == 'pull_request'\$"
 NOT_RUN=()
+# The lint levels of Cargo.toml, as Clippy reports them on the planted violations: `deny`
+# gives an error and `warn` a warning. `forbid` keeps its own word here, because a forbidden
+# lint lowered to `deny` could be expected away in the code. A lint that is added to the
+# manifest is added here and gets its violation in examples/lint_canary.rs, in the same
+# change. The list does not get shorter: LINT_FLOOR is its length.
+LINT_FLOOR=17
+FLAG_DECLARATION='unexpected_cfgs = { level = "warn", check-cfg = ["cfg(lint_canary)"] }'
+LINT_LEVELS=(
+  unsafe_code=forbid
+  missing_docs=error
+  clippy::wildcard_enum_match_arm=error
+  clippy::same_name_method=error
+  clippy::needless_pass_by_value=warning
+  clippy::redundant_clone=warning
+  clippy::unwrap_used=error
+  clippy::expect_used=warning
+  clippy::allow_attributes=error
+  clippy::allow_attributes_without_reason=error
+  clippy::undocumented_unsafe_blocks=error
+  clippy::multiple_unsafe_ops_per_block=error
+  clippy::arithmetic_side_effects=error
+  clippy::indexing_slicing=error
+  clippy::string_slice=error
+  clippy::missing_errors_doc=error
+  clippy::missing_panics_doc=error
+)
 
 # Prints the command as a shell reads it, so that a quoted argument stays one argument.
 run() {
@@ -90,9 +118,76 @@ rust() {
   run cargo fmt --all -- --check
   compile
   run cargo clippy --workspace --all-targets --locked -- -D warnings
+  planted
   run cargo test --workspace --locked --lib --bins
   run cargo test --workspace --locked --doc
   run env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --no-deps --document-private-items
+}
+
+# The lint table as the manifest declares it, one `name=level` in a line.
+manifest_lints() {
+  sed -n '/^\[lints\.rust\]/,/^\[/{s/^\([a-z0-9_]*\) = "\(forbid\|deny\|warn\)".*/\1=\2/p}' Cargo.toml
+  sed -n '/^\[lints\.clippy\]/,/^\[/{s/^\([a-z0-9_]*\) = "\(forbid\|deny\|warn\)".*/clippy::\1=\2/p}' Cargo.toml
+}
+
+# What the manifest and clippy.toml hold beside the plain lines that manifest_lints reads.
+# A lint in a form that the function above does not read, another lint table, a change to the
+# declaration of the flag, or a setting of Clippy that narrows a lint: each is printed here.
+lint_table_surprises() {
+  grep -nE '^\[(workspace\.)?lints' Cargo.toml | grep -vE '^[0-9]+:\[lints\.(rust|clippy)\]$' || true
+  awk '/^\[/ { inside = ($0 ~ /^\[(workspace\.)?lints/) ; next } inside && !/^[[:space:]]*(#|$)/ { print FILENAME ":" FNR ":" $0 }' Cargo.toml \
+    | grep -vE '^Cargo\.toml:[0-9]+:[a-z0-9_]+ = "(forbid|deny|warn)"[[:space:]]*(#.*)?$' \
+    | grep -vF "$FLAG_DECLARATION" || true
+  grep -nvE '^[[:space:]]*(#|$)' clippy.toml \
+    | grep -vxE '[0-9]+:(allow-unwrap-in-tests|allow-expect-in-tests|allow-indexing-slicing-in-tests) = true' \
+    | sed 's/^/clippy.toml:/' || true
+  # The flag of the canary is for the example only: code of the program behind it would be
+  # in no build and in no check.
+  grep -rn 'lint_canary' src tests 2>/dev/null || true
+}
+
+# Clippy on the planted violations of examples/lint_canary.rs, with the flag that compiles
+# them. Fails unless the manifest declares exactly the lints of LINT_LEVELS, in the plain form,
+# and each of them fires on the file at its level (REAS-DOC-006).
+planted() {
+  local declared expected entry code level found surprises failed=0
+  if [ "${#LINT_LEVELS[@]}" -lt "$LINT_FLOOR" ]; then
+    echo "FAIL: LINT_LEVELS holds ${#LINT_LEVELS[@]} lints, fewer than the floor of $LINT_FLOOR" >&2
+    failed=1
+  fi
+  declared=$(manifest_lints | sed 's/=deny$/=error/; s/=warn$/=warning/' | sort)
+  expected=$(printf '%s\n' "${LINT_LEVELS[@]}" | sort)
+  if [ "$declared" != "$expected" ]; then
+    echo "FAIL: the lint table of Cargo.toml and LINT_LEVELS of scripts/check.sh differ:" >&2
+    diff <(printf '%s\n' "$declared") <(printf '%s\n' "$expected") >&2 || true
+    failed=1
+  fi
+  surprises=$(lint_table_surprises)
+  if [ -n "$surprises" ]; then
+    echo "FAIL: a line that scripts/check.sh planted does not know changes what the lints do:" >&2
+    echo "$surprises" >&2
+    failed=1
+  fi
+  printf '\n$ cargo clippy --locked --example lint_canary --message-format=json -- --cfg lint_canary\n'
+  # Clippy exits with an error here: the violations are the point. The messages are the result.
+  found=$(cargo clippy --locked --example lint_canary --message-format=json -- --cfg lint_canary 2>/dev/null \
+    | grep -F '"reason":"compiler-message"' | grep -F '"file_name":"examples/lint_canary.rs"' || true)
+  for entry in "${LINT_LEVELS[@]}"; do
+    code=${entry%=*}
+    level=${entry#*=}
+    # A forbidden lint is reported as an error, like a denied one; the table check above is
+    # what tells the two apart.
+    if [ "$level" = forbid ]; then level=error; fi
+    if ! printf '%s\n' "$found" | grep -F "\"code\":{\"code\":\"$code\"" | grep -qF "\"level\":\"$level\""; then
+      echo "FAIL: $code does not fire as $level on examples/lint_canary.rs" >&2
+      failed=1
+    fi
+  done
+  if [ "$failed" != 0 ]; then
+    echo "To see what Clippy says, run the command above without --message-format=json." >&2
+    return 1
+  fi
+  echo "PASS: ${#LINT_LEVELS[@]} lints fire on their planted violations at the level of Cargo.toml"
 }
 
 database() {
