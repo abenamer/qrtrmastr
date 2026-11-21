@@ -28,6 +28,14 @@ pub fn anchor(dir: &Path, cwd: &Path) -> PathBuf {
     }
 }
 
+/// Writes the redacted HTML of a stored message to `<dir>/<platform>/<year>/<key>.html` and
+/// returns the path. The year is that of the mail's date in UTC. `Ok(None)` when the message
+/// has no HTML body; nothing is written then. An existing file of that name is replaced.
+///
+/// # Errors
+///
+/// The error of the file system when the folders cannot be created or the file cannot be
+/// written.
 pub fn write_fixture(dir: &Path, body: &StoredBody) -> std::io::Result<Option<PathBuf>> {
     let Some(html) = &body.body_html else {
         return Ok(None);

@@ -2,6 +2,15 @@ name: CI
 # The security review on every commit (ADR 0002). Pull requests are the only way into main, so
 # every commit that reaches main has passed every job below; the push trigger covers the merge
 # commit itself. Actions are pinned to a commit so a moved tag cannot change what runs.
+#
+# scripts/check.sh is the one list of the checks (REAS-DOC-006): a step below calls a group of
+# it, and `scripts/check.sh lists` fails when a step runs a command of the script by itself.
+# Three jobs are actions with no command of their own: deny, secrets and dependency-review.
+#
+# The seven jobs are required by branch protection, and a job that is skipped counts there as
+# passed. So no job here has a condition, except the dependency review, which has nothing to
+# read outside a pull request; `lists` fails on any other `if`, `needs`, `continue-on-error` or
+# `shell` line in its plain spelling. The daily scan is a workflow of its own, scan.yml.
 on:
   push:
     branches: [main]
@@ -46,29 +55,17 @@ jobs:
       - name: The workflow and rust-toolchain.toml name the same toolchain (REAS-DATA-004)
         env:
           INSTALLED: ${{ steps.toolchain.outputs.name }}
-        run: |
-          pinned=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          active=$(rustc --version | cut -d' ' -f2)
-          echo "file $pinned, workflow $INSTALLED, rustc in the checkout $active"
-          test -n "$pinned"
-          test "$active" = "$pinned"
-          case "$INSTALLED" in "$pinned"|"$pinned"-*) ;; *) exit 1 ;; esac
+        run: scripts/check.sh toolchain
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: sqlx-cli@0.9.0
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Check
-        run: cargo check --all-targets --locked
-      - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
-      - name: Migrate an empty database
-        run: cargo sqlx migrate run
-      - name: Checked-query metadata matches the migrations (REAS-DATA-004)
-        run: cargo sqlx prepare --check -- --all-targets
-      - name: Test
-        run: cargo test --locked
+      - name: Format, compile, lint, unit tests, doc tests, documentation build
+        run: scripts/check.sh rust
+      - name: Migrate an empty database; the checked-query metadata matches the migrations (REAS-DATA-004)
+        run: scripts/check.sh sqlx
+      - name: Every test target, with the integration tests
+        run: scripts/check.sh database
 
   audit:
     runs-on: ubuntu-latest
@@ -80,7 +77,7 @@ jobs:
         with:
           tool: cargo-audit
       - name: Audit dependencies against the RustSec database
-        run: cargo audit --file Cargo.lock
+        run: scripts/check.sh audit
 
   deny:
     runs-on: ubuntu-latest
@@ -112,9 +109,11 @@ jobs:
         with:
           persist-credentials: false
       - name: No real receipt or dump is tracked and no fixture carries personal data
-        run: scripts/pii_canary.sh
-      - name: The guard hook refuses the commands it documents
-        run: bash .claude/hooks/guard-bash.test.sh
+        run: scripts/check.sh privacy
+      - name: The guard hook refuses the commands it documents, and the check script passes its test
+        run: scripts/check.sh hooks
+      - name: This workflow and the Stop hook name no check outside scripts/check.sh
+        run: scripts/check.sh lists
 
   docs:
     runs-on: ubuntu-latest
@@ -126,10 +125,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -r requirements-docs.txt
-      - name: Check the OKF bundle and its links
-        run: python scripts/check_docs.py
-      - name: Checker tests
-        run: python -m unittest discover -s tests/docs -t . -v
+      - name: The documentation checker and its tests
+        run: scripts/check.sh docs
 
   dependency-review:
     if: github.event_name == 'pull_request'

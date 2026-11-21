@@ -8,20 +8,30 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use thiserror::Error;
 
+/// Why a value is not a dollar amount, or why arithmetic on two amounts has no answer.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum MoneyError {
+    /// The text is not a dollar amount, or the value has more than two decimal places. Holds
+    /// the text as it was given, or the stored number as text.
     #[error("cannot read {0:?} as a dollar amount")]
     Parse(String),
+    /// The result of an addition, a subtraction or a multiplication is outside the range of
+    /// the decimal type. No amount on a receipt is near that range.
     #[error("a dollar amount overflowed")]
     Overflow,
 }
 
+/// Why a value is not a quantity.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum QuantityError {
+    /// The text is not a decimal number. Holds the text as it was given.
     #[error("cannot read {0:?} as a quantity")]
     Parse(String),
+    /// The number is zero or negative. Holds the number.
     #[error("a quantity is positive, not {0}")]
     NotPositive(Decimal),
+    /// The number is written with more than three decimal places; a trailing zero counts as a
+    /// place. Holds the number.
     #[error("a quantity has at most three decimals, not {0}")]
     TooPrecise(Decimal),
 }
@@ -33,13 +43,19 @@ pub enum QuantityError {
 pub struct Money(Decimal);
 
 impl Money {
+    /// No money: the start of a sum of line prices.
     pub const ZERO: Money = Money(Decimal::ZERO);
 
+    /// An amount from a count of whole cents: `1737` is `$17.37`, `-200` is a credit of `$2.00`.
     pub fn from_cents(cents: i64) -> Self {
         Self(Decimal::new(cents, 2))
     }
 
     /// A stored `numeric(10,2)` read back; more than two decimals is a corrupt row.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Parse`] when `value` has more than two decimal places.
     pub fn from_decimal(value: Decimal) -> Result<Self, MoneyError> {
         if value.scale() > 2 {
             return Err(MoneyError::Parse(value.to_string()));
@@ -56,6 +72,13 @@ impl Money {
     }
 
     /// Reads what a receipt prints: `$17.37`, `-$2.00`, `($2.00)`, `$1,234.56`, `5`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Parse`] when the text, without its one minus sign or pair of parentheses,
+    /// its dollar signs and its commas, does not read as a number, has more than two decimal
+    /// places, or still carries a minus sign. The decimal library reads more forms than a
+    /// receipt prints, such as `.5`, `+5` and `1e2`.
     pub fn parse(raw: &str) -> Result<Self, MoneyError> {
         let text = raw.trim();
         let (negative, text) = if let Some(inner) = text
@@ -80,6 +103,12 @@ impl Money {
         Ok(Self(value))
     }
 
+    /// The sum of two amounts, for a caller that must know when the sum has no answer.
+    /// [`Money::saturating_add`] is the form for a fold over the lines of a receipt.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] when the sum is outside the range of the decimal type.
     pub fn checked_add(self, other: Money) -> Result<Money, MoneyError> {
         self.0
             .checked_add(other.0)
@@ -87,6 +116,11 @@ impl Money {
             .ok_or(MoneyError::Overflow)
     }
 
+    /// This amount minus `other`. The result is negative when `other` is the larger amount.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] when the difference is outside the range of the decimal type.
     pub fn checked_sub(self, other: Money) -> Result<Money, MoneyError> {
         self.0
             .checked_sub(other.0)
@@ -95,6 +129,10 @@ impl Money {
     }
 
     /// Unit price times quantity, rounded half away from zero to the cent, as a receipt does.
+    ///
+    /// # Errors
+    ///
+    /// [`MoneyError::Overflow`] when the product is outside the range of the decimal type.
     pub fn times(self, quantity: Quantity) -> Result<Money, MoneyError> {
         self.0
             .checked_mul(quantity.0)
@@ -111,10 +149,13 @@ impl Money {
         Money(self.0.saturating_sub(other.0).abs())
     }
 
+    /// Whether the amount is below zero: a credit or a discount. Zero is never negative, also
+    /// when the text it was read from had a minus sign or parentheses.
     pub fn is_negative(self) -> bool {
         self.0.is_sign_negative() && !self.0.is_zero()
     }
 
+    /// The amount in dollars as an exact decimal, to bind to a `numeric(10,2)` column.
     pub fn as_decimal(self) -> Decimal {
         self.0
     }
@@ -141,6 +182,13 @@ impl fmt::Display for Money {
 pub struct Quantity(Decimal);
 
 impl Quantity {
+    /// A quantity from a number, such as a stored `numeric(10,3)` read back. Trailing zeros
+    /// are dropped, so `1.560` and `1.56` are the same quantity and print the same.
+    ///
+    /// # Errors
+    ///
+    /// - [`QuantityError::NotPositive`] when `value` is zero or negative.
+    /// - [`QuantityError::TooPrecise`] when `value` has more than three decimal places.
     pub fn new(value: Decimal) -> Result<Self, QuantityError> {
         if value <= Decimal::ZERO {
             return Err(QuantityError::NotPositive(value));
@@ -152,12 +200,21 @@ impl Quantity {
     }
 
     /// Reads `3`, `1.56` or `0.5`.
+    ///
+    /// # Errors
+    ///
+    /// - [`QuantityError::Parse`] when the text without its surrounding whitespace does not
+    ///   read as a number. The decimal library also reads forms such as `.5` and `1e2`.
+    /// - [`QuantityError::NotPositive`] when the number is zero or negative.
+    /// - [`QuantityError::TooPrecise`] when the number has more than three decimal places.
     pub fn parse(raw: &str) -> Result<Self, QuantityError> {
         let value =
             Decimal::from_str(raw.trim()).map_err(|_| QuantityError::Parse(raw.to_owned()))?;
         Self::new(value)
     }
 
+    /// The number without trailing zeros, to bind to a `numeric(10,3)` column or to compute
+    /// with. It carries no unit: the receipt says whether it is a count of pieces or a weight.
     pub fn as_decimal(self) -> Decimal {
         self.0
     }

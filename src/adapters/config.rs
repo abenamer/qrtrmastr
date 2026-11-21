@@ -19,14 +19,34 @@ use super::mail::redact::RedactionTerms;
 use crate::domain::recommend::Thresholds;
 use crate::domain::states::Platform;
 
+/// Why the settings cannot be loaded, or why a command cannot get a section of them. No
+/// variant carries a value of the configuration file, because the file holds personal data.
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    /// A required environment variable is not set. The value is the name of the variable;
+    /// today only `DATABASE_URL` is required.
     #[error("{0} is not set; copy .env.example to .env and fill it in")]
     Missing(&'static str),
+    /// An environment variable that holds a count is set to something that is not a whole
+    /// number above zero; today only `DB_MAX_CONNECTIONS`.
     #[error("{name} is not a positive whole number: {value:?}")]
-    NotAPositiveNumber { name: &'static str, value: String },
+    NotAPositiveNumber {
+        /// The name of the variable.
+        name: &'static str,
+        /// The text of the variable as it was set. It is not a secret.
+        value: String,
+    },
+    /// The configuration file, or a `QM_` variable that overrides a key of it, cannot be read
+    /// into the sections. A file that does not exist is not this error.
     #[error("cannot read the configuration file {path}: {reason}")]
-    File { path: PathBuf, reason: String },
+    File {
+        /// The configuration file that was looked for.
+        path: PathBuf,
+        /// The key and the kind of the problem. It never holds the value of the key.
+        reason: String,
+    },
+    /// A command that redacts mail asked for the redaction terms, and the configuration has
+    /// no `[redaction]` section. The value is the configuration file that was looked for.
     #[error(
         "no [redaction] section in {0}; the import refuses to run without your redaction terms.\n\
          Through Compose, /config is your configuration directory (QM_CONFIG_DIR, \
@@ -41,6 +61,8 @@ pub enum ConfigError {
          Put the same terms, one per line, in canary-terms.txt beside it for the local privacy canary."
     )]
     NoRedactionTerms(PathBuf),
+    /// `QM_CONFIG` is not set, and the operating system names no home directory from which
+    /// the default place of the configuration file follows.
     #[error("no configuration directory can be found for this user")]
     NoConfigDir,
 }
@@ -71,10 +93,17 @@ fn describe_without_values(error: &figment::Error) -> String {
     }
 }
 
+/// The `[recommend]` section of the configuration file: the two numbers of the gap rule
+/// (`qm due --gap`). The habit rule and the simple rule do not read them.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RecommendConfig {
+    /// On how many different delivery dates a product must be bought before the gap rule
+    /// says that it is overdue, due soon or not due. A product bought on fewer dates is
+    /// tentative, or lapsed, or bought once. The default is 3.
     pub min_purchases: usize,
+    /// A product not bought for more than this many usual gaps is lapsed. A count of gaps,
+    /// not of days. The default is 3.
     pub lapsed_after_gaps: u32,
 }
 
@@ -88,6 +117,7 @@ impl Default for RecommendConfig {
 }
 
 impl RecommendConfig {
+    /// The two numbers as the domain type that the gap rule takes.
     pub fn thresholds(&self) -> Thresholds {
         Thresholds {
             min_purchases: self.min_purchases,
@@ -96,6 +126,9 @@ impl RecommendConfig {
     }
 }
 
+/// The `[import]` section of the configuration file: which sender addresses belong to which
+/// platform. `qm import` stores the mail of these addresses, and `qm fetch` searches Gmail
+/// for them.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ImportConfig {
@@ -150,8 +183,13 @@ impl ImportConfig {
 #[derive(Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct FileConfig {
+    /// The `[redaction]` section: the redaction terms of the maintainer. `None` when the file
+    /// has no such section or does not exist. [`Settings::redaction_terms`] makes an error of
+    /// that for a command that redacts mail.
     pub redaction: Option<RedactionTerms>,
+    /// The `[recommend]` section. The defaults when the file has none.
     pub recommend: RecommendConfig,
+    /// The `[import]` section. The default sender addresses when the file has none.
     pub import: ImportConfig,
 }
 
@@ -165,11 +203,21 @@ impl std::fmt::Debug for FileConfig {
     }
 }
 
+/// Everything the tool reads from outside at the start of a command: the environment
+/// variables and the configuration file. The composition root loads it once.
 #[derive(Debug)]
 pub struct Settings {
+    /// `DATABASE_URL`: the connection URL of the PostgreSQL database. A secret: `Debug` does
+    /// not print it, and only the code that opens the connection pool exposes it.
     pub database_url: SecretString,
+    /// `DB_MAX_CONNECTIONS`: the most connections the pool opens. At least 1; 4 when the
+    /// variable is not set.
     pub db_max_connections: u32,
+    /// The configuration file that was looked for: `QM_CONFIG`, else `config.toml` in the
+    /// folder `qrtrmastr` of the configuration directory of the user. The file need not exist.
     pub config_path: PathBuf,
+    /// The sections of the configuration file, with a `QM_` variable in place of each key
+    /// that one overrides.
     pub file: FileConfig,
     /// The OAuth client for `qm gmail login` and `qm fetch`: `QM_GMAIL_CLIENT_ID` and
     /// `QM_GMAIL_CLIENT_SECRET`. `None` until both are set; only those commands need it.
@@ -183,6 +231,17 @@ impl Settings {
     /// Loads `.env` if present, the environment, and the TOML file. A missing required variable
     /// is an error, never a default (REAS-RUST-005). A missing TOML file is fine until a command
     /// needs something from it.
+    ///
+    /// # Errors
+    ///
+    /// - [`ConfigError::Missing`] when `DATABASE_URL` is not set.
+    /// - [`ConfigError::NotAPositiveNumber`] when `DB_MAX_CONNECTIONS` is set and is not a
+    ///   whole number above zero.
+    /// - [`ConfigError::NoConfigDir`] when `QM_CONFIG` is not set and the user has no home
+    ///   directory to find the configuration directory from.
+    /// - [`ConfigError::File`] when the configuration file exists and cannot be read, is not
+    ///   valid TOML, or when a key of it or of a `QM_` variable has the wrong type or names an
+    ///   unknown platform.
     pub fn load() -> Result<Self, ConfigError> {
         // A missing .env is the normal case outside development; a present one is loaded.
         let _ = dotenvy::dotenv();
@@ -239,6 +298,13 @@ impl Settings {
         })
     }
 
+    /// A copy of the redaction terms, for the command that builds the redactor. The terms
+    /// are personal data: the caller hands them to the redactor and prints none.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError::NoRedactionTerms`], with the path of the configuration file, when the
+    /// configuration has no `[redaction]` section.
     pub fn redaction_terms(&self) -> Result<RedactionTerms, ConfigError> {
         self.file
             .redaction

@@ -13,12 +13,30 @@ use crate::application::ports::{MigrationReport, SchemaStore, StoreError};
 /// The migrations under `migrations/`, embedded at compile time.
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
+/// The store in PostgreSQL: one connection pool behind every store port. A clone shares the
+/// pool, so the import and the parse step of one command use the same connections.
 #[derive(Clone)]
 pub struct PostgresStore {
     pool: PgPool,
 }
 
 impl PostgresStore {
+    /// Opens a pool of at most `max_connections` connections to the database at
+    /// `database_url`. The first connection is made here, so a wrong URL or a database that
+    /// is down fails here and not at the first query: a URL that is not valid at once, a
+    /// database that does not answer after the pool has tried for 30 seconds. Later, an
+    /// operation waits at most 30 seconds for a free connection. The URL is a secret; this
+    /// function does not log it.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Database`] with the operation `connect` when the URL is not valid or no
+    /// connection to the database can be made within 30 seconds.
+    ///
+    /// # Panics
+    ///
+    /// When `max_connections` is zero: the pool of the database library refuses a capacity of
+    /// zero. `Settings::load` gives a number above zero.
     pub async fn connect(database_url: &str, max_connections: u32) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new()
             .max_connections(max_connections)
@@ -34,6 +52,8 @@ impl PostgresStore {
         Self { pool }
     }
 
+    /// The connection pool of this store. No code of the crate or of its tests calls this
+    /// method today.
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }

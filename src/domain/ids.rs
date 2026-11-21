@@ -11,12 +11,22 @@ use super::states::KeyKind;
 /// Why a raw value is not an identifier.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum IdError {
+    /// The text is not 11 or 13 ASCII digits. Holds the text that was refused, without its
+    /// surrounding whitespace.
     #[error("an order number is 11 or 13 ASCII digits, not {0:?}")]
     OrderNumber(String),
+    /// A `Message-ID` header value holds nothing between its whitespace and angle brackets.
     #[error("a message key must not be empty")]
     EmptyMessageKey,
+    /// A row identifier is zero or negative. A database identity column starts at 1.
     #[error("a {kind} id is positive, not {value}")]
-    NonPositive { kind: &'static str, value: i64 },
+    NonPositive {
+        /// Which identifier was refused, as the error text names it: `raw message`, `product`,
+        /// `addition` or `alias`.
+        kind: &'static str,
+        /// The number that was refused.
+        value: i64,
+    },
 }
 
 /// A FreshDirect order number: eleven digits until August 2026, thirteen after. Text, never a
@@ -27,6 +37,11 @@ pub struct OrderNumber(String);
 
 impl OrderNumber {
     /// Accepts the digits with surrounding whitespace and nothing else.
+    ///
+    /// # Errors
+    ///
+    /// [`IdError::OrderNumber`] when the text without its surrounding whitespace is not 11 or
+    /// 13 ASCII digits.
     pub fn parse(raw: &str) -> Result<Self, IdError> {
         let trimmed = raw.trim();
         let all_digits = !trimmed.is_empty() && trimmed.bytes().all(|b| b.is_ascii_digit());
@@ -37,6 +52,8 @@ impl OrderNumber {
         }
     }
 
+    /// The digits as the receipt prints them, leading zeros kept. This text is the primary key
+    /// `grocery_orders.order_number`.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -54,12 +71,23 @@ impl fmt::Display for OrderNumber {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(tag = "kind", content = "key", rename_all = "snake_case")]
 pub enum MessageKey {
+    /// The message has a `Message-ID` header. Holds its value without the whitespace around
+    /// it and without the surrounding angle brackets; never empty when
+    /// [`MessageKey::from_message_id`] made it.
     MessageId(String),
+    /// The fallback, for a message whose `Message-ID` header is missing, empty or not fit to
+    /// store. Holds the SHA-256 of the raw bytes as 64 lowercase hex characters when
+    /// [`MessageKey::from_sha256`] made it.
     Sha256(String),
 }
 
 impl MessageKey {
     /// Normalizes a `Message-ID` header value: whitespace and the surrounding angle brackets go.
+    ///
+    /// # Errors
+    ///
+    /// [`IdError::EmptyMessageKey`] when nothing is left after the whitespace and the angle
+    /// brackets are removed.
     pub fn from_message_id(raw: &str) -> Result<Self, IdError> {
         let inner = raw
             .trim()
@@ -77,12 +105,16 @@ impl MessageKey {
         Self::Sha256(hex::encode(digest))
     }
 
+    /// The key text alone, without its kind: what `raw_messages.message_key` stores. The
+    /// `Display` form puts the kind before it.
     pub fn as_str(&self) -> &str {
         match self {
             Self::MessageId(key) | Self::Sha256(key) => key,
         }
     }
 
+    /// How the key was made, as the label that is stored beside the key text. A store needs
+    /// both to read the key back as the same variant.
     pub fn kind(&self) -> KeyKind {
         match self {
             Self::MessageId(_) => KeyKind::MessageId,
@@ -106,6 +138,10 @@ macro_rules! row_id {
 
         impl $name {
             /// A database identity column is positive; anything else is a bug upstream.
+            ///
+            /// # Errors
+            ///
+            /// [`IdError::NonPositive`] when `value` is zero or negative.
             pub fn new(value: i64) -> Result<Self, IdError> {
                 if value > 0 {
                     Ok(Self(value))
@@ -114,6 +150,7 @@ macro_rules! row_id {
                 }
             }
 
+            /// The number of the row, always positive, to bind to a query or to print.
             pub fn get(self) -> i64 {
                 self.0
             }

@@ -34,17 +34,9 @@ Nothing is installed on the host; the database and the command run as containers
 
 ## Checks
 
-    cargo fmt --all -- --check
-    cargo check --all-targets
-    cargo clippy --all-targets -- -D warnings
-    cargo test --lib
-    DATABASE_URL=... cargo test --test database
-    cargo deny check
-    cargo audit --file Cargo.lock
-    python3 scripts/check_docs.py
-    scripts/pii_canary.sh
+    scripts/check.sh all
 
-Every pull request runs these in GitHub Actions; see [ADR 0002](docs/decisions/0002-pull-requests-and-the-security-review-on-every-commit.md).
+`scripts/check.sh` is the one list of the checks: format, compile, lint, tests, the documentation build, the supply-chain scans, the documentation checker and the privacy canary. It prints each command that it runs, and its last line names what it did not run: the integration tests need `DATABASE_URL`, and the `sqlx` group runs by itself. Every pull request runs the same script in GitHub Actions; see [ADR 0002](docs/decisions/0002-pull-requests-and-the-security-review-on-every-commit.md).
 
 ## License
 

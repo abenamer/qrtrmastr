@@ -15,10 +15,19 @@ use super::pack::PackAmount;
 /// One line of one order, read through its alias to a product: the `purchases` view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Purchase {
+    /// The product that the alias of the line points at. After [`merge_variants`], the product
+    /// that stands for every size of its name.
     pub product: ProductId,
+    /// The order that the line is on. The rules count orders by it.
     pub order_number: OrderNumber,
+    /// The delivery date of that order, not the date of the mail. The rules measure every gap
+    /// in days between these dates.
     pub delivery_date: Date,
+    /// The billed quantity of the line: the weight when the receipt gives the line one, else
+    /// the second number of the quantity cell. [`merge_variants`] does not change it.
     pub quantity: Quantity,
+    /// The final price of the line: what the receipt charged for the whole billed quantity,
+    /// not a unit price.
     pub price: Money,
     /// How much the line brought, to compare one purchase with another: the billed quantity,
     /// or after [`merge_variants`] the quantity times the pack amount.
@@ -30,8 +39,14 @@ pub struct Purchase {
 /// size text that is not understood.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Variant<'a> {
+    /// The product that this size is stored as.
     pub product: ProductId,
+    /// The display name of the product, without its size. Two products are sizes of one
+    /// product only when their names are exactly the same.
     pub name: &'a str,
+    /// What one pack of this size holds. `None` for a product sold by weight and for a size
+    /// text that is not understood; the purchases of the name then keep their quantity as
+    /// their units.
     pub pack: Option<PackAmount>,
 }
 
@@ -117,31 +132,52 @@ impl Default for Thresholds {
 pub enum Status {
     /// Bought once; nothing to say about a gap.
     BoughtOnce,
-    /// Bought twice: one gap, a guess at best.
+    /// Bought on more than one day and on fewer days than `min_purchases`, three by default,
+    /// and not lapsed: one gap or a few, a guess at best.
     Tentative,
     /// Not bought for more than `lapsed_after_gaps` usual gaps: probably dropped.
     Lapsed,
     /// The usual gap has passed.
     Overdue {
+        /// The days since the last purchase minus the usual gap, in days. At least 1.
         days_overdue: i64,
     },
     /// The usual gap passes before the next order would arrive.
     DueSoon {
+        /// The usual gap minus the days since the last purchase, in days. 0 means that the
+        /// gap passes on the day of the question.
         days_until_due: i64,
     },
+    /// The product has enough purchases, and its usual gap does not pass before the next order
+    /// would arrive.
     NotDue,
 }
 
+/// One product under the gap rule: its history in numbers, and where it stands on the day of
+/// the question. [`evaluate`] makes one for each product, and it is one row of `qm due --gap`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Recommendation {
+    /// The product that the purchases belong to.
     #[serde(rename = "product_id")]
     pub product: ProductId,
+    /// On how many distinct delivery dates the product was bought. Two lines of one day count
+    /// once. At least 1.
     pub times_bought: usize,
+    /// The usual gap: the median number of days between consecutive purchase dates. `None`
+    /// when the product was bought on one day only.
     pub usual_gap_days: Option<i64>,
+    /// The latest delivery date that has the product.
     pub last_bought: Date,
+    /// The days from `last_bought` to the day of the question. Negative when the day of the
+    /// question is before the last purchase.
     pub days_since: i64,
+    /// The typical quantity: the median billed quantity over all lines of the product. For
+    /// an item sold by weight it is a weight in the unit of the receipt.
     pub typical_quantity: Quantity,
+    /// The final price of the line of the last purchase: for its whole billed quantity, not a
+    /// unit price.
     pub last_price: Money,
+    /// Where the product stands on the day of the question.
     pub status: Status,
 }
 
@@ -217,6 +253,13 @@ pub fn order_cadence(delivery_dates: &[Date]) -> Option<i64> {
 
 /// The gap rule, for every product in `purchases`, as of `as_of`, with `cadence` days until the
 /// next order is expected.
+///
+/// # Panics
+///
+/// Does not panic. The body has three `expect` calls. Each reads the purchases of one product,
+/// and a product is in the map only because a purchase of it was put there: the list holds at
+/// least one purchase, so it has a last date and a last price. It has a median quantity too,
+/// because the mean of two positive quantities of at most three decimals is a quantity.
 pub fn evaluate(
     purchases: &[Purchase],
     as_of: Date,
@@ -330,8 +373,10 @@ pub fn rank(recommendations: &mut [Recommendation]) {
     });
 }
 
-/// How many of the latest orders the habit rule ranks by, and how many break a tie.
+/// How many of the latest orders the habit rule ranks by.
 pub const HABIT_RECENT_ORDERS: usize = 20;
+/// How many of the latest orders the habit rule reads at all. The count of a product over
+/// them breaks a tie, and its lines in them give its typical quantity.
 pub const HABIT_LONG_ORDERS: usize = 50;
 /// A last purchase of at least this many usual amounts is a stock: the product is not needed
 /// until that many usual gaps have passed.
@@ -342,16 +387,26 @@ pub const STOCKED_RATIO: u32 = 3;
 /// gap rule and as often as a fitted model (ADR 0009). No dates and no gaps: an order counts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HabitRecommendation {
+    /// The product. After [`merge_variants`] it stands for every size of its name.
     #[serde(rename = "product_id")]
     pub product: ProductId,
     /// Of the latest `recent_orders` orders, how many hold the product.
     pub in_recent: usize,
+    /// How many orders `in_recent` is counted over: [`HABIT_RECENT_ORDERS`], or every order
+    /// when the history holds fewer.
     pub recent_orders: usize,
     /// The same over the latest `long_orders` orders.
     pub in_long: usize,
+    /// How many orders `in_long` is counted over: [`HABIT_LONG_ORDERS`], or every order when
+    /// the history holds fewer.
     pub long_orders: usize,
+    /// The delivery date of the last purchase of the product.
     pub last_bought: Date,
+    /// The typical quantity: the median billed quantity over the lines of the product in the
+    /// latest `long_orders` orders.
     pub typical_quantity: Quantity,
+    /// The final price of the line of the last purchase: for its whole billed quantity, not a
+    /// unit price.
     pub last_price: Money,
     /// Set when the last purchase was a stock ([`STOCKED_RATIO`]) that should last past
     /// `as_of`: the day it is expected to run out.
@@ -374,10 +429,16 @@ pub const REMEMBER_MIN_ORDERS: usize = 3;
 /// A product bought before that left the latest orders: a question, not a prediction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reminder {
+    /// The product to ask about.
     #[serde(rename = "product_id")]
     pub product: ProductId,
+    /// How many orders of the whole history hold the product. At least
+    /// [`REMEMBER_MIN_ORDERS`].
     pub orders_with_product: usize,
+    /// The delivery date of the last purchase of the product.
     pub last_bought: Date,
+    /// The final price of the line of the last purchase: for its whole billed quantity, not a
+    /// unit price.
     pub last_price: Money,
 }
 
@@ -482,6 +543,13 @@ fn stocked_until(history: &[&Purchase]) -> Option<Date> {
 /// Every product in at least one of the latest [`HABIT_RECENT_ORDERS`] orders, the most
 /// habitual first: by its count in those orders, then in the latest [`HABIT_LONG_ORDERS`],
 /// then by the later last purchase.
+///
+/// # Panics
+///
+/// Does not panic. The one `expect` in the body takes the median quantity of the purchases of
+/// one product. A product is in the map only because a purchase of it was put there, so the
+/// list holds at least one quantity, and the mean of two positive quantities of at most three
+/// decimals is a quantity.
 pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
     let orders: BTreeMap<&OrderNumber, Date> = purchases
         .iter()
@@ -552,14 +620,31 @@ pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
 /// recent one, ranked by the share of orders they appear in. No dates involved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SimpleRecommendation {
+    /// The product: in at least half of the orders, and not in the most recent one.
     #[serde(rename = "product_id")]
     pub product: ProductId,
+    /// How many orders hold the product. Twice this number is at least `orders_total`.
     pub orders_with_product: usize,
+    /// How many orders the history holds. At least 2.
     pub orders_total: usize,
+    /// The typical quantity: the median billed quantity over all lines of the product.
     pub typical_quantity: Quantity,
+    /// The final price of the line of the last purchase: for its whole billed quantity, not a
+    /// unit price.
     pub last_price: Money,
 }
 
+/// Applies the simple rule to `purchases`: one [`SimpleRecommendation`] for each product that
+/// passes, the product in the most orders first. The most recent order is the one with the
+/// latest delivery date; of two orders of that day, the one whose number sorts last as text. A
+/// history of fewer than two orders gives an empty list.
+///
+/// # Panics
+///
+/// Does not panic. The two `expect` calls in the body read the purchases of one product. A
+/// product is in the map only because a purchase of it was put there, so the list holds at
+/// least one purchase and has a last price. It has a median quantity too, because the mean of
+/// two positive quantities of at most three decimals is a quantity.
 pub fn simple(purchases: &[Purchase]) -> Vec<SimpleRecommendation> {
     let orders: BTreeMap<OrderNumber, Date> = purchases
         .iter()
