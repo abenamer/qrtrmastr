@@ -24,9 +24,10 @@
 #   scripts/check.sh targets    the fuzz targets, their manifest, their seeds and this script name
 #                               the same seven; the seeds are what scripts/fuzz_seeds.py writes;
 #                               the fuzz lockfile holds the versions of the program
-#   scripts/check.sh fuzz       the targets group, then each fuzz target for QM_FUZZ_SECONDS
-#                               (30 when not set); needs cargo-fuzz and the nightly toolchain
-#                               that FUZZ_TOOLCHAIN names. Not a part of `all`
+#   scripts/check.sh fuzz       the targets group, a build of the fuzz targets for this machine,
+#                               then each target for QM_FUZZ_SECONDS (30 when not set); needs
+#                               cargo-fuzz and the nightly toolchain that FUZZ_TOOLCHAIN names.
+#                               Not a part of `all`
 #   scripts/check.sh lists      the workflows and the Stop hook call this script, and the commands
 #                               that this script runs are in no line of theirs
 #   scripts/check.sh all        every group above except sqlx; database only with DATABASE_URL
@@ -522,7 +523,7 @@ PY
 # (fuzz/corpus, which git ignores and CI keeps in its cache) and from the committed seeds. A
 # target fails on a stop of the program and on a property that does not hold.
 fuzz() {
-  local seconds=${QM_FUZZ_SECONDS:-$FUZZ_PR_SECONDS} target failed=0 artifact
+  local seconds=${QM_FUZZ_SECONDS:-$FUZZ_PR_SECONDS} target failed=0 artifact host
   targets
   case "$seconds" in
     '' | *[!0-9]*) echo "FAIL: QM_FUZZ_SECONDS is not a number of seconds" >&2; return 2 ;;
@@ -531,9 +532,21 @@ fuzz() {
     echo "scripts/check.sh fuzz needs cargo-fuzz and the toolchain $FUZZ_TOOLCHAIN (see docs/runbooks/develop.md)" >&2
     exit 2
   fi
+  # The targets are built for the machine that runs them. Without the name, `cargo fuzz` builds
+  # for the platform that its own binary was built for, and the binary that CI installs was
+  # built for another C library than the one of the toolchain.
+  host=$({ cargo "+$FUZZ_TOOLCHAIN" -vV 2>/dev/null || true; } | sed -n 's/^host: //p')
+  if [ -z "$host" ]; then
+    echo "FAIL: cargo of the toolchain $FUZZ_TOOLCHAIN does not name its host platform" >&2
+    return 1
+  fi
+  if ! run cargo "+$FUZZ_TOOLCHAIN" fuzz build --target "$host"; then
+    echo "FAIL: the fuzz targets do not build; this is no finding of a target" >&2
+    return 1
+  fi
   for target in "${FUZZ_TARGETS[@]}"; do
     mkdir -p "fuzz/corpus/$target"
-    if ! run cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" "fuzz/corpus/$target" "fuzz/seeds/$target" -- \
+    if ! run cargo "+$FUZZ_TOOLCHAIN" fuzz run --target "$host" "$target" "fuzz/corpus/$target" "fuzz/seeds/$target" -- \
       "-max_total_time=$seconds" -rss_limit_mb=2048 -print_final_stats=1; then
       failed=1
       # The input of the failure, as text that a log can carry. It is made by the fuzzer from

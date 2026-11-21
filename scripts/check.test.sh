@@ -572,7 +572,9 @@ cat > "$work/cargo/cargo" <<'STAND_IN'
 printf '%s\n' "$*" >> "$QM_STAND_IN_LOG"
 case "$*" in
   *" fuzz --version") exit "${QM_STAND_IN_VERSION:-0}" ;;
-  *" fuzz run ${QM_STAND_IN_FAILS:-no-target} "*) exit 1 ;;
+  *" -vV") printf 'cargo 1.0.0 (stand-in)\nhost: %s\n' "${QM_STAND_IN_HOST-a-host-platform}"; exit "${QM_STAND_IN_VV:-0}" ;;
+  *" fuzz build "*) exit "${QM_STAND_IN_BUILD:-0}" ;;
+  *" fuzz run --target a-host-platform ${QM_STAND_IN_FAILS:-no-target} "*) exit 1 ;;
 esac
 exit 0
 STAND_IN
@@ -593,7 +595,7 @@ fi
 expect 0 "PASS: 7 fuzz targets ran for 30 seconds each without a failure" with_stand_in env -u QM_FUZZ_SECONDS
 for target in takeout mime classify redact receipt pack gmail_json; do
   cases=$((cases + 1))
-  if ! grep -qxF -- "+nightly-2026-11-15 fuzz run $target fuzz/corpus/$target fuzz/seeds/$target -- -max_total_time=30 -rss_limit_mb=2048 -print_final_stats=1" "$asked"; then
+  if ! grep -qxF -- "+nightly-2026-11-15 fuzz run --target a-host-platform $target fuzz/corpus/$target fuzz/seeds/$target -- -max_total_time=30 -rss_limit_mb=2048 -print_final_stats=1" "$asked"; then
     echo "FAIL: case $cases: the fuzz group did not run $target as expected; it asked for:" >&2
     cat "$asked" >&2
     failed=1
@@ -606,6 +608,24 @@ if [ "$(grep -c -- ' -max_total_time=7 ' "$asked")" != 7 ]; then
   echo "FAIL: case $cases: not seven runs with the budget of 7 seconds" >&2
   failed=1
 fi
+# The targets are built first, for the platform that cargo names; a build that fails is said to
+# be no finding, and no target runs.
+cases=$((cases + 1))
+if ! grep -qxF -- "+nightly-2026-11-15 fuzz build --target a-host-platform" "$asked"; then
+  echo "FAIL: case $cases: the fuzz group did not build the targets for the host platform" >&2
+  failed=1
+fi
+: > "$asked"
+expect 1 "the fuzz targets do not build; this is no finding of a target" with_stand_in env QM_STAND_IN_BUILD=1
+cases=$((cases + 1))
+if grep -q ' fuzz run ' "$asked"; then
+  echo "FAIL: case $cases: a target ran although the build failed" >&2
+  failed=1
+fi
+: > "$asked"
+expect 1 "does not name its host platform" with_stand_in env QM_STAND_IN_HOST=
+: > "$asked"
+expect 1 "does not name its host platform" with_stand_in env QM_STAND_IN_HOST= QM_STAND_IN_VV=101
 # Without the tool or the toolchain the group does not pass.
 : > "$asked"
 expect 2 "needs cargo-fuzz and the toolchain nightly-2026-11-15" with_stand_in env QM_STAND_IN_VERSION=1

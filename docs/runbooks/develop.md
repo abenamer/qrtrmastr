@@ -107,6 +107,8 @@ Each reader of bytes that another party wrote has a fuzz target in `fuzz/` ([ADR
    Expected result: a line `PASS: 7 fuzz targets ran for 30 seconds each without a failure`.
 3. One target, for as long as you want: `mkdir -p fuzz/corpus/mime`, then `cargo +nightly-2026-11-15 fuzz run mime fuzz/corpus/mime fuzz/seeds/mime -- -max_total_time=600`.
 
+The two commands by hand work with a `cargo-fuzz` that `cargo install` built on your machine. A `cargo-fuzz` that came as a ready-made program can build for another platform than yours; then add `--target` with the `host:` value that `cargo +nightly-2026-11-15 -vV` prints, as the script does.
+
 When a target fails, libFuzzer writes the input to `fuzz/artifacts/<target>/` and the script prints it in base64. The input is made by the fuzzer from the synthetic seeds; it holds no real mail.
 
 1. Run the input again: `cargo +nightly-2026-11-15 fuzz run <target> fuzz/artifacts/<target>/<file>`. The first lines of the output name the property or the place of the stop.
@@ -142,7 +144,7 @@ Other rules:
 | `rules` | The `Read` deny rules of `.claude/settings.json` are the ones that [Privacy](/concepts/privacy.md#what-a-claude-session-may-not-read) lists, and none names a home directory | `privacy`, as a part of the `privacy` group |
 | `hooks` | The tests of the guard hook, of the privacy canary and of the script | `privacy` |
 | `targets` | The fuzz targets, their manifest, their seeds and the list of the script name the same seven; the seeds are what `scripts/fuzz_seeds.py` writes; the fuzz lockfile holds the versions of the program | `privacy`, as a part of the `lists` group |
-| `fuzz` | The `targets` group, then each fuzz target for `QM_FUZZ_SECONDS`, 30 when not set | `fuzz`, in the workflow `fuzz.yml`; not one of the seven required jobs |
+| `fuzz` | The `targets` group, a build of the targets for this machine, then each fuzz target for `QM_FUZZ_SECONDS`, 30 when not set | `fuzz`, in the workflow `fuzz.yml`; not one of the seven required jobs |
 | `lists` | The gate below, and the `targets` group | `privacy` |
 
 `scripts/check.sh all` runs every group except `sqlx` and `fuzz`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
