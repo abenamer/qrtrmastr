@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- Each public item of the domain and the application layer has a doc comment (REAS-RUST-009). No behaviour changed.
 - A lint that is taken out of `Cargo.toml`, or lowered, fails the `rust` job: `examples/lint_canary.rs` holds one planted violation of each lint, and `scripts/check.sh planted` asserts that each one fires.
 - `scripts/check.sh` is the one list of the checks: `scripts/check.sh all` runs every group except `sqlx`, CI and the Stop hook call its groups, and a workflow that runs one of its commands without it fails the `privacy` job. The `rust` job also builds the documentation with warnings denied. A new workflow, `scan.yml`, runs the audit and the deny check once a day.
 - The documentation checker also fails on a page without an `updated` date, a page that the index does not reach, a link to a heading that does not exist, and a retired term. Each page of `docs/` has its date, and `docs/terminology.md` has a table of retired terms. The checker needs `markdown-it-py`: run `pip install -r requirements-docs.txt` again. [ADR 0016](docs/decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md).

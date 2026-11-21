@@ -13,12 +13,18 @@ use super::states::AddReason;
 /// The longest item text; the check constraint `list_additions_item_text_check` states the same.
 pub const ITEM_TEXT_MAX: usize = 120;
 
+/// Why a text that the user typed is not the item of an addition.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ItemTextError {
+    /// The text holds no word: it is empty or only whitespace.
     #[error("an item needs a name")]
     Empty,
+    /// The text is longer than [`ITEM_TEXT_MAX`] characters after its words are joined with one
+    /// space. Holds its length in characters, not in bytes.
     #[error("an item name is at most {ITEM_TEXT_MAX} characters, not {0}")]
     TooLong(usize),
+    /// The text holds a line break, or a control character that is not whitespace. A terminal
+    /// obeys such a character, so the text is refused and not repaired.
     #[error("an item name is one line of text without control characters")]
     ControlCharacter,
 }
@@ -29,6 +35,16 @@ pub enum ItemTextError {
 pub struct ItemText(String);
 
 impl ItemText {
+    /// Reads the item of `qm add`, and a stored `list_additions.item_text` read back. The words
+    /// are joined with one space, so a tab between two words becomes a space.
+    ///
+    /// # Errors
+    ///
+    /// - [`ItemTextError::ControlCharacter`] when the text holds a line feed, a carriage return,
+    ///   or a control character that is not whitespace.
+    /// - [`ItemTextError::Empty`] when the text holds no word.
+    /// - [`ItemTextError::TooLong`] when the joined text is longer than [`ITEM_TEXT_MAX`]
+    ///   characters.
     pub fn parse(raw: &str) -> Result<Self, ItemTextError> {
         if raw.chars().any(|c| c.is_control() && !c.is_whitespace()) || raw.contains(['\n', '\r']) {
             return Err(ItemTextError::ControlCharacter);
@@ -41,6 +57,7 @@ impl ItemText {
         }
     }
 
+    /// The item as one line: what `list_additions.item_text` stores and the lists show.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -55,11 +72,18 @@ impl fmt::Display for ItemText {
 /// One addition as it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Addition {
+    /// The number of the addition: what `qm add` prints and `qm drop` takes.
     pub id: AdditionId,
+    /// What the user typed for the item.
     pub item: ItemText,
+    /// The product of the history that the item text named on the day it was added, when it
+    /// named exactly one ([`the_one_product`]). `None` when no product or several matched.
     #[serde(rename = "product_id")]
     pub product: Option<ProductId>,
+    /// Why the user added the item.
     pub reason: AddReason,
+    /// The day the user added the item, as the caller supplied it. The addition is listed
+    /// until an order is delivered after this day.
     pub added_on: Date,
 }
 
