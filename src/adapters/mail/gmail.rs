@@ -875,6 +875,34 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_token_with_a_line_break_sends_no_request() {
+        // An HTTP header is an output context (REAS-SEC-006): a line break in a value would
+        // start a header of its own. The token is outside data, an answer of the token
+        // endpoint. The HTTP library refuses the value, so nothing goes to the network.
+        let (endpoints, seen) = serve(|_| (200, r#"{"messages":[]}"#.to_owned()));
+        let query = search_query(&["service@freshdirect.com".to_owned()], None);
+        let source = |token: &str| {
+            GmailApi::new(
+                agent(false),
+                &endpoints,
+                SecretString::from(token.to_owned()),
+                query.clone(),
+                10,
+            )
+        };
+        let got = collect(&source("access-1\r\nX-Injected: 1")).await;
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(got[0].is_err(), "{got:?}");
+        assert!(seen.lock().expect("log").is_empty());
+
+        // The control: the same call with a plain token reaches the server.
+        assert!(collect(&source("access-1")).await.is_empty());
+        let seen = seen.lock().expect("log");
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].authorization.as_deref(), Some("Bearer access-1"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_fetch_pages_through_the_list_and_reads_each_message_raw() {
         let raw = |text: &str| URL_SAFE_NO_PAD.encode(text);
         let (padded, plain) = (

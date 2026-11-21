@@ -542,3 +542,43 @@ async fn an_addition_keeps_its_reason_and_is_listed_until_a_later_order(pool: Pg
     .await;
     assert!(refused.is_err());
 }
+
+#[sqlx::test(migrations = false)]
+async fn a_text_with_the_characters_of_sql_is_stored_and_read_back_as_that_text(pool: PgPool) {
+    use qrtrmastr::application::list::ManageList;
+    use qrtrmastr::application::ports::ShoppingList;
+    use qrtrmastr::domain::list::ItemText;
+    use qrtrmastr::domain::states::AddReason;
+
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let list = ManageList::new(store.clone());
+    let day = jiff::civil::date(2026, 3, 5);
+
+    // A quote that would end a string, a statement of its own, a comment, an identifier
+    // quote, a backslash, the wildcards of LIKE and a parameter marker.
+    let hostile = r#"x'); drop table list_additions; -- "q" \ %_ $1"#;
+    let plain = "miso paste";
+    for item in [hostile, plain] {
+        list.add(
+            ItemText::parse(item).expect("text"),
+            AddReason::NewFood,
+            day,
+        )
+        .await
+        .expect("add");
+    }
+
+    // The table is there, and it holds the two texts as they were given: SQL is a sink where
+    // a value goes as a parameter, never as a piece of the statement (REAS-SEC-006).
+    let stored: Vec<(String,)> = sqlx::query_as("select item_text from list_additions order by id")
+        .fetch_all(&pool)
+        .await
+        .expect("the table exists");
+    let stored: Vec<&str> = stored.iter().map(|(text,)| text.as_str()).collect();
+    assert_eq!(stored, [hostile, plain]);
+
+    let open = store.open_additions().await.expect("open additions");
+    let read_back: Vec<&str> = open.iter().map(|a| a.item.as_str()).collect();
+    assert_eq!(read_back, [hostile, plain]);
+}
