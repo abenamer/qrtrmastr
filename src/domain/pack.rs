@@ -24,7 +24,10 @@ pub enum PackDimension {
 /// The amount in one pack, in the base unit of its dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PackAmount {
+    /// What `amount` measures. Two packs compare only when this is the same.
     pub dimension: PackDimension,
+    /// How much one pack holds, always above zero: pieces for a count, ounces for a weight,
+    /// fluid ounces for a volume. A range such as `10-12ct` gives its middle, 11.
     pub amount: Decimal,
 }
 

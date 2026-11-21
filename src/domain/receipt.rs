@@ -19,11 +19,14 @@ pub fn tolerance() -> Money {
 /// `($2.99/lb)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum PricePer {
+    /// The price is for one piece: the receipt prints `/ea` or `/each`.
     Each,
+    /// The price is for one pound: the receipt prints `/lb` or `/pound`.
     Pound,
 }
 
 impl PricePer {
+    /// The unit as `grocery_order_lines.unit_price_per` stores it: `ea` or `lb`.
     pub fn as_str(self) -> &'static str {
         match self {
             PricePer::Each => "ea",
@@ -31,6 +34,8 @@ impl PricePer {
         }
     }
 
+    /// How a product with this unit price is sold: by the piece for a price per piece, by
+    /// weight for a price per pound.
     pub fn sold_by(self) -> SoldBy {
         match self {
             PricePer::Each => SoldBy::Each,
@@ -39,24 +44,34 @@ impl PricePer {
     }
 }
 
+/// The price of one piece or of one pound of an item, from the unit price cell of the receipt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct UnitPrice {
+    /// The dollar amount of the cell: `$5.79` of `($5.79/ea)`.
     pub amount: Money,
+    /// Whether `amount` is for one piece or for one pound.
     pub per: PricePer,
 }
 
-/// A weight as the receipt prints it, `1.06 lb`. The unit is kept as printed.
+/// A weight as the receipt prints it, `1.06 lb`. A parser gives the unit in lower case.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Weight {
+    /// The number of the weight cell. When a line has a weight, this is its billed quantity.
     pub value: Quantity,
+    /// The unit that follows the number, such as `lb`. The domain does not read it and does
+    /// not convert `value`: [`reconcile`] multiplies the unit price by `value` as it is.
     pub unit: String,
 }
 
 /// The three flag columns: taxable, special price, bottle deposit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub struct Flags {
+    /// The row has the letter `T`: the item is taxable.
     pub taxable: bool,
+    /// The row has the letter `S`: the item has a special price. [`reconcile`] does not
+    /// recompute the price of such a line.
     pub special: bool,
+    /// The row has the letter `D`: the item carries a bottle deposit.
     pub deposit: bool,
 }
 
@@ -82,16 +97,38 @@ impl Flags {
 /// real receipt before either is given a better name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LineItem {
+    /// The position of the item among the item rows of the receipt, from 1. A department row,
+    /// a header row and an anomaly take no number. With the order number it identifies a line.
     pub line_no: u32,
+    /// The department row that the item stands under, such as `Dairy`. `None` when no
+    /// department row comes before the item.
     pub department: Option<String>,
+    /// The name cell as the receipt prints it, with the size in parentheses when it has one.
+    /// The alias of the line is made from this text.
     pub raw_name: String,
+    /// The path of the product link of the row, without host, query string and fragment.
+    /// `None` when the row has no link with a path. It is stored on the alias that the line
+    /// creates, not on the line.
     pub product_url_path: Option<String>,
+    /// The left number of the quantity cell, verbatim: `2` of `2/1.56`.
     pub qty_first: Quantity,
+    /// The right number of the quantity cell, verbatim: `1.56` of `2/1.56`. It is the billed
+    /// quantity of a line without a weight.
     pub qty_second: Quantity,
+    /// The weight cell. `None` when the cell is empty, and also when it does not read as a
+    /// positive number of at most three decimal places and one of the units `lb`, `lbs`, `oz`,
+    /// `kg` and `g`. The billed quantity is then the second number of the quantity cell.
     pub weight: Option<Weight>,
+    /// The unit price cell. `None` when the cell is empty or does not read as a price for one
+    /// piece or one pound; [`reconcile`] then has nothing to check the line against.
     pub unit_price: Option<UnitPrice>,
+    /// The amount of the options price cell. `None` when the cell is empty or is not an
+    /// amount. [`reconcile`] does not recompute the price of a line that has one.
     pub options_price: Option<Money>,
+    /// The final price cell: what the receipt charges for the line, for its whole billed
+    /// quantity. The final prices of the lines sum to the subtotal.
     pub final_price: Money,
+    /// The letters of the flag columns of the row.
     pub flags: Flags,
 }
 
@@ -105,6 +142,9 @@ impl LineItem {
         }
     }
 
+    /// Whether the receipt prices this item by the piece or by weight: what a product gets
+    /// when this line creates it. By weight when the line has a weight; else what the unit
+    /// price says; by the piece when the line has neither.
     pub fn sold_by(&self) -> SoldBy {
         match (&self.weight, self.unit_price) {
             (Some(_), _) => SoldBy::Weight,
@@ -114,54 +154,99 @@ impl LineItem {
     }
 }
 
-/// A row of the item table that no rule classified. The raw cells are kept so the parser can
-/// be taught; the order is stored regardless.
+/// A row of the item table that no rule classified, or a check of the amounts that did not
+/// hold. The raw cells of a row are kept so the parser can be taught; the order is stored
+/// regardless.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Anomaly {
+    /// The position of the row among the rows of the item table, from 0; every row counts,
+    /// also a header row and a department row. The use case that stores the order also
+    /// records each reconciliation mismatch as an anomaly; such an anomaly is no row and has 0.
     pub row_index: usize,
+    /// The text of each cell of the row, in order. Stored as `raw_cells`. Empty for a
+    /// reconciliation mismatch.
     pub cells: Vec<String>,
+    /// Why the row is an anomaly, as a sentence for the maintainer: the rule that the row
+    /// almost matched, that no rule matched, or the amounts that differ.
     pub reason: String,
 }
 
+/// The totals rows of a receipt, in dollars. [`reconcile`] checks that the subtotal and the
+/// five amounts after it sum to the total. One of the five is `None` when the receipt prints
+/// no such row, and then adds nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct Totals {
+    /// The subtotal as the receipt prints it: the sum of the final prices of the lines. When a
+    /// receipt prints one subtotal for each store, a parser gives their sum.
     pub subtotal: Money,
+    /// The tax of the whole order.
     pub tax: Option<Money>,
+    /// The bottle deposit of the whole order.
     pub bottle_deposit: Option<Money>,
+    /// The delivery fee.
     pub delivery_fee: Option<Money>,
+    /// The service fee. The 2026 parser adds a fuel surcharge row to it.
     pub service_fee: Option<Money>,
+    /// The tip.
     pub tip: Option<Money>,
+    /// The order total as the receipt prints it: what the order cost.
     pub total: Money,
 }
 
+/// One receipt as a parser read it: the order it is for, its item lines, the rows that no rule
+/// classified, and its totals. A parser does not check the arithmetic; [`reconcile`] does.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Receipt {
+    /// The order that the receipt is for. A later receipt with the same number replaces the
+    /// stored order.
     pub order_number: OrderNumber,
+    /// The delivery day that the receipt states, not the date of the mail. The recommendation
+    /// rules measure every gap between these days.
     pub delivery_date: Date,
+    /// The delivery time window as text, such as `8:00am - 10:00am`. `None` when the receipt
+    /// states none. Nothing reads it as times.
     pub delivery_window: Option<String>,
+    /// The item rows, in the order of the receipt.
     pub lines: Vec<LineItem>,
+    /// The rows of the item table that no rule classified. Empty when every row was
+    /// classified. The use case that stores the order adds one for each reconciliation
+    /// mismatch.
     pub anomalies: Vec<Anomaly>,
+    /// The totals rows.
     pub totals: Totals,
 }
 
 /// A line whose own arithmetic does not hold.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LineIssue {
+    /// The `line_no` of the line.
     pub line_no: u32,
+    /// The unit price times the billed quantity, rounded to the cent.
     pub expected: Money,
+    /// The final price that the receipt prints for the line. It is more than one cent from
+    /// `expected`.
     pub printed: Money,
 }
 
 /// What [`reconcile`] found. `reconciled` is what the order row stores.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reconciliation {
+    /// The sum of the final prices of all lines.
     pub line_sum: Money,
+    /// Whether `line_sum` is within one cent of the subtotal.
     pub subtotal_matches: bool,
+    /// Whether the subtotal plus tax, bottle deposit, delivery fee, service fee and tip is
+    /// within one cent of the total.
     pub total_matches: bool,
+    /// The lines whose final price is more than one cent from unit price times billed
+    /// quantity. Empty when every checked line holds. A line without a unit price, with an
+    /// options price or with the special-price flag is not checked.
     pub line_issues: Vec<LineIssue>,
 }
 
 impl Reconciliation {
+    /// Whether all three checks hold. This is the value of `grocery_orders.reconciled`, and
+    /// the difference between the parse outcomes `ok` and `partial`.
     pub fn reconciled(&self) -> bool {
         self.subtotal_matches && self.total_matches && self.line_issues.is_empty()
     }

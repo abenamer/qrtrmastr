@@ -16,8 +16,11 @@ use crate::domain::states::Platform;
 /// message that cannot be parsed or redacted is counted in the report instead, and the run goes on.
 #[derive(Debug, Error)]
 pub enum ImportError {
+    /// The stream of the source delivered an error: the source could not be read. The
+    /// messages read before it stay stored.
     #[error(transparent)]
     Source(#[from] MailError),
+    /// The store could not list the known keys or insert a message.
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -26,18 +29,33 @@ pub enum ImportError {
 /// because personal data survived; the command then exits with a failure status.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ImportReport {
+    /// How many messages the source delivered, of every sender. Each one is counted in
+    /// exactly one of `inserted`, `already_known`, `other_sender`, `malformed` and
+    /// `redaction_failures`.
     pub read: usize,
+    /// How many messages this run stored as new rows.
     pub inserted: usize,
     /// The new messages by platform; the counts sum to `inserted`.
     pub inserted_by_platform: BTreeMap<Platform, usize>,
+    /// How many messages of a configured sender were skipped because the store already held
+    /// their message key or their source hash.
     pub already_known: usize,
+    /// How many messages came from an address that is not a configured sender. They are not
+    /// stored.
     pub other_sender: usize,
+    /// One text for each message that the reader could not prepare for a cause other than
+    /// redaction: the error with the message key and what is wrong. The message is not
+    /// stored.
     pub malformed: Vec<String>,
+    /// One text for each message in which personal data survived redaction: the message key
+    /// and the kind of the redaction term, never the term. The message is not stored.
     pub redaction_failures: Vec<String>,
     /// The refused messages counted by where and how the term survived; never the text.
     pub refused_by_cause: BTreeMap<String, usize>,
 }
 
+/// The first half of an import: it takes the raw mail of a source, has the reader prepare
+/// each message, and stores the new ones. It does not know which source the mail comes from.
 pub struct ImportMail<M: MailSource, R: MailReader, S: RawMessageStore> {
     source: M,
     reader: R,
@@ -45,6 +63,8 @@ pub struct ImportMail<M: MailSource, R: MailReader, S: RawMessageStore> {
 }
 
 impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
+    /// Builds the use case from the source of the mail, the reader that classifies and
+    /// redacts a message, and the store of raw messages.
     pub fn new(source: M, reader: R, store: S) -> Self {
         Self {
             source,
@@ -57,6 +77,15 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
     /// already stored is counted as known and skipped. A malformed message or a redaction
     /// failure is recorded and the run continues; a source that cannot be read, or a store
     /// failure, stops it.
+    ///
+    /// # Errors
+    ///
+    /// - [`ImportError::Store`] when the store cannot list the known keys or insert a
+    ///   message. It carries the [`StoreError`].
+    /// - [`ImportError::Source`] when the stream delivers an error instead of a message. It
+    ///   carries the [`MailError`], which for both sources is [`MailError::Read`].
+    ///
+    /// The messages stored before the error stay stored; the next run counts them as known.
     pub async fn run(&self) -> Result<ImportReport, ImportError> {
         let mut report = ImportReport::default();
         let known = self.store.known_keys().await?;
