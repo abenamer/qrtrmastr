@@ -303,7 +303,7 @@ mod tests {
                 if let Ok(key) = MessageKey::from_message_id(&header) {
                     proptest::prop_assert_eq!(
                         MessageKey::from_parts(key.kind(), key.as_str()),
-                        Ok(key.clone()),
+                        Ok(key),
                         "{:?}", header
                     );
                 }

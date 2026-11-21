@@ -2,11 +2,6 @@
 //! database per test from `DATABASE_URL`; CI sets it, and `docs/runbooks/develop.md` says how to
 //! set it locally. Migrations are applied through the store, not by the harness, so the store's
 //! own path is what is tested.
-#![expect(
-    clippy::expect_used,
-    reason = "test code, which REAS-RUST-005 excludes; the helpers below are outside a test function, where `clippy.toml` does not reach"
-)]
-
 use qrtrmastr::adapters::postgres::PostgresStore;
 use qrtrmastr::application::migrate::Migrate;
 use sqlx::PgPool;
