@@ -3,7 +3,6 @@
 //! owns the shape and [`reconcile`] (REAS-ARCH-005).
 
 use jiff::civil::Date;
-use serde::Serialize;
 
 use super::ids::OrderNumber;
 use super::money::{Money, Quantity};
@@ -17,7 +16,7 @@ pub fn tolerance() -> Money {
 
 /// Whether a unit price is per piece or per pound, as the receipt prints `($5.79/ea)` or
 /// `($2.99/lb)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PricePer {
     /// The price is for one piece: the receipt prints `/ea` or `/each`.
     Each,
@@ -45,7 +44,7 @@ impl PricePer {
 }
 
 /// The price of one piece or of one pound of an item, from the unit price cell of the receipt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnitPrice {
     /// The dollar amount of the cell: `$5.79` of `($5.79/ea)`.
     pub amount: Money,
@@ -54,7 +53,7 @@ pub struct UnitPrice {
 }
 
 /// A weight as the receipt prints it, `1.06 lb`. A parser gives the unit in lower case.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Weight {
     /// The number of the weight cell. When a line has a weight, this is its billed quantity.
     pub value: Quantity,
@@ -64,7 +63,7 @@ pub struct Weight {
 }
 
 /// The three flag columns: taxable, special price, bottle deposit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Flags {
     /// The row has the letter `T`: the item is taxable.
     pub taxable: bool,
@@ -95,7 +94,7 @@ impl Flags {
 /// One item row of the receipt, with the quantity cell kept verbatim. `qty_first` and
 /// `qty_second` are the two numbers of `2/1.56`; which one is "delivered" is confirmed against a
 /// real receipt before either is given a better name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineItem {
     /// The position of the item among the item rows of the receipt, from 1. A department row,
     /// a header row and an anomaly take no number. With the order number it identifies a line.
@@ -157,7 +156,7 @@ impl LineItem {
 /// A row of the item table that no rule classified, or a check of the amounts that did not
 /// hold. The raw cells of a row are kept so the parser can be taught; the order is stored
 /// regardless.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anomaly {
     /// The position of the row among the rows of the item table, from 0; every row counts,
     /// also a header row and a department row. The use case that stores the order also
@@ -174,7 +173,7 @@ pub struct Anomaly {
 /// The totals rows of a receipt, in dollars. [`reconcile`] checks that the subtotal and the
 /// five amounts after it sum to the total. One of the five is `None` when the receipt prints
 /// no such row, and then adds nothing.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Totals {
     /// The subtotal as the receipt prints it: the sum of the final prices of the lines. When a
     /// receipt prints one subtotal for each store, a parser gives their sum.
@@ -195,7 +194,7 @@ pub struct Totals {
 
 /// One receipt as a parser read it: the order it is for, its item lines, the rows that no rule
 /// classified, and its totals. A parser does not check the arithmetic; [`reconcile`] does.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Receipt {
     /// The order that the receipt is for. A later receipt with the same number replaces the
     /// stored order.
@@ -217,7 +216,7 @@ pub struct Receipt {
 }
 
 /// A line whose own arithmetic does not hold.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineIssue {
     /// The `line_no` of the line.
     pub line_no: u32,
@@ -229,7 +228,7 @@ pub struct LineIssue {
 }
 
 /// What [`reconcile`] found. `reconciled` is what the order row stores.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reconciliation {
     /// The sum of the final prices of all lines.
     pub line_sum: Money,

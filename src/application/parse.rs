@@ -1,8 +1,6 @@
 //! `qm import`, second half: run the parsers over every stored message that waits in state
 //! `fetched`, and write what they found.
 
-use serde::Serialize;
-
 use super::count;
 use super::ports::{
     AliasRequest, AttemptRecord, Catalog, GroceryStore, OrderWrite, ParseAttempt, ParseFinish,
@@ -21,7 +19,7 @@ const REFUSED: ParserTag = ParserTag {
 
 /// What one parse run did, as counts of messages. After a run that ends without an error,
 /// `pending` is the sum of `left_for_later`, `parsed`, `partial`, `failed` and `unsupported`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParseReport {
     /// How many messages of the platform were in state `fetched` when the run started.
     pub pending: usize,

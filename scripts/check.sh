@@ -3,8 +3,10 @@
 # CI and the Stop hook call the groups of this script; CLAUDE.md, the README and the runbook
 # point here. A check that is added to a group runs in each of those places.
 #
-#   scripts/check.sh rust       toolchain, format, compile, lint, the planted lint violations, unit tests,
-#                               doc tests, documentation build
+#   scripts/check.sh rust       toolchain, format, the layers, compile, lint, the planted lint violations,
+#                               unit tests, doc tests, documentation build
+#   scripts/check.sh layers     src/domain and src/application use only the dependencies that the
+#                               script lists for them, and carry no serialization attribute
 #   scripts/check.sh planted    each lint of Cargo.toml fires on examples/lint_canary.rs at its level
 #   scripts/check.sh toolchain  rust-toolchain.toml, rustc and (in CI) the installed toolchain agree
 #   scripts/check.sh compile    compile only; what the Stop hook runs after a change to the code
@@ -32,7 +34,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GROUPS_IN_ORDER=(rust planted toolchain compile database sqlx deny audit docs privacy hooks lists all)
+GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy hooks lists all)
 # What the workflow of pull requests must call, the daily workflow, and the Stop hook.
 CI_GROUPS=(toolchain rust sqlx database audit docs privacy hooks lists)
 SCAN_GROUPS=(audit)
@@ -46,6 +48,24 @@ RISKY_KEY='^[0-9]+:[[:space:]]*(-[[:space:]]+)?(if|needs|continue-on-error|shell
 # One `if` is known: the dependency review runs on a pull request only.
 KNOWN_IF="^[0-9]+:    if: github\.event_name == 'pull_request'\$"
 NOT_RUN=()
+# What the two inner layers may use of the dependencies of Cargo.toml, by the name that Rust
+# writes (REAS-ARCH-002, REAS-DATA-001, REAS-ARCH-005). Every other dependency is a finding
+# there, also one that is added to the manifest later. The domain is pure: values in, values
+# out. The application layer declares the ports and may use the runtime: its mail stream is a
+# channel of the runtime. Both may use the two test libraries. The modules of the standard
+# library that follow are the file system, the network, the environment, the process and the
+# operating system, and for the domain also paths, input and output, threads and the clock.
+# To let a layer use another library, add it here and to the same list in
+# scripts/check.test.sh, and say why in the pull request.
+DOMAIN_MAY_USE=(hex jiff regex rust_decimal thiserror unicode_normalization proptest rstest)
+APPLICATION_MAY_USE=(jiff thiserror tokio proptest rstest)
+DOMAIN_STD_OUTSIDE='fs|net|env|process|os|path|io|thread|time'
+APPLICATION_STD_OUTSIDE='fs|net|env|process|os'
+# The fewest Rust files with content that each layer must hold, and the fewest dependencies
+# that the manifest must name, for the check to count.
+DOMAIN_FLOOR=10
+APPLICATION_FLOOR=8
+DEPENDENCY_FLOOR=30
 # The lint levels of Cargo.toml, as Clippy reports them on the planted violations: `deny`
 # gives an error and `warn` a warning. `forbid` keeps its own word here, because a forbidden
 # lint lowered to `deny` could be expected away in the code. A lint that is added to the
@@ -116,12 +136,142 @@ compile() { run cargo check --workspace --all-targets --locked; }
 rust() {
   toolchain
   run cargo fmt --all -- --check
+  layers
   compile
   run cargo clippy --workspace --all-targets --locked -- -D warnings
   planted
   run cargo test --workspace --locked --lib --bins
   run cargo test --workspace --locked --doc
   run env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --no-deps --document-private-items
+}
+
+# The dependencies and the development dependencies of a manifest, one in a line, as Rust
+# writes the name.
+dependency_names() {
+  awk '
+    /^\[/ { on = ($0 == "[dependencies]" || $0 == "[dev-dependencies]") }
+    on && /^[A-Za-z0-9_-]+[[:space:]]*=/ { sub(/[[:space:]]*=.*/, ""); gsub(/-/, "_"); print }
+  ' "$1" | sort -u
+}
+
+# The lines of the two dependency tables that the reader above does not take as a name: a
+# dotted key, a quoted key, an indented line, a line that continues a value.
+dependency_lines_not_read() {
+  awk '
+    /^\[/ { on = ($0 == "[dependencies]" || $0 == "[dev-dependencies]"); next }
+    on && !/^[A-Za-z0-9_-]+[[:space:]]*=/ && !/^[[:space:]]*(#.*)?$/ { print }
+  ' "$1" 2>/dev/null
+}
+
+# The dependencies that a layer may not use: all of them, less the given ones, as one pattern.
+outside_names() {
+  local manifest=$1 name allowed
+  shift
+  allowed=" $* "
+  dependency_names "$manifest" | while read -r name; do
+    case "$allowed" in *" $name "*) ;; *) printf '%s\n' "$name" ;; esac
+  done | paste -sd'|' -
+}
+
+# The lines of code below a directory that a layer must not hold. The arguments are the
+# directory, the pattern of the dependencies, the pattern of the modules of the standard
+# library, and a word for the domain. A line is a finding when it:
+#   - names one of the dependencies as a path (`name::`, also after `::` or another path), or
+#     in a `use` or an `extern crate` of the crate itself;
+#   - names one of the modules as `std::name`, or after the brace of a `use std::{...}` in the
+#     same line, or takes all of `std` with `std::*`;
+#   - names the file system, the network or the process of the runtime (`tokio::fs`);
+#   - carries a serde or SQLx attribute, also inside `cfg_attr`, or names one of the two
+#     serde traits;
+#   - brings code in from another file by a `path` attribute or `include!`;
+#   - for the domain: names `now` after `::` or `.`, asks for the time zone of the system, or
+#     prints (`println!`, `eprintln!`, `print!`, `eprint!`, `dbg!`).
+# A line that is a comment and does not close a block comment is not code and is left out. The
+# search reads each file as text, so that a byte that is no text does not hide a file.
+layer_findings() {
+  local dir=$1 names=$2 std=$3 domain=${4:-} lines status=0
+  local edge='(^|[^A-Za-z0-9_])' end='([^A-Za-z0-9_]|$)'
+  local pattern="$edge($names)::"
+  pattern="$pattern|$edge(use|extern[[:space:]]+crate)[[:space:]]+(::)?($names)([[:space:]]*;|[[:space:]]+as[[:space:]])"
+  pattern="$pattern|${edge}std::($std)$end"
+  pattern="$pattern|${edge}std::\\{(.*[^A-Za-z0-9_])?($std)$end"
+  pattern="$pattern|${edge}std::\\*"
+  pattern="$pattern|${edge}tokio::(fs|net|process)$end"
+  pattern="$pattern|$edge(serde|sqlx)[[:space:]]*\\("
+  pattern="$pattern|$edge(Serialize|Deserialize)$end"
+  pattern="$pattern|#!?\\[(.*[^A-Za-z0-9_])?path[[:space:]]*=|${edge}include!"
+  if [ -n "$domain" ]; then
+    pattern="$pattern|(::|\\.)now$end|TimeZone::system|$edge(e?print(ln)?|dbg)!"
+  fi
+  lines=$(grep -rnaE --include='*.rs' -- "$pattern" "$dir") || status=$?
+  if [ "$status" -gt 1 ]; then
+    echo "$dir: the search failed with status $status"
+    return 0
+  fi
+  printf '%s\n' "$lines" | grep -avE '^[^:]*:[0-9]+:[[:space:]]*//([^*]|\*+[^*/])*\**$' | grep -a . || true
+}
+
+# One layer: its floor, no symbolic link, and no finding. Prints what is wrong; prints nothing
+# when the layer passes.
+layer() {
+  local what=$1 dir=$2 floor=$3 names=$4 std=$5 clock=${6:-} count links found
+  count=$({ find "$dir" -type f -name '*.rs' -size +0 2>/dev/null || true; } | wc -l)
+  if [ "$count" -lt "$floor" ]; then
+    echo "FAIL: $dir holds $count Rust files with content, fewer than the floor of $floor"
+  fi
+  links=$({ find "$dir" -type l 2>/dev/null || true; })
+  if [ -n "$links" ]; then
+    echo "FAIL: $dir holds a symbolic link, which the search does not follow:"
+    echo "$links"
+  fi
+  found=$(layer_findings "$dir" "$names" "$std" "$clock")
+  if [ -n "$found" ]; then
+    echo "FAIL: $what names a library or a module that the layer may not use (REAS-ARCH-002, REAS-DATA-001):"
+    echo "$found"
+  fi
+}
+
+# The inner layers stay free of what belongs to an adapter. The arguments are for the test of
+# this script: the directory of the domain, the directory of the application layer, and the
+# manifest.
+#
+# The check reads text, not the compiler's view, so it is a gate against drift and the review
+# is the control. What it does not see: a name that a `use` with braces brings in when the
+# braces are not after `std::` or go over several lines; a library that another crate
+# re-exports; code that a macro of another module writes; a call that reaches an adapter
+# through `crate::` or `super::`; a line of code after a block comment that opened on a line
+# before it. What it refuses although it is harmless: a string, a trailing comment or a block
+# comment that names one of the things above (reword it), a module of the layer with the name
+# of a dependency, and a pure value of a refused module, such as `std::time::Duration` in the
+# domain.
+layers() {
+  local domain=${1:-src/domain} application=${2:-src/application} manifest=${3:-Cargo.toml}
+  local count outside_domain outside_application problems=''
+  printf '\n$ scripts/check.sh layers: %s uses of the dependencies only (%s), %s only (%s)\n' \
+    "$domain" "${DOMAIN_MAY_USE[*]}" "$application" "${APPLICATION_MAY_USE[*]}"
+  count=$(dependency_names "$manifest" | wc -l)
+  if [ "$count" -lt "$DEPENDENCY_FLOOR" ]; then
+    problems="FAIL: $manifest names $count dependencies, fewer than the floor of $DEPENDENCY_FLOOR"
+  fi
+  if grep -qE '^\[(build-dependencies|target\.|dependencies\.|dev-dependencies\.)' "$manifest" 2>/dev/null \
+    || [ -n "$(dependency_lines_not_read "$manifest")" ]; then
+    problems="$problems
+FAIL: $manifest has a dependency in a form that scripts/check.sh layers does not read:
+$(dependency_lines_not_read "$manifest")"
+  fi
+  outside_domain=$(outside_names "$manifest" "${DOMAIN_MAY_USE[@]}")
+  outside_application=$(outside_names "$manifest" "${APPLICATION_MAY_USE[@]}")
+  problems="$problems
+$(layer 'the domain' "$domain" "$DOMAIN_FLOOR" "$outside_domain" "$DOMAIN_STD_OUTSIDE" clock)
+$(layer 'the application layer' "$application" "$APPLICATION_FLOOR" "$outside_application" "$APPLICATION_STD_OUTSIDE")"
+  problems=$(printf '%s\n' "$problems" | grep -a . || true)
+  if [ -n "$problems" ]; then
+    printf '%s\n' "$problems" >&2
+    echo "Put the serialization, the row type or the client in src/adapters, and convert there." >&2
+    echo "The head of scripts/check.sh lists what each layer may use, and how to add a library." >&2
+    return 1
+  fi
+  echo "PASS: the domain and the application layer name no library of an adapter"
 }
 
 # The lint table as the manifest declares it, one `name=level` in a line.

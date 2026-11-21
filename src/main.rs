@@ -12,6 +12,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use qrtrmastr::adapters::cli::page::render_habit_page;
+use qrtrmastr::adapters::cli::wire::{DueReportJson, HabitReportJson, SimpleReportJson};
 use qrtrmastr::adapters::cli::{
     Cli, Command, FixtureAction, GmailAction, ask_reason, json_text, log_line_is_safe,
     render_added, render_due, render_habit, render_import, render_simple, terminal_lines,
@@ -266,14 +267,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 if html {
                     print!("{}", render_habit_page(&report));
                 } else if json {
-                    println!("{}", json_text(&report)?);
+                    println!("{}", json_text(&HabitReportJson::from(&report))?);
                 } else {
                     print!("{}", render_habit(&report));
                 }
             } else if simple {
                 let report = due.run_simple().await?;
                 if json {
-                    println!("{}", json_text(&report)?);
+                    println!("{}", json_text(&SimpleReportJson::from(&report))?);
                 } else {
                     print!("{}", render_simple(&report));
                 }
@@ -285,7 +286,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 };
                 let report = due.run(as_of, options).await?;
                 if json {
-                    println!("{}", json_text(&report)?);
+                    println!("{}", json_text(&DueReportJson::from(&report))?);
                 } else {
                     print!("{}", render_due(&report));
                 }

@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
-use serde::Serialize;
 use thiserror::Error;
 
 /// Why a value is not a dollar amount, or why arithmetic on two amounts has no answer.
@@ -37,9 +36,9 @@ pub enum QuantityError {
 }
 
 /// A dollar amount with two decimal places. Negative amounts exist: credits and discounts.
-/// Serializes as the decimal text, never as a float.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize)]
-#[serde(transparent)]
+/// The type has no serialization of its own: the wire types of the command line write an
+/// amount as decimal text, never as a float.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Money(Decimal);
 
 impl Money {
@@ -177,8 +176,7 @@ impl fmt::Display for Money {
 }
 
 /// A count or a weight: positive, at most three decimals, as the receipt prints them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Quantity(Decimal);
 
 impl Quantity {

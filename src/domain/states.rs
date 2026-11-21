@@ -55,19 +55,6 @@ macro_rules! text_enum {
                 f.write_str(self.as_str())
             }
         }
-
-        impl<'de> serde::Deserialize<'de> for $name {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let text = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
-                text.parse().map_err(serde::de::Error::custom)
-            }
-        }
-
-        impl serde::Serialize for $name {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                serializer.serialize_str(self.as_str())
-            }
-        }
     };
 }
 

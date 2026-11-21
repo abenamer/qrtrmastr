@@ -1,6 +1,7 @@
 //! `qm fixture add`: a stored, redacted receipt becomes a local parser fixture.
 
 use super::ports::{RawMessageStore, StoreError, StoredBody};
+use crate::domain::ids::MessageKey;
 
 /// Finds the stored message that `qm fixture add` names. The use case only reads; the fixtures
 /// adapter writes the file.
@@ -14,16 +15,15 @@ impl<S: RawMessageStore> ExportFixture<S> {
         Self { store }
     }
 
-    /// The redacted body under `key`, or `None` when no such message is stored.
-    ///
-    /// `key` is the text of the message key, without its kind.
+    /// The redacted body under `key`, or `None` when no message is stored under that kind
+    /// and that text.
     ///
     /// # Errors
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
-    /// - [`StoreError::InvalidRow`] when the stored platform or the stored kind of the key is
-    ///   not a value that the domain knows.
-    pub async fn run(&self, key: &str) -> Result<Option<StoredBody>, StoreError> {
+    /// - [`StoreError::InvalidRow`] when the stored platform is not a value that the domain
+    ///   knows.
+    pub async fn run(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
         self.store.body_by_key(key).await
     }
 }

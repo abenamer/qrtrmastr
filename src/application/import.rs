@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
 use thiserror::Error;
 
 use super::count;
@@ -27,7 +26,7 @@ pub enum ImportError {
 
 /// What one import run did. `redaction_failures` is non-empty when a message was refused
 /// because personal data survived; the command then exits with a failure status.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportReport {
     /// How many messages the source delivered, of every sender. Each one is counted in
     /// exactly one of `inserted`, `already_known`, `other_sender`, `malformed` and
@@ -96,7 +95,7 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
             match self.reader.prepare(&raw) {
                 Ok(Prepared::OtherSender { .. }) => count(&mut report.other_sender),
                 Ok(Prepared::Message(message)) => {
-                    if known.contains(message.key.as_str()) {
+                    if known.contains(&message.key) {
                         count(&mut report.already_known);
                         continue;
                     }
@@ -204,18 +203,18 @@ mod tests {
 
     #[derive(Default)]
     struct MemoryStore {
-        known: HashSet<String>,
+        known: HashSet<MessageKey>,
         inserted: RefCell<Vec<String>>,
     }
 
     impl RawMessageStore for MemoryStore {
-        async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
+        async fn known_keys(&self) -> Result<HashSet<MessageKey>, StoreError> {
             Ok(self.known.clone())
         }
         async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
             Ok(None)
         }
-        async fn body_by_key(&self, _: &str) -> Result<Option<StoredBody>, StoreError> {
+        async fn body_by_key(&self, _: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
             Ok(None)
         }
         async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError> {
@@ -232,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn known_messages_are_skipped_and_a_redaction_failure_is_reported_not_stored() {
         let store = MemoryStore {
-            known: HashSet::from(["a".to_owned()]),
+            known: HashSet::from([MessageKey::from_message_id("a").expect("key")]),
             inserted: RefCell::new(Vec::new()),
         };
         let import = ImportMail::new(TwoMails, ByteReader, store);
@@ -256,13 +255,13 @@ mod tests {
     struct BrokenStore;
 
     impl RawMessageStore for BrokenStore {
-        async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
+        async fn known_keys(&self) -> Result<HashSet<MessageKey>, StoreError> {
             Err(StoreError::Migration("down".to_owned()))
         }
         async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
             unreachable!()
         }
-        async fn body_by_key(&self, _: &str) -> Result<Option<StoredBody>, StoreError> {
+        async fn body_by_key(&self, _: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
             unreachable!()
         }
         async fn insert(&self, _: &NewRawMessage) -> Result<InsertOutcome, StoreError> {

@@ -296,7 +296,8 @@ mod tests {
 
         // JSON, as `qm due --json` writes it: valid, nothing that a terminal obeys, and the
         // name comes back whole.
-        let json = super::super::json_text(&hostile).expect("json");
+        let json = super::super::json_text(&super::super::wire::HabitReportJson::from(&hostile))
+            .expect("json");
         assert!(
             !json.contains(|c: char| (c.is_control() && c != '\n') || c == '\u{202e}'),
             "{json:?}"

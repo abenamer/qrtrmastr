@@ -265,13 +265,17 @@ pub struct StoredBody {
 /// The raw messages: what the import writes, and what the parse step, a fetch and
 /// `qm fixture add` read.
 pub trait RawMessageStore {
-    /// The text of every stored message key, without its kind. The import reads the set once
-    /// when it starts, and skips a message whose key is in it.
+    /// The key of every stored message. The import reads the set once when it starts, and
+    /// skips a message whose key is in it. Two keys are equal when their kind and their text
+    /// are equal; [`RawMessageStore::insert`] refuses a text that is stored under the other
+    /// kind.
     ///
     /// # Errors
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
-    async fn known_keys(&self) -> Result<HashSet<String>, StoreError>;
+    /// - [`StoreError::InvalidRow`] when the stored kind of a key is not a value that the
+    ///   domain knows, or the stored text does not fit its kind.
+    async fn known_keys(&self) -> Result<HashSet<MessageKey>, StoreError>;
     /// When the newest stored message was received; `None` for an empty store. A fetch asks
     /// the mailbox for what came after it.
     ///
@@ -279,14 +283,15 @@ pub trait RawMessageStore {
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
     async fn newest_received_at(&self) -> Result<Option<Timestamp>, StoreError>;
-    /// The redacted body stored under `key`, if any.
+    /// The redacted body stored under `key`, if any. `None` also when the text of `key` is
+    /// stored under the other kind.
     ///
     /// # Errors
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
-    /// - [`StoreError::InvalidRow`] when the stored platform or the stored kind of the key is
-    ///   not a value that the domain knows.
-    async fn body_by_key(&self, key: &str) -> Result<Option<StoredBody>, StoreError>;
+    /// - [`StoreError::InvalidRow`] when the stored platform is not a value that the domain
+    ///   knows. The kind and the text of the row are those of `key`, which is valid.
+    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError>;
     /// Inserts unless the key or the source hash is already stored.
     ///
     /// # Errors
@@ -299,8 +304,8 @@ pub trait RawMessageStore {
     /// # Errors
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
-    /// - [`StoreError::InvalidRow`] when a stored identity, kind of key, kind of message or
-    ///   parse state is not a value that the domain accepts.
+    /// - [`StoreError::InvalidRow`] when a stored identity, kind of key, text of a key, kind
+    ///   of message or parse state is not a value that the domain accepts.
     async fn pending(&self, platform: Platform) -> Result<Vec<PendingMessage>, StoreError>;
 }
 
@@ -432,7 +437,7 @@ pub struct AliasRequest<'a> {
 
 /// How a product is shown: its name, size and department, and the name the most recent receipt
 /// printed, which is what the FreshDirect search box wants.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductLabel {
     /// The product that the label is for.
     pub id: ProductId,

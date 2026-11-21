@@ -102,7 +102,8 @@ The checker has limits:
 | Group | What it runs | CI job |
 | --- | --- | --- |
 | `toolchain` | `rust-toolchain.toml`, `rustc` and, in CI, the toolchain that the workflow installed name one version | `rust` |
-| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the `planted` group, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `rust` | The `toolchain` group, `cargo fmt --check`, the `layers` group, `cargo check`, `cargo clippy` with warnings denied, the `planted` group, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `layers` | A search of `src/domain` and `src/application` for a dependency that the script does not list for the layer, a serde or SQLx attribute, a module of the standard library for files, the network, the environment or the process and, in the domain, a read of the clock | `rust`, as a part of the `rust` group |
 | `planted` | Clippy on `examples/lint_canary.rs` with its flag: each of the 17 lints of `Cargo.toml` fires on its planted violation at its level | `rust`, as a part of the `rust` group |
 | `compile` | `cargo check` only | none; the Stop hook |
 | `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
@@ -129,6 +130,24 @@ Two jobs are actions with no command in the script: `secrets` (gitleaks over the
 * `CLAUDE.md`, the README or this page does not name the script.
 
 `scripts/check.test.sh` plants each of these, except the last, in a copy of the files and asserts the failure. The gate knows the commands of the script only: it does not find a tool that the script does not use, a command in another spelling, or a change inside a group. It is not a control against a change that is meant to switch a check off; the review of the pull request is.
+
+`scripts/check.sh layers` is a gate of the same kind for the two inner layers (REAS-ARCH-002, REAS-DATA-001). The script lists the dependencies that each layer may use: for `src/domain` they are `hex`, `jiff`, `regex`, `rust_decimal`, `thiserror` and `unicode_normalization`; for `src/application` they are `jiff`, `thiserror` and `tokio`; for both, the two test libraries `proptest` and `rstest`. The gate reads the other dependencies from `Cargo.toml`, so a dependency that is added later in the plain form `name = ...` is refused in both layers until the script lists it, and a dependency in another form fails the gate at the manifest. It fails when a line of code in a layer:
+
+* names another dependency as a path, such as `serde::` or `sqlx::`, also inside a longer path such as `rust_decimal::serde::`, or in a `use` or an `extern crate` of the crate itself;
+* names `std::fs`, `std::net`, `std::env`, `std::process` or `std::os`, takes all of `std` with `std::*`, or names `tokio::fs`, `tokio::net` or `tokio::process`; in the domain also `std::path`, `std::io`, `std::thread` and `std::time`;
+* carries a serde or SQLx attribute, also inside `cfg_attr`, or names `Serialize` or `Deserialize`;
+* brings code in with a `path` attribute or `include!`;
+* in the domain: names `now` after `::` or `.`, asks for the time zone of the system, or prints with `println!`, `eprintln!`, `print!`, `eprint!` or `dbg!`.
+
+It fails also when a layer holds fewer Rust files with content than its floor, when a layer holds a symbolic link or a file that cannot be read, and when `Cargo.toml` names fewer than 30 dependencies. `scripts/check.test.sh` plants each dependency of the manifest in each layer, each of these forms, and each floor, in a copy of the two directories and of the manifest. The lists of what a layer may use, and the floors, are in the test a second time, so a name that is added to a list of the script fails the test until the test has it too. To let a layer use another library, add it to both lists and say why in the pull request.
+
+The gate reads text, not what the compiler sees. It is a gate against drift, and the review is the control.
+
+* It does not see: a name that a `use` with braces brings in when the braces are not after `std::` or go over several lines; a library that another crate exports again; code that a macro of another module writes; a call that reaches an adapter through `crate::` or `super::`; a line of code after a block comment that opened on a line before it.
+* It refuses, although the line is harmless: a string, a trailing comment or a block comment that names one of the things above; a module of the layer that has the name of a dependency; a pure value of a refused module, such as `std::time::Duration` in the domain. Reword the line, rename the module, or take the value as a parameter.
+* A layer of files that hold a comment only satisfies its floor.
+
+To give a report a new field in `qm due --json`, add it to the wire type in `src/adapters/cli/wire.rs`. The conversion there names every field, so a field that is added to a report does not compile until the wire type takes it or leaves it out.
 
 Which job reads a path that a change can touch:
 

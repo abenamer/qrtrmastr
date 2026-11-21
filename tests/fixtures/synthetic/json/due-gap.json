@@ -1,0 +1,129 @@
+{
+  "as_of": "2026-03-03",
+  "orders": 510,
+  "order_cadence_days": 7,
+  "rows": [
+    {
+      "product": {
+        "id": 1,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 101,
+      "times_bought": 12,
+      "usual_gap_days": null,
+      "last_bought": "2026-02-10",
+      "days_since": 21,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "bought_once"
+      }
+    },
+    {
+      "product": {
+        "id": 2,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 102,
+      "times_bought": 12,
+      "usual_gap_days": 14,
+      "last_bought": "2026-02-10",
+      "days_since": -4,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "tentative"
+      }
+    },
+    {
+      "product": {
+        "id": 3,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 103,
+      "times_bought": 12,
+      "usual_gap_days": 14,
+      "last_bought": "2026-02-10",
+      "days_since": 21,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "lapsed"
+      }
+    },
+    {
+      "product": {
+        "id": 4,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 104,
+      "times_bought": 12,
+      "usual_gap_days": 14,
+      "last_bought": "2026-02-10",
+      "days_since": 21,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "overdue",
+        "days_overdue": 3
+      }
+    },
+    {
+      "product": {
+        "id": 5,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 105,
+      "times_bought": 12,
+      "usual_gap_days": 14,
+      "last_bought": "2026-02-10",
+      "days_since": 21,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "due_soon",
+        "days_until_due": 0
+      }
+    },
+    {
+      "product": {
+        "id": 6,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 106,
+      "times_bought": 12,
+      "usual_gap_days": 14,
+      "last_bought": "2026-02-10",
+      "days_since": 21,
+      "typical_quantity": "1.5",
+      "last_price": "4.50",
+      "status": {
+        "status": "not_due"
+      }
+    }
+  ]
+}

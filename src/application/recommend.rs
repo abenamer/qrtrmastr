@@ -1,7 +1,6 @@
 //! `qm due`: what the history says you are about to run out of.
 
 use jiff::civil::Date;
-use serde::Serialize;
 
 use super::ports::{Catalog, GroceryStore, ProductLabel, ShoppingList, StoreError};
 use crate::domain::list::Addition;
@@ -25,18 +24,17 @@ pub struct DueOptions {
 }
 
 /// One row of `qm due`: the recommendation and how to show the product.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DueRow {
     /// The label of the product that the recommendation is about.
     pub product: ProductLabel,
     /// What the gap rule says about the product on the day of the question. In JSON its
     /// fields stand beside `product`, not under a name of their own.
-    #[serde(flatten)]
     pub recommendation: Recommendation,
 }
 
 /// The report of the gap rule, `qm due --gap`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DueReport {
     /// The day the rule judges from: `--as-of`, or today.
     pub as_of: Date,
@@ -53,18 +51,17 @@ pub struct DueReport {
 }
 
 /// One row of `qm due --simple`: the recommendation and how to show the product.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimpleRow {
     /// The label of the product that the recommendation is about.
     pub product: ProductLabel,
     /// What the simple rule counted for the product. In JSON its fields stand beside
     /// `product`.
-    #[serde(flatten)]
     pub recommendation: SimpleRecommendation,
 }
 
 /// The report of the simple rule, `qm due --simple`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimpleReport {
     /// How many orders are stored.
     pub orders: usize,
@@ -75,25 +72,23 @@ pub struct SimpleReport {
 
 /// One row of the essentials, the extras or the stocked products: the recommendation of the
 /// habit rule and how to show the product.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HabitRow {
     /// The label of the product that the recommendation is about. When several products have
     /// exactly the same name, it is the one bought last, and it stands for all of them.
     pub product: ProductLabel,
     /// What the habit rule counted for the product. In JSON its fields stand beside
     /// `product`.
-    #[serde(flatten)]
     pub recommendation: HabitRecommendation,
 }
 
 /// One row of "remember this?": the reminder and how to show the product.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReminderRow {
     /// The label of the product that the reminder is about.
     pub product: ProductLabel,
     /// In how many orders the product is and when it was last bought. In JSON its fields
     /// stand beside `product`.
-    #[serde(flatten)]
     pub reminder: Reminder,
 }
 
@@ -111,7 +106,7 @@ pub struct HabitOptions {
 
 /// The report of the habit rule, the default of `qm due`: the essentials, the extras, the
 /// reminders, the additions and the stocked products.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HabitReport {
     /// The day a stock is judged from: `--as-of`, or today. The counts of the habit rule use
     /// no dates.

@@ -1,0 +1,140 @@
+{
+  "as_of": "2026-03-03",
+  "orders": 510,
+  "essentials": [
+    {
+      "product": {
+        "id": 7,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 107,
+      "in_recent": 17,
+      "recent_orders": 20,
+      "in_long": 41,
+      "long_orders": 50,
+      "last_bought": "2026-02-24",
+      "typical_quantity": "1.56",
+      "last_price": "17.37",
+      "stocked_until": null
+    },
+    {
+      "product": {
+        "id": 8,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 108,
+      "in_recent": 17,
+      "recent_orders": 20,
+      "in_long": 41,
+      "long_orders": 50,
+      "last_bought": "2026-02-24",
+      "typical_quantity": "1.56",
+      "last_price": "17.37",
+      "stocked_until": null
+    }
+  ],
+  "extras": [
+    {
+      "product": {
+        "id": 9,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 109,
+      "in_recent": 17,
+      "recent_orders": 20,
+      "in_long": 41,
+      "long_orders": 50,
+      "last_bought": "2026-02-24",
+      "typical_quantity": "1.56",
+      "last_price": "17.37",
+      "stocked_until": null
+    }
+  ],
+  "remember": [
+    {
+      "product": {
+        "id": 10,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 110,
+      "orders_with_product": 4,
+      "last_bought": "2025-12-31",
+      "last_price": "-2.00"
+    }
+  ],
+  "seed": 18446744073709551615,
+  "additions": [
+    {
+      "id": 1,
+      "item": "miso paste",
+      "product_id": 7,
+      "reason": "out-of-stock",
+      "added_on": "2026-03-01"
+    },
+    {
+      "id": 2,
+      "item": "miso paste",
+      "product_id": null,
+      "reason": "running-low",
+      "added_on": "2026-03-01"
+    },
+    {
+      "id": 3,
+      "item": "miso paste",
+      "product_id": 9223372036854775807,
+      "reason": "recipe",
+      "added_on": "2026-03-01"
+    },
+    {
+      "id": 4,
+      "item": "miso paste",
+      "product_id": null,
+      "reason": "new-food",
+      "added_on": "2026-03-01"
+    },
+    {
+      "id": 5,
+      "item": "miso paste",
+      "product_id": null,
+      "reason": "repeat-favorite",
+      "added_on": "2026-03-01"
+    }
+  ],
+  "stocked": [
+    {
+      "product": {
+        "id": 11,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 111,
+      "in_recent": 17,
+      "recent_orders": 20,
+      "in_long": 41,
+      "long_orders": 50,
+      "last_bought": "2026-02-24",
+      "typical_quantity": "1.56",
+      "last_price": "17.37",
+      "stocked_until": "2026-04-15"
+    }
+  ]
+}

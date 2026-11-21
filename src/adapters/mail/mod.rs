@@ -116,7 +116,7 @@ impl MailReader for PlatformMail {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::states::MessageKind;
+    use crate::domain::states::{KeyKind, MessageKind};
     use redact::RedactionTerms;
 
     const FIXTURE_HTML: &str =
@@ -200,7 +200,7 @@ mod tests {
         else {
             panic!("expected a message");
         };
-        assert!(matches!(m.key, MessageKey::Sha256(_)), "{:?}", m.key);
+        assert_eq!(m.key.kind(), KeyKind::Sha256, "{:?}", m.key);
     }
 
     #[test]
