@@ -1,22 +1,31 @@
-//! Planted violations of the lint levels that `Cargo.toml` declares (REAS-DOC-006).
-//!
-//! The module below breaks each rule of the lint table at least once, with no attribute that
-//! suppresses one of those lints. It is compiled only with `--cfg lint_canary`, which no build
-//! of the program sets. `scripts/check.sh planted` runs Clippy on this file with that flag and
-//! fails unless every lint of its list fires here at the level that the manifest declares. So
-//! a lint that somebody takes out of `Cargo.toml`, or lowers, fails the `rust` job. The one
-//! `unsafe` block of the repository is here, and the compiler refuses it also with the flag:
-//! Clippy reports it and builds nothing.
-//!
-//! An `#[expect]` on each violation would not do this: `#[expect(lint)]` switches the lint on
-//! for its own scope, so the expectation holds whatever the manifest says.
-//!
-//! This is an example target, so it is code outside the tests: the allowances of `clippy.toml`
-//! for test code do not apply to it. Without the flag it is an empty program. It is no part
-//! of the `qm` binary or of the image, and nothing runs it.
-//!
-//! To add a lint to `Cargo.toml`, add its violation here and its name to the list in
-//! `scripts/check.sh`, in the same change.
+// Planted violations of the lint levels that `Cargo.toml` declares (REAS-DOC-006).
+//
+// The module below breaks each rule of the lint table at least once, with no attribute that
+// suppresses one of those lints. It is compiled only with `--cfg lint_canary`, which no build
+// of the program sets. `scripts/check.sh planted` runs Clippy on this file with that flag and
+// fails unless every lint of its list fires here at the level that the manifest declares. So
+// a lint that somebody takes out of `Cargo.toml`, or lowers, fails the `rust` job. The one
+// `unsafe` block of the repository is here, and the compiler refuses it also with the flag:
+// Clippy reports it and builds nothing.
+//
+// An `#[expect]` on each violation would not do this: `#[expect(lint)]` switches the lint on
+// for its own scope, so the expectation holds whatever the manifest says.
+//
+// This is an example target, so it is code outside the tests: the allowances of `clippy.toml`
+// for test code do not apply to it. Without the flag it is an empty program. It is no part
+// of the `qm` binary or of the image, and nothing runs it.
+//
+// To add a lint to `Cargo.toml`, add its violation here and its name to the list in
+// `scripts/check.sh`, in the same change.
+//
+// The crate itself is the planted violation of `missing_docs`: with the flag it has no doc
+// comment. The lints `clippy::missing_errors_doc` and `clippy::missing_panics_doc` read
+// public functions that are not inside a private module, so their two planted violations
+// are at the root of the file and not in the module.
+#![cfg_attr(
+    not(lint_canary),
+    doc = "Planted violations of the lint levels of `Cargo.toml`; see the comment at the head of the file."
+)]
 
 #[cfg(lint_canary)]
 mod planted {
@@ -115,6 +124,19 @@ mod planted {
     }
 }
 
+/// Documented, and without the section that says when it fails: `clippy::missing_errors_doc`.
+#[cfg(lint_canary)]
+pub fn fallible(value: u8) -> Result<u8, u8> {
+    if value == 0 { Err(value) } else { Ok(value) }
+}
+
+/// Documented, and without the section that says when it panics: `clippy::missing_panics_doc`.
+#[cfg(lint_canary)]
+pub fn panicking(value: u8) -> u8 {
+    assert!(value != 0, "planted");
+    value
+}
+
 fn main() {
     // Every planted function is called, so that no lint for unused code stands in for the
     // lint that the function is there for.
@@ -139,6 +161,8 @@ fn main() {
             usize::from(planted::indexed(&values)),
             planted::cut("ab").len(),
             usize::from(planted::unsafe_block(&values)),
+            usize::from(fallible(1).unwrap_or(0)),
+            usize::from(panicking(1)),
         ];
         std::hint::black_box(total);
     }

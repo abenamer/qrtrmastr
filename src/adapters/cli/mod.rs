@@ -15,6 +15,8 @@ use crate::application::recommend::{DueReport, HabitReport, SimpleReport};
 use crate::domain::recommend::Status;
 use crate::domain::states::AddReason;
 
+/// The arguments of one run of `qm`, as `clap` parses them. The help text of the program is
+/// in the `about` and `long_about` of the attribute below, not in this comment.
 #[derive(Debug, Parser)]
 #[command(
     name = "qm",
@@ -33,10 +35,12 @@ use crate::domain::states::AddReason;
         the expected output: docs/runbooks/takeout-export.md"
 )]
 pub struct Cli {
+    /// The command to run.
     #[command(subcommand)]
     pub command: Command,
 }
 
+/// The commands of `qm`.
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Apply the pending database migrations. Running it again applies nothing.
@@ -67,6 +71,7 @@ pub enum Command {
     },
     /// Sign in to Gmail for `qm fetch`.
     Gmail {
+        /// What to do with the Gmail sign-in.
         #[command(subcommand)]
         action: GmailAction,
     },
@@ -90,7 +95,7 @@ pub enum Command {
         /// The day to judge from; today when omitted.
         #[arg(long, value_name = "YYYY-MM-DD")]
         as_of: Option<Date>,
-        /// Also list items bought only twice.
+        /// Also list items bought on too few days for a usual gap that the rule trusts.
         #[arg(long)]
         include_tentative: bool,
         /// Also list items not bought for more than three usual gaps.
@@ -123,16 +128,19 @@ pub enum Command {
     },
     /// Remove one of your additions; the number is the one `qm due` prints before it.
     Drop {
+        /// The number of the addition to remove.
         #[arg(value_name = "NUMBER")]
         id: i64,
     },
     /// Work with parser fixtures.
     Fixture {
+        /// What to do with the fixtures.
         #[command(subcommand)]
         action: FixtureAction,
     },
 }
 
+/// The actions of `qm gmail`.
 #[derive(Debug, Subcommand)]
 pub enum GmailAction {
     /// Give the tool read-only access to your mail. It prints an address to open in a
@@ -141,11 +149,13 @@ pub enum GmailAction {
     Login,
 }
 
+/// The actions of `qm fixture`.
 #[derive(Debug, Subcommand)]
 pub enum FixtureAction {
     /// Write the stored, redacted HTML of one message to the local fixtures directory, which
     /// git ignores. The key is the message key `qm import` stored.
     Add {
+        /// The message key of the stored message to write.
         key: String,
         /// Where to write; the default is the gitignored local directory.
         #[arg(long, default_value = "tests/fixtures/local")]
@@ -170,6 +180,11 @@ pub fn log_line_is_safe(target: &str, level: &tracing::Level) -> bool {
 
 const MAX_REFUSED_LINES: usize = 20;
 
+/// The report of `qm import` and `qm fetch` as lines for the terminal: the counts of the
+/// messages read, the new messages by platform when there are new ones, one line for each
+/// malformed message, the refusals, and the counts of the parse step. A message key and a
+/// cause are outside data and go through [`terminal_text`]. Above 20 refused messages only
+/// the lines by cause are printed. The conflicts are printed only when there are some.
 pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -320,6 +335,11 @@ fn status_text(status: Status) -> String {
     }
 }
 
+/// The report of the gap rule (`qm due --gap`) as a table for the terminal. The header has
+/// the day the rule judges from, the count of orders and the order cadence in days, or
+/// `unknown` when the report has none. Each row is one product: times bought, usual gap in
+/// days, last purchase, days since, typical quantity and status. `nothing is due` stands in
+/// place of the table when the report has no row. A label is cut to 48 characters.
 pub fn render_due(report: &DueReport) -> String {
     let mut out = format!(
         "as of {}, {} orders, usual gap between orders {}\n",
@@ -375,6 +395,11 @@ fn habit_table(out: &mut String, rows: &[crate::application::recommend::HabitRow
     }
 }
 
+/// The report of the habit rule (`qm due`) as text for the terminal: the essentials, the
+/// extras, the "remember this?" list with the seed of its shuffle, the additions with their
+/// number, reason and day, and one line for each product that is left out as stocked. An
+/// empty list of the first four prints `none`. A product label and the text of an addition
+/// are outside data and go through [`terminal_text`].
 pub fn render_habit(report: &HabitReport) -> String {
     let mut out = format!("as of {}, {} orders\n", report.as_of, report.orders);
     out.push_str("\nESSENTIALS: in at least a quarter of your latest orders\n");
@@ -431,6 +456,8 @@ pub fn render_habit(report: &HabitReport) -> String {
     out
 }
 
+/// The line that `qm add` prints: the number of the addition, the item, the reason, and
+/// the product of the history that the text names when it names exactly one.
 pub fn render_added(added: &Added) -> String {
     let product = match &added.product {
         Some(product) => format!("; in your history as {}", label(product)),
@@ -446,6 +473,10 @@ pub fn render_added(added: &Added) -> String {
 
 /// Asks why an item is added, until an answer names a reason: its number or its text. `None`
 /// when the input ends first.
+///
+/// # Errors
+///
+/// The error of the input or of the output when a read, a write or a flush fails.
 pub fn ask_reason(
     item: &str,
     mut input: impl std::io::BufRead,
@@ -476,6 +507,10 @@ pub fn ask_reason(
     }
 }
 
+/// The report of the simple rule (`qm due --simple`) as a table for the terminal: the count
+/// of orders, then one row for each product that is in at least half of them and not in the
+/// last one, with the orders that hold it and the typical quantity. `none` stands in place
+/// of the table when the report has no row. A label is cut to 48 characters.
 pub fn render_simple(report: &SimpleReport) -> String {
     let mut out = format!(
         "{} orders; items in at least half of them and missing from the last:\n",

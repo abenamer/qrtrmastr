@@ -7,6 +7,8 @@ use super::ReceiptParser;
 use super::freshdirect_2026::FreshDirect2026;
 use crate::application::ports::{ParseAttempt, ReceiptParsing};
 
+/// The receipt parsers that the parse step tries on a stored body, behind the
+/// [`ReceiptParsing`] port. The default holds the one parser that exists, [`FreshDirect2026`].
 pub struct Registry {
     parsers: Vec<Box<dyn ReceiptParser>>,
 }
