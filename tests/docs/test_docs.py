@@ -752,9 +752,18 @@ class AuthorityClassGitTests(FixtureTests):
     """The gate reads the index of git: what is committed, and what is staged."""
 
     def git(self, root, *arguments):
+        import os
         import subprocess
 
-        return subprocess.run(["git", "-C", str(root), *arguments], capture_output=True, check=True)
+        # Inside a git hook these variables name the index of the project; the test works on
+        # the repository that it makes, and on no other.
+        environment = {
+            name: value for name, value in os.environ.items()
+            if name not in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX")
+        }
+        return subprocess.run(
+            ["git", "-C", str(root), *arguments], capture_output=True, check=True, env=environment
+        )
 
     def repository(self):
         root = self.fixture({FILES_PATH: FILES})

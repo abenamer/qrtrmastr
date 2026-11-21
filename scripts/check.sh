@@ -16,8 +16,11 @@
 #   scripts/check.sh deny       cargo deny: advisories, bans, licenses, sources
 #   scripts/check.sh audit      cargo audit against the RustSec database
 #   scripts/check.sh docs       documentation checker and its tests
-#   scripts/check.sh privacy    privacy canary: shapes, and your terms when the terms file exists
-#   scripts/check.sh hooks      the test of the guard hook and the test of this script
+#   scripts/check.sh privacy    the rules group, then the privacy canary: shapes, and your terms
+#                               when the terms file exists
+#   scripts/check.sh rules      the Read deny rules of .claude/settings.json are the ones that
+#                               docs/concepts/privacy.md lists, and none names a home directory
+#   scripts/check.sh hooks      the tests of the guard hook, of the privacy canary and of this script
 #   scripts/check.sh lists      the workflows and the Stop hook call this script, and the commands
 #                               that this script runs are in no line of theirs
 #   scripts/check.sh all        every group above except sqlx; database only with DATABASE_URL
@@ -34,14 +37,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy hooks lists all)
+GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks lists all)
 # What the workflow of pull requests must call, the daily workflow, and the Stop hook.
 CI_GROUPS=(toolchain rust sqlx database audit docs privacy hooks lists)
 SCAN_GROUPS=(audit)
 HOOK_GROUPS=(compile docs privacy hooks lists)
 # A line of a workflow or of the Stop hook that holds one of these runs a check of this script
 # without this script.
-OWN_CHECK='cargo (fmt|check|clippy|test|doc|deny|audit|sqlx)|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test'
+OWN_CHECK='cargo (fmt|check|clippy|test|doc|deny|audit|sqlx)|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test|bash +scripts/pii_canary\.test'
 # In a workflow, each of these keys can make a job pass without its check. A job that needs a
 # job that failed or was skipped is skipped itself.
 RISKY_KEY='^[0-9]+:[[:space:]]*(-[[:space:]]+)?(if|needs|continue-on-error|shell):'
@@ -362,8 +365,54 @@ docs() {
   run python3 -m unittest discover -s tests/docs -t .
 }
 
+# The Read deny rules of a settings file, one in a line, sorted. The file is read as JSON, as
+# Claude Code reads it: a file that is no JSON, a second `deny` key that replaces the first,
+# or a list under another name gives no rule here, as it gives no rule to a session.
+read_deny_rules() {
+  { python3 - "$1" <<'PY' 2>/dev/null || true; } | LC_ALL=C sort -u
+import json, sys
+settings = json.load(open(sys.argv[1], encoding="utf-8"))
+for rule in settings["permissions"]["deny"]:
+    if isinstance(rule, str) and rule.startswith("Read("):
+        print(rule)
+PY
+}
+
+# The places that a session must not read are a list in two files: the settings of the
+# project, which every clone gets, and the page that says what each rule is for. The arguments
+# are for the test of this script: the settings file and the page. RULE_FLOOR is the number
+# of the rules: a rule that is taken out of both files fails here.
+RULE_FLOOR=10
+rules() {
+  local settings=${1:-.claude/settings.json} page=${2:-docs/concepts/privacy.md}
+  local in_settings in_page count failed=0
+  printf '\n$ scripts/check.sh rules: the Read deny rules of %s and of %s are the same\n' "$settings" "$page"
+  in_settings=$(read_deny_rules "$settings")
+  # In the page a rule is a code span that holds nothing but the rule.
+  in_page=$(grep -oE '`Read\([^`]*\)`' "$page" 2>/dev/null | tr -d '`' | LC_ALL=C sort -u || true)
+  count=$(printf '%s\n' "$in_settings" | grep -c . || true)
+  if [ "$count" -lt "$RULE_FLOOR" ]; then
+    echo "FAIL: $settings holds $count Read deny rules, fewer than the floor of $RULE_FLOOR" >&2
+    failed=1
+  fi
+  if [ "$in_settings" != "$in_page" ]; then
+    echo "FAIL: the Read deny rules of $settings (<) and the rules that $page lists (>) differ:" >&2
+    diff <(printf '%s\n' "$in_settings") <(printf '%s\n' "$in_page") >&2 || true
+    failed=1
+  fi
+  # A rule with the home directory of one person protects that person only, and it puts the
+  # name of the account into a tracked file. `~/` is the home of whoever runs the session.
+  if printf '%s\n' "$in_settings" | grep -qiE '/(home|users)/|\$\{?HOME'; then
+    echo "FAIL: a Read deny rule of $settings names a home directory; write it with ~/" >&2
+    failed=1
+  fi
+  if [ "$failed" != 0 ]; then return 1; fi
+  echo "PASS: $count Read deny rules, the same in the settings and in the page"
+}
+
 privacy() {
   local status=0 terms
+  rules || status=1
   run scripts/pii_canary.sh || status=1
   if [ -n "${QM_CANARY_TERMS:-}" ]; then
     terms=$QM_CANARY_TERMS
@@ -387,6 +436,7 @@ privacy() {
 
 hooks() {
   run bash .claude/hooks/guard-bash.test.sh
+  run bash scripts/pii_canary.test.sh
   run bash scripts/check.test.sh
 }
 
