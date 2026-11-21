@@ -1,0 +1,85 @@
+# The fuzz targets of Quartermaster (REAS-TEST-003): one target for each reader of bytes that
+# another party wrote. `cargo fuzz` builds them with a nightly toolchain; `scripts/check.sh fuzz`
+# runs each one for a time budget, and docs/runbooks/develop.md says how to read a finding.
+[package]
+name = "qrtrmastr-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+qrtrmastr = { path = ".." }
+# The same libraries as the program, for what a target checks a result against.
+base64 = "0.23.1"
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["rt"] }
+
+# The fuzz package is a workspace of its own, so the program stays one plain package and no
+# command of the program builds a fuzz target.
+[workspace]
+members = ["."]
+
+# REAS-TEST-003: overflow checks and debug assertions stay on in the fuzz build.
+[profile.release]
+overflow-checks = true
+debug-assertions = true
+
+# REAS-NATIVE-003: no unsafe code in this package either. The macro of a target comes from the
+# fuzzing library, which holds the native code of the fuzzer; no target writes any.
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "takeout"
+path = "fuzz_targets/takeout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mime"
+path = "fuzz_targets/mime.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "classify"
+path = "fuzz_targets/classify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "redact"
+path = "fuzz_targets/redact.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "receipt"
+path = "fuzz_targets/receipt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack"
+path = "fuzz_targets/pack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gmail_json"
+path = "fuzz_targets/gmail_json.rs"
+test = false
+doc = false
+bench = false

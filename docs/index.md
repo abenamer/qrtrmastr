@@ -52,6 +52,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0014](decisions/0014-dates-and-times-with-jiff-not-chrono.md) - Dates and times with jiff, not chrono.
 * [ADR 0015](decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) - REAS 1.7.0-draft, and the order in which its gaps close.
 * [ADR 0016](decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md) - The documentation checker follows the checker of REAS and reads Markdown with a parser.
+* [ADR 0017](decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md) - A fuzz target for each reader of outside bytes, with a pinned nightly toolchain and a budget for each stage.
 
 # Log
 

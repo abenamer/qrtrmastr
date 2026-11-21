@@ -1,0 +1,18 @@
+From: FreshDirect <service@freshdirect.com>
+To: Pat Example <pat.example@example.com>
+Subject: Your order for Tuesday
+Date: Tue, 3 Mar 2026 06:15:00 -0500
+Message-ID: <multi@mail.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="seed-boundary"
+
+--seed-boundary
+Content-Type: text/plain; charset=utf-8
+
+Hi Pat, your order 12345678901 arrives Tuesday, March 3, 2026.
+--seed-boundary
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Hi Pat, your order <b>12345678901</b> arrives=20Tuesday.</p></body></html>
+--seed-boundary--

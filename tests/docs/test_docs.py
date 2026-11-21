@@ -409,6 +409,14 @@ class FileTests(FixtureTests):
         self.assertEqual(self.errors({"target/doc/page.md": "[x](absent.md)\n", ".venv/page.md": "oldword\n"}), [])
         self.assert_one_error({"docs/target/page.md": "---\ntype: Concept\nupdated: 2026-11-01\n---\n# Page\n"}, "docs/target/page.md: Concept is not reachable")
 
+    def test_the_build_of_the_fuzz_package_is_skipped_and_its_sources_are_not(self):
+        # The page of a library in the build directory is no document of the project.
+        self.assertEqual(self.errors({"fuzz/target/release/build/lib/out/README.md": "[x](absent.md) oldword\n"}), [])
+        self.assertEqual(self.errors({"fuzz/corpus/mime/found.md": "[x](absent.md)\n"}), [])
+        # The control: a page beside the targets is read.
+        errors = self.errors({"fuzz/README.md": "[x](absent.md)\n"})
+        self.assertIn("fuzz/README.md: Broken local link: absent.md", errors)
+
     def test_a_file_named_log_below_the_top_of_the_bundle_is_a_concept(self):
         errors = self.errors({"docs/sub/log.md": "# A page\n\nText.\n"})
         self.assertIn("docs/sub/log.md: Concept requires a non-empty type", errors)

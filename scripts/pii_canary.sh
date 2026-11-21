@@ -77,11 +77,11 @@ if [ ${#scan[@]} -eq 0 ]; then
   echo "FAIL: nothing to scan" >&2
   exit 1
 fi
-# The files that the three exclusions leave out, counted: 5 lockfiles and 2 synthetic inputs on
-# 2026-11-21. An exclusion that is added to the list above leaves out more files than this and
+# The files that the three exclusions leave out, counted: 6 lockfiles, one of them the
+# lockfile of the fuzz package, and 2 synthetic inputs on 2026-11-21. An exclusion that is added to the list above leaves out more files than this and
 # fails, unless this number is raised in the same change, where a reviewer sees both. A new
 # synthetic input or lockfile raises the number by one.
-LEFT_OUT_MAX=7
+LEFT_OUT_MAX=8
 tracked=$(git ls-files -z | tr -cd '\0' | wc -c)
 left_out=$((tracked - ${#scan[@]}))
 if [ "$left_out" -gt "$LEFT_OUT_MAX" ]; then
@@ -133,7 +133,10 @@ if [ "$mode" = shape ]; then
   # Each match is judged on its own (grep -o), so a real value cannot hide behind a fictional one
   # on the same line, and only file and line are printed: a matched value may be the real thing.
   for pattern in "${patterns[@]}"; do
-    if hits=$(scan_for -Eo "$pattern"); then
+    # -a: a file with a byte that is no text, such as a seed of a fuzz target that is an
+    # archive, is read as text. Without it grep says only that the file matches, and a
+    # reserved form in it could not be told from a real value.
+    if hits=$(scan_for -aEo "$pattern"); then
       hits=$(printf '%s\n' "$hits" | grep -Eiv -- "$reserved" | cut -d: -f1,2 | sort -u || true)
       if [ -n "$hits" ]; then
         echo "FAIL: a personal-data shape (/$pattern/) appears at:" >&2

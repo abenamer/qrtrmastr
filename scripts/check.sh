@@ -21,6 +21,12 @@
 #   scripts/check.sh rules      the Read deny rules of .claude/settings.json are the ones that
 #                               docs/concepts/privacy.md lists, and none names a home directory
 #   scripts/check.sh hooks      the tests of the guard hook, of the privacy canary and of this script
+#   scripts/check.sh targets    the fuzz targets, their manifest, their seeds and this script name
+#                               the same seven; the seeds are what scripts/fuzz_seeds.py writes;
+#                               the fuzz lockfile holds the versions of the program
+#   scripts/check.sh fuzz       the targets group, then each fuzz target for QM_FUZZ_SECONDS
+#                               (30 when not set); needs cargo-fuzz and the nightly toolchain
+#                               that FUZZ_TOOLCHAIN names. Not a part of `all`
 #   scripts/check.sh lists      the workflows and the Stop hook call this script, and the commands
 #                               that this script runs are in no line of theirs
 #   scripts/check.sh all        every group above except sqlx; database only with DATABASE_URL
@@ -37,20 +43,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks lists all)
+GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets fuzz lists all)
 # What the workflow of pull requests must call, the daily workflow, and the Stop hook.
 CI_GROUPS=(toolchain rust sqlx database audit docs privacy hooks lists)
 SCAN_GROUPS=(audit)
+FUZZ_GROUPS=(fuzz)
 HOOK_GROUPS=(compile docs privacy hooks lists)
 # A line of a workflow or of the Stop hook that holds one of these runs a check of this script
 # without this script.
-OWN_CHECK='cargo (fmt|check|clippy|test|doc|deny|audit|sqlx)|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test|bash +scripts/pii_canary\.test'
+OWN_CHECK='cargo (\+[A-Za-z0-9.-]+ +)?(fmt|check|clippy|test|doc|deny|audit|sqlx|fuzz)|python3? +scripts/fuzz_seeds|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test|bash +scripts/pii_canary\.test'
 # In a workflow, each of these keys can make a job pass without its check. A job that needs a
 # job that failed or was skipped is skipped itself.
 RISKY_KEY='^[0-9]+:[[:space:]]*(-[[:space:]]+)?(if|needs|continue-on-error|shell):'
 # One `if` is known: the dependency review runs on a pull request only.
 KNOWN_IF="^[0-9]+:    if: github\.event_name == 'pull_request'\$"
 NOT_RUN=()
+# The fuzz targets (REAS-TEST-003): one for each reader of bytes that another party wrote. A
+# target that is added is added here, to fuzz/Cargo.toml and to scripts/fuzz_seeds.py in the
+# same change; the `targets` group fails when the four do not agree. The list does not get
+# shorter: FUZZ_FLOOR is its length. `cargo fuzz` needs a nightly toolchain; this is the one
+# that CI installs, and the date moves in a pull request of its own.
+FUZZ_TOOLCHAIN=nightly-2026-11-15
+FUZZ_FLOOR=7
+# The budget of one target in each stage, in seconds (REAS-TEST-003). The fuzz workflow holds
+# the same two numbers in one line, and `lists` fails when it does not.
+FUZZ_PR_SECONDS=30
+FUZZ_NIGHTLY_SECONDS=300
+FUZZ_TARGETS=(takeout mime classify redact receipt pack gmail_json)
 # What the two inner layers may use of the dependencies of Cargo.toml, by the name that Rust
 # writes (REAS-ARCH-002, REAS-DATA-001, REAS-ARCH-005). Every other dependency is a finding
 # there, also one that is added to the manifest later. The domain is pure: values in, values
@@ -358,7 +377,12 @@ sqlx() {
 
 deny() { run cargo deny check; }
 
-audit() { run cargo audit --file Cargo.lock; }
+audit() {
+  run cargo audit --file Cargo.lock
+  # The fuzz package has a lockfile of its own, with three packages that the program does not
+  # have.
+  run cargo audit --file fuzz/Cargo.lock
+}
 
 docs() {
   run python3 scripts/check_docs.py
@@ -440,6 +464,93 @@ hooks() {
   run bash scripts/check.test.sh
 }
 
+# The fuzz targets are named in four places, and their seeds and their lockfile are derived
+# files. The argument is for the test of this script: the directory of the fuzz package.
+targets() {
+  local dir=${1:-fuzz} failed=0 here in_manifest in_files with_seeds
+  printf '\n$ scripts/check.sh targets: the fuzz targets of %s, of its manifest, of its seeds and of this script are the same\n' "$dir"
+  if [ "${#FUZZ_TARGETS[@]}" -lt "$FUZZ_FLOOR" ]; then
+    echo "FAIL: FUZZ_TARGETS holds ${#FUZZ_TARGETS[@]} targets, fewer than the floor of $FUZZ_FLOOR" >&2
+    failed=1
+  fi
+  here=$(printf '%s\n' "${FUZZ_TARGETS[@]}" | LC_ALL=C sort)
+  in_manifest=$({ grep -A1 '^\[\[bin\]\]$' "$dir/Cargo.toml" 2>/dev/null || true; } | sed -n 's/^name = "\(.*\)"$/\1/p' | LC_ALL=C sort)
+  in_files=$({ find "$dir/fuzz_targets" -maxdepth 1 -name '*.rs' 2>/dev/null || true; } | sed 's|.*/||; s|\.rs$||' | LC_ALL=C sort)
+  with_seeds=$({ find "$dir/seeds" -mindepth 2 -maxdepth 2 -type f -size +0 2>/dev/null || true; } | sed 's|/[^/]*$||; s|.*/||' | LC_ALL=C sort -u)
+  if [ "$here" != "$in_manifest" ]; then
+    echo "FAIL: FUZZ_TARGETS of scripts/check.sh (<) and the [[bin]] entries of $dir/Cargo.toml (>) differ:" >&2
+    diff <(printf '%s\n' "$here") <(printf '%s\n' "$in_manifest") >&2 || true
+    failed=1
+  fi
+  if [ "$here" != "$in_files" ]; then
+    echo "FAIL: FUZZ_TARGETS of scripts/check.sh (<) and the files of $dir/fuzz_targets (>) differ:" >&2
+    diff <(printf '%s\n' "$here") <(printf '%s\n' "$in_files") >&2 || true
+    failed=1
+  fi
+  if [ "$here" != "$with_seeds" ]; then
+    echo "FAIL: FUZZ_TARGETS of scripts/check.sh (<) and the targets with a seed in $dir/seeds (>) differ:" >&2
+    diff <(printf '%s\n' "$here") <(printf '%s\n' "$with_seeds") >&2 || true
+    failed=1
+  fi
+  if [ $# -eq 0 ]; then
+    run python3 scripts/fuzz_seeds.py --check || failed=1
+    # A fuzz build that takes another version of a library tests another program.
+    printf '\n$ the packages of fuzz/Cargo.lock are at the versions of Cargo.lock\n'
+    python3 - <<'PY' || failed=1
+import sys, tomllib
+program = {}
+for package in tomllib.load(open("Cargo.lock", "rb"))["package"]:
+    program.setdefault(package["name"], set()).add(package["version"])
+own = {"qrtrmastr-fuzz", "libfuzzer-sys", "arbitrary", "jobserver"}
+other = sorted(
+    f'{package["name"]} {package["version"]}'
+    for package in tomllib.load(open("fuzz/Cargo.lock", "rb"))["package"]
+    if package["name"] not in own and package["version"] not in program.get(package["name"], set())
+)
+if other:
+    print("FAIL: fuzz/Cargo.lock holds a package at a version that Cargo.lock does not have:", file=sys.stderr)
+    print("\n".join(other), file=sys.stderr)
+    print("Copy Cargo.lock to fuzz/Cargo.lock and build the targets once; cargo keeps the versions.", file=sys.stderr)
+    sys.exit(1)
+PY
+  fi
+  if [ "$failed" != 0 ]; then return 1; fi
+  echo "PASS: ${#FUZZ_TARGETS[@]} fuzz targets, each in the manifest, in a file and with a seed"
+}
+
+# Runs each fuzz target for a time budget, from the inputs that earlier runs found
+# (fuzz/corpus, which git ignores and CI keeps in its cache) and from the committed seeds. A
+# target fails on a stop of the program and on a property that does not hold.
+fuzz() {
+  local seconds=${QM_FUZZ_SECONDS:-$FUZZ_PR_SECONDS} target failed=0 artifact
+  targets
+  case "$seconds" in
+    '' | *[!0-9]*) echo "FAIL: QM_FUZZ_SECONDS is not a number of seconds" >&2; return 2 ;;
+  esac
+  if ! cargo "+$FUZZ_TOOLCHAIN" fuzz --version > /dev/null 2>&1; then
+    echo "scripts/check.sh fuzz needs cargo-fuzz and the toolchain $FUZZ_TOOLCHAIN (see docs/runbooks/develop.md)" >&2
+    exit 2
+  fi
+  for target in "${FUZZ_TARGETS[@]}"; do
+    mkdir -p "fuzz/corpus/$target"
+    if ! run cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" "fuzz/corpus/$target" "fuzz/seeds/$target" -- \
+      "-max_total_time=$seconds" -rss_limit_mb=2048 -print_final_stats=1; then
+      failed=1
+      # The input of the failure, as text that a log can carry. It is made by the fuzzer from
+      # the synthetic seeds; no real mail is near it.
+      while IFS= read -r artifact; do
+        echo "FAIL: $target failed on the input $artifact, in base64:" >&2
+        base64 -w 76 "$artifact" >&2
+      done < <(find "fuzz/artifacts/$target" -type f 2>/dev/null)
+    fi
+  done
+  if [ "$failed" != 0 ]; then
+    echo "A failure is a defect of the reader or a property that is not true: docs/runbooks/develop.md says how to read it." >&2
+    return 1
+  fi
+  echo "PASS: ${#FUZZ_TARGETS[@]} fuzz targets ran for $seconds seconds each without a failure"
+}
+
 # The lines of a file that are not comments, with their numbers.
 code_lines() { grep -nvE '^[[:space:]]*#' "$1" 2>/dev/null || true; }
 
@@ -451,8 +562,9 @@ steps_that_run() { code_lines "$1" | grep -cE "^[0-9]+:[[:space:]]*(-[[:space:]]
 lists() {
   local workflow="${1:-.github/workflows/ci.yml}" hook="${2:-.claude/hooks/stop-check.sh}"
   local scan="${3:-.github/workflows/scan.yml}"
+  local fuzzing="${4:-$(dirname "${1:-.github/workflows/ci.yml}")/fuzz.yml}"
   local failed=0 group file found trigger
-  for file in "$workflow" "$scan" "$hook"; do
+  for file in "$workflow" "$scan" "$fuzzing" "$hook"; do
     if [ ! -r "$file" ]; then
       echo "FAIL: cannot read $file" >&2
       failed=1
@@ -470,6 +582,12 @@ lists() {
     found="$found"$'\n'"more than one job has the condition of the dependency review"
   fi
   found="$found$(code_lines "$scan" | grep -E "$RISKY_KEY" || true)"
+  found="$found$(code_lines "$fuzzing" | grep -E "$RISKY_KEY" || true)"
+  # This trigger runs the workflow of the default branch with the code of a pull request and
+  # a token of the repository. No workflow here needs it.
+  for file in "$workflow" "$scan" "$fuzzing"; do
+    found="$found$(code_lines "$file" | grep -E 'pull_request_target' || true)"
+  done
   if [ -n "$found" ]; then
     echo "FAIL: a workflow has a line that can make a job pass without its check:" >&2
     echo "$found" >&2
@@ -487,6 +605,55 @@ lists() {
       failed=1
     fi
   done
+  for group in "${FUZZ_GROUPS[@]}"; do
+    if [ "$(steps_that_run "$fuzzing" "$group")" != 1 ]; then
+      echo "FAIL: $fuzzing does not run scripts/check.sh $group in one step" >&2
+      failed=1
+    fi
+  done
+  # The fuzz workflow: on a pull request and on a schedule, with the budget of each stage in
+  # the file (REAS-TEST-003), and with the toolchain that this script names.
+  for trigger in 'pull_request:' 'schedule:'; do
+    if ! code_lines "$fuzzing" | grep -qE "^[0-9]+:  $trigger\$"; then
+      echo "FAIL: $fuzzing does not run on $trigger" >&2
+      failed=1
+    fi
+  done
+  # One line sets the budget, for the whole job, to the two numbers of this script. A second
+  # line, in a step, could set another.
+  found="      QM_FUZZ_SECONDS: \${{ github.event_name == 'pull_request' && '$FUZZ_PR_SECONDS' || '$FUZZ_NIGHTLY_SECONDS' }}"
+  if [ "$(code_lines "$fuzzing" | grep -c 'QM_FUZZ_SECONDS' || true)" != 1 ] \
+    || ! grep -qxF -- "$found" "$fuzzing" 2>/dev/null; then
+    echo "FAIL: $fuzzing does not set QM_FUZZ_SECONDS once, to $FUZZ_PR_SECONDS on a pull request and $FUZZ_NIGHTLY_SECONDS in the nightly run" >&2
+    failed=1
+  fi
+  # A filter on a trigger, a schedule that is not daily, and a token that can write.
+  if code_lines "$fuzzing" | grep -qE '^[0-9]+:[[:space:]]*(paths|paths-ignore|branches|branches-ignore|tags|types):'; then
+    echo "FAIL: $fuzzing has a filter on a trigger; the targets run for every pull request" >&2
+    failed=1
+  fi
+  if ! code_lines "$fuzzing" | grep -qE '^[0-9]+:    - cron: "[0-9]{1,2} [0-9]{1,2} \* \* \*"$'; then
+    echo "FAIL: $fuzzing does not run once a day" >&2
+    failed=1
+  fi
+  if ! code_lines "$fuzzing" | grep -qE '^[0-9]+:  contents: read$' \
+    || code_lines "$fuzzing" | grep -qE 'write'; then
+    echo "FAIL: $fuzzing does not give the job a token that can only read" >&2
+    failed=1
+  fi
+  if ! code_lines "$fuzzing" | grep -qE "^[0-9]+: +toolchain: $FUZZ_TOOLCHAIN\$"; then
+    echo "FAIL: $fuzzing does not install the toolchain $FUZZ_TOOLCHAIN of scripts/check.sh" >&2
+    failed=1
+  fi
+  # The tool at a version, so that a run of another day builds with the same fuzzer.
+  if ! code_lines "$fuzzing" | grep -qE '^[0-9]+: +tool: cargo-fuzz@[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "FAIL: $fuzzing does not install cargo-fuzz at a version" >&2
+    failed=1
+  fi
+  if code_lines "$fuzzing" | grep -qE '^[0-9]+:  (rust|audit|deny|secrets|privacy|docs|dependency-review):$'; then
+    echo "FAIL: $fuzzing has a job with the name of a required check" >&2
+    failed=1
+  fi
   # The deny job is the pinned action with the same check, in both workflows.
   for file in "$workflow" "$scan"; do
     if ! code_lines "$file" | grep -q 'uses: EmbarkStudios/cargo-deny-action@' \
@@ -526,7 +693,7 @@ lists() {
   # A workflow that this script does not know is read by no line above.
   while IFS= read -r file; do
     case "$file" in
-      "$workflow" | "$scan") ;;
+      "$workflow" | "$scan" | "$fuzzing") ;;
       *)
         echo "FAIL: $file is a workflow that scripts/check.sh does not know" >&2
         failed=1
@@ -534,6 +701,8 @@ lists() {
     esac
   done < <(find "$(dirname "$workflow")" -mindepth 1 -maxdepth 1)
   if [ $# -eq 0 ]; then
+    # The targets group needs no toolchain, so it runs here, in a job that is required.
+    targets || failed=1
     for file in CLAUDE.md README.md docs/runbooks/develop.md; do
       if ! grep -q 'scripts/check\.sh' "$file"; then
         echo "FAIL: $file does not point at scripts/check.sh" >&2
@@ -542,8 +711,8 @@ lists() {
     done
   fi
   if [ "$failed" != 0 ]; then return 1; fi
-  printf '\nPASS: %s groups in the workflow of pull requests, %s in the daily workflow, %s in the Stop hook\n' \
-    "${#CI_GROUPS[@]}" "${#SCAN_GROUPS[@]}" "${#HOOK_GROUPS[@]}"
+  printf '\nPASS: %s groups in the workflow of pull requests, %s in the daily workflow, %s in the fuzz workflow, %s in the Stop hook\n' \
+    "${#CI_GROUPS[@]}" "${#SCAN_GROUPS[@]}" "${#FUZZ_GROUPS[@]}" "${#HOOK_GROUPS[@]}"
 }
 
 all() {
@@ -561,6 +730,7 @@ all() {
   privacy
   hooks
   lists
+  NOT_RUN+=("fuzz (scripts/check.sh fuzz runs the targets; CI runs them in the fuzz workflow)")
 }
 
 group="${1:-all}"

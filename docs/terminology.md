@@ -24,6 +24,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
 | DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`. An order from a receipt without it is tagged `non-verified`. |
 | Essential | A product in at least a quarter of the latest 20 orders. The other products of the habit rule are extras. |
+| Fuzz target | A small program in `fuzz/fuzz_targets/` that calls one reader of outside bytes with bytes that a fuzzer makes, and that fails on a stop and on a property that does not hold. [ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md). |
 | Gap rule | `qm due --gap`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
@@ -38,6 +39,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Reconciled | The receipt of an order agrees with itself within one cent in three checks: the line prices sum to the subtotal; the subtotal, tax, bottle deposit, delivery fee, service fee and tip sum to the total; each line with a unit price is that price times its billed quantity, except a line with an options price or the special-price flag, which is not checked. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
 | Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |
+| Seed | A committed input of a fuzz target, in `fuzz/seeds/`, written by `scripts/fuzz_seeds.py` from the synthetic fixtures. A fuzz run starts from the seeds. |
 | Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |
 | Stock | A last purchase of at least 3 usual amounts. The product is left out of the lists until the stock is expected to run out. |
 | Synthetic fixture | A receipt built from the real layout with invented products, prices that reconcile, and fake personal data chosen to trip the privacy canary. Committed under `tests/fixtures/synthetic/`. |

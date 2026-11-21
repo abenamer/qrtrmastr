@@ -14,12 +14,14 @@ cases=0
 mkdir "$work/wf" "$work/hook"
 ci="$work/wf/ci.yml"
 scan="$work/wf/scan.yml"
+fuzzing="$work/wf/fuzz.yml"
 hook="$work/hook/stop-check.sh"
 
 fresh() {
   rm -f "$work"/wf/* "$work"/hook/*
   cp .github/workflows/ci.yml "$ci"
   cp .github/workflows/scan.yml "$scan"
+  cp .github/workflows/fuzz.yml "$fuzzing"
   cp .claude/hooks/stop-check.sh "$hook"
 }
 
@@ -36,10 +38,10 @@ expect() {
     failed=1
   fi
 }
-lists() { scripts/check.sh lists "$ci" "$hook" "$scan"; }
+lists() { scripts/check.sh lists "$ci" "$hook" "$scan" "$fuzzing"; }
 
 # Usage.
-expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|rules|hooks|lists|all}" \
+expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|rules|hooks|targets|fuzz|lists|all}" \
   scripts/check.sh no-such-group
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh database
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh sqlx
@@ -47,7 +49,7 @@ expect 1 "QM_CANARY_TERMS names a file that cannot be read" env QM_CANARY_TERMS=
 # Each group that the head of the script describes is a group that it runs, and the reverse.
 described=$(sed -n 's|^#   scripts/check\.sh \([a-z]*\) .*|\1|p' scripts/check.sh | tr '\n' ' ')
 cases=$((cases + 1))
-if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks lists all " ]; then
+if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets fuzz lists all " ]; then
   echo "FAIL: the head of scripts/check.sh describes: $described" >&2
   failed=1
 fi
@@ -78,6 +80,9 @@ for planted in \
   '        run: python scripts/check_docs.py' \
   '      - run: scripts/pii_canary.sh' \
   '      - run: bash scripts/pii_canary.test.sh' \
+  '      - run: cargo +nightly-2026-11-15 fuzz run mime -- -max_total_time=30' \
+  '        run: cargo fuzz run takeout' \
+  '      - run: python3 scripts/fuzz_seeds.py --check' \
   '        run: cargo deny check' \
   '          cargo clippy --all-targets' \
   '          active=$(rustc --version | cut -d" " -f2)' \
@@ -414,6 +419,217 @@ for part in layers planted; do
   fi
 done
 
+# The fuzz workflow, which `lists` reads like the two others.
+fresh
+grep -v 'run: scripts/check.sh fuzz' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not run scripts/check.sh fuzz in one step" lists
+fresh
+printf '%s\n' '      - run: scripts/check.sh fuzz' >> "$fuzzing"
+expect 1 "does not run scripts/check.sh fuzz in one step" lists
+fresh
+printf '%s\n' '      - run: cargo fuzz run mime' >> "$fuzzing"
+expect 1 "names a check of its own" lists
+for key in "    if: github.event_name == 'schedule'" '    continue-on-error: true' '        continue-on-error: true' '    needs: other'; do
+  fresh
+  printf '%s\n' "$key" >> "$fuzzing"
+  expect 1 "can make a job pass without its check" lists
+done
+fresh
+grep -v '^  pull_request:$' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not run on pull_request:" lists
+fresh
+grep -v '^  schedule:$' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not run on schedule:" lists
+# The budget of each stage is in the file, and the toolchain is the one of the script.
+fresh
+grep -v '^ *QM_FUZZ_SECONDS:' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not set QM_FUZZ_SECONDS once" lists
+for budget in '1' "\${{ github.event_name == 'pull_request' \&\& '1' || '1' }}" "\${{ github.event_name == 'pull_request' \&\& '30' || '300' }} # or less" "\${{ github.event_name == 'pull_request' \&\& '300' || '30' }}"; do
+  fresh
+  sed "s/^\( *\)QM_FUZZ_SECONDS: .*/\1QM_FUZZ_SECONDS: $budget/" .github/workflows/fuzz.yml > "$fuzzing"
+  expect 1 "does not set QM_FUZZ_SECONDS once, to 30 on a pull request and 300 in the nightly run" lists
+done
+# A second line, in a step, that sets another budget.
+fresh
+printf '%s\n' '        env:' '          QM_FUZZ_SECONDS: 1' >> "$fuzzing"
+expect 1 "does not set QM_FUZZ_SECONDS once" lists
+# A filter on a trigger, a schedule that is not daily, and a token that can write.
+for filter in "    paths: ['src/**']" "    branches: [main]" "    paths-ignore: ['**']" "    types: [labeled]"; do
+  fresh
+  sed "s#^  pull_request:\$#  pull_request:\n$filter#" .github/workflows/fuzz.yml > "$fuzzing"
+  expect 1 "has a filter on a trigger" lists
+done
+for cron in '0 0 30 2 *' '41 6 * * 1' '41 6 1 * *'; do
+  fresh
+  sed "s/^    - cron: .*/    - cron: \"$cron\"/" .github/workflows/fuzz.yml > "$fuzzing"
+  expect 1 "does not run once a day" lists
+done
+fresh
+sed 's/^  contents: read$/  contents: write/' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "a token that can only read" lists
+fresh
+grep -v '^  contents: read$' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "a token that can only read" lists
+fresh
+sed 's/^  contents: read$/  contents: read\n  actions: write/' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "a token that can only read" lists
+fresh
+sed 's/tool: cargo-fuzz@.*/tool: cargo-fuzz/' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not install cargo-fuzz at a version" lists
+# A trigger that gives the code of a pull request a token of the repository, in each workflow.
+for target_file in "$ci" "$scan" "$fuzzing"; do
+  fresh
+  sed -i 's/^  workflow_dispatch:$/  workflow_dispatch:\n  pull_request_target:/' "$target_file"
+  expect 1 "can make a job pass without its check" lists
+done
+fresh
+sed 's/^permissions:$/permissions: write-all/; /^  contents: read$/d' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "a token that can only read" lists
+for line in 'FUZZ_PR_SECONDS=30' 'FUZZ_NIGHTLY_SECONDS=300'; do
+  cases=$((cases + 1))
+  if ! grep -qxF "$line" scripts/check.sh; then
+    echo "FAIL: scripts/check.sh does not hold the line $line" >&2
+    failed=1
+  fi
+done
+fresh
+sed 's/toolchain: nightly-.*/toolchain: nightly/' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "does not install the toolchain" lists
+fresh
+sed 's/^  fuzz:$/  rust:/' .github/workflows/fuzz.yml > "$fuzzing"
+expect 1 "has a job with the name of a required check" lists
+fresh
+rm "$fuzzing"
+expect 1 "cannot read" lists
+
+# The targets group. The fuzz package of the repository passes, and so does its copy.
+expect 0 "PASS: targets" scripts/check.sh targets
+package="$work/fuzz"
+targets() { scripts/check.sh targets "$package"; }
+fresh_targets() {
+  rm -rf "$package"
+  mkdir "$package"
+  cp fuzz/Cargo.toml "$package/Cargo.toml"
+  cp -r fuzz/fuzz_targets "$package/fuzz_targets"
+  cp -r fuzz/seeds "$package/seeds"
+}
+fresh_targets
+expect 0 "PASS: targets" targets
+# A target in one of the four places only.
+fresh_targets
+printf '#![no_main]\n' > "$package/fuzz_targets/new_reader.rs"
+expect 1 "the files of $package/fuzz_targets (>) differ" targets
+fresh_targets
+rm "$package/fuzz_targets/pack.rs"
+expect 1 "the files of $package/fuzz_targets (>) differ" targets
+fresh_targets
+printf '\n[[bin]]\nname = "new_reader"\npath = "fuzz_targets/new_reader.rs"\n' >> "$package/Cargo.toml"
+expect 1 "the [[bin]] entries of $package/Cargo.toml (>) differ" targets
+fresh_targets
+sed -i 's/^name = "mime"$/name = "mail"/' "$package/Cargo.toml"
+expect 1 "the [[bin]] entries of $package/Cargo.toml (>) differ" targets
+# A target without a seed, with a seed that is empty, and a seed for no target.
+fresh_targets
+rm -r "$package/seeds/takeout"
+expect 1 "the targets with a seed in $package/seeds (>) differ" targets
+fresh_targets
+for seed in "$package"/seeds/gmail_json/*; do : > "$seed"; done
+expect 1 "the targets with a seed in $package/seeds (>) differ" targets
+fresh_targets
+mkdir "$package/seeds/other"
+printf 'x\n' > "$package/seeds/other/seed"
+expect 1 "the targets with a seed in $package/seeds (>) differ" targets
+fresh_targets
+rm -rf "$package"
+expect 1 "differ" targets
+# The list is written here a second time, with its floor and the toolchain.
+for line in 'FUZZ_TARGETS=(takeout mime classify redact receipt pack gmail_json)' 'FUZZ_FLOOR=7' 'FUZZ_TOOLCHAIN=nightly-2026-11-15'; do
+  cases=$((cases + 1))
+  if ! grep -qxF "$line" scripts/check.sh; then
+    echo "FAIL: scripts/check.sh does not hold the line $line" >&2
+    failed=1
+  fi
+done
+# The fuzz group runs the targets group first, `lists` runs it too, and the audit reads both
+# lockfiles.
+for pair in "fuzz:  targets" "audit:  run cargo audit --file fuzz/Cargo.lock" "audit:  run cargo audit --file Cargo.lock"; do
+  cases=$((cases + 1))
+  if ! sed -n "/^${pair%%:*}() {\$/,/^}\$/p" scripts/check.sh | grep -qxF -- "${pair#*:}"; then
+    echo "FAIL: the ${pair%%:*} group of scripts/check.sh does not hold the line:${pair#*:}" >&2
+    failed=1
+  fi
+done
+cases=$((cases + 1))
+if ! sed -n '/^lists() {$/,/^}$/p' scripts/check.sh | grep -qxF '    targets || failed=1'; then
+  echo "FAIL: the lists group of scripts/check.sh does not run the targets group" >&2
+  failed=1
+fi
+# The fuzz group itself, with a stand-in for cargo that writes down what it is asked to run:
+# no compiler is needed, and the job that runs this test installs none.
+mkdir "$work/cargo"
+cat > "$work/cargo/cargo" <<'STAND_IN'
+#!/bin/sh
+printf '%s\n' "$*" >> "$QM_STAND_IN_LOG"
+case "$*" in
+  *" fuzz --version") exit "${QM_STAND_IN_VERSION:-0}" ;;
+  *" fuzz run ${QM_STAND_IN_FAILS:-no-target} "*) exit 1 ;;
+esac
+exit 0
+STAND_IN
+chmod +x "$work/cargo/cargo"
+asked="$work/asked.log"
+with_stand_in() { env PATH="$work/cargo:$PATH" QM_STAND_IN_LOG="$asked" "$@" scripts/check.sh fuzz; }
+# A budget that is no number is refused before a target runs. The stand-in is on the path
+# here too: with the real tool, a budget that is no number would be no limit.
+: > "$asked"
+expect 2 "is not a number of seconds" with_stand_in env QM_FUZZ_SECONDS=soon
+cases=$((cases + 1))
+if grep -q ' fuzz run ' "$asked"; then
+  echo "FAIL: case $cases: a target ran with a budget that is no number" >&2
+  failed=1
+fi
+# Each of the seven targets is run, from the found inputs and from the seeds, for the budget.
+: > "$asked"
+expect 0 "PASS: 7 fuzz targets ran for 30 seconds each without a failure" with_stand_in env -u QM_FUZZ_SECONDS
+for target in takeout mime classify redact receipt pack gmail_json; do
+  cases=$((cases + 1))
+  if ! grep -qxF -- "+nightly-2026-11-15 fuzz run $target fuzz/corpus/$target fuzz/seeds/$target -- -max_total_time=30 -rss_limit_mb=2048 -print_final_stats=1" "$asked"; then
+    echo "FAIL: case $cases: the fuzz group did not run $target as expected; it asked for:" >&2
+    cat "$asked" >&2
+    failed=1
+  fi
+done
+: > "$asked"
+expect 0 "PASS: 7 fuzz targets ran for 7 seconds each" with_stand_in env QM_FUZZ_SECONDS=7
+cases=$((cases + 1))
+if [ "$(grep -c -- ' -max_total_time=7 ' "$asked")" != 7 ]; then
+  echo "FAIL: case $cases: not seven runs with the budget of 7 seconds" >&2
+  failed=1
+fi
+# Without the tool or the toolchain the group does not pass.
+: > "$asked"
+expect 2 "needs cargo-fuzz and the toolchain nightly-2026-11-15" with_stand_in env QM_STAND_IN_VERSION=1
+cases=$((cases + 1))
+if grep -q ' fuzz run ' "$asked"; then
+  echo "FAIL: case $cases: a target ran although the tool is missing" >&2
+  failed=1
+fi
+# A target that fails: the group fails, prints the input, and still runs the other targets.
+mkdir -p fuzz/artifacts/mime
+printf 'the input of a planted failure\n' > fuzz/artifacts/mime/crash-planted-by-the-test
+: > "$asked"
+expect 1 "FAIL: mime failed on the input fuzz/artifacts/mime/crash-planted-by-the-test, in base64:" with_stand_in env QM_STAND_IN_FAILS=mime
+: > "$asked"
+expect 1 "$(base64 -w 76 fuzz/artifacts/mime/crash-planted-by-the-test)" with_stand_in env QM_STAND_IN_FAILS=mime
+cases=$((cases + 1))
+if [ "$(grep -c ' fuzz run ' "$asked")" != 7 ]; then
+  echo "FAIL: case $cases: the targets after the failed one did not run" >&2
+  failed=1
+fi
+rm -f fuzz/artifacts/mime/crash-planted-by-the-test
+: > "$asked"
+expect 1 "A failure is a defect of the reader or a property that is not true" with_stand_in env QM_STAND_IN_FAILS=gmail_json
+
 # The rules group: the Read deny rules of the settings and the rules that the privacy page
 # lists. The two files of the repository agree, and so do their copies.
 expect 0 "PASS: rules" scripts/check.sh rules
@@ -508,7 +724,7 @@ if [ "$failed" != 0 ]; then
   echo "FAIL: scripts/check.sh does not do what its test expects" >&2
   exit 1
 fi
-if [ "$cases" -lt 445 ]; then
+if [ "$cases" -lt 520 ]; then
   echo "FAIL: only $cases cases ran" >&2
   exit 1
 fi

@@ -1,0 +1,9 @@
+From: Someone <someone@mail.example>
+To: pat.example@example.com
+Subject: Your FreshDirect order is in the works! Here's your receipt
+Date: Tue, 3 Mar 2026 06:15:00 -0500
+Message-ID: <r1@mail.example>
+Authentication-Results: mx.google.com; dkim=pass header.i=@freshdirect.com
+Content-Type: text/html; charset=utf-8
+
+<p>hello</p>

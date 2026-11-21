@@ -44,6 +44,9 @@ A new file at the top of the repository, and a file in a new directory at the to
 | Path | Class | Who or what writes it |
 | --- | --- | --- |
 | `Cargo.lock` | Derived, committed | `cargo` writes it from `Cargo.toml`. `cargo update` moves a version; a build with `--locked` does not change it. |
+| `fuzz/Cargo.lock` | Derived, committed | `cargo` writes it. It starts as a copy of `Cargo.lock`: `cp Cargo.lock fuzz/Cargo.lock`, then `cargo +nightly-2026-11-15 fuzz build`, so the fuzz build has the versions of the program. |
+| `fuzz/seeds/` | Derived, committed | `python3 scripts/fuzz_seeds.py` writes the seeds of the fuzz targets from the synthetic receipts; its `--check` fails on a seed that was edited by hand. |
+| `fuzz/` | Authored | The fuzz targets and their manifest. |
 | `src/adapters/receipts/snapshots/` | Derived, committed | The snapshot library writes it from the parser and the synthetic receipt: `INSTA_UPDATE=always cargo test --lib the_parsed_receipt_matches`. With that setting the test passes whatever the parser gives, so read the difference before you commit it: the file is what the test expects. The comment of the test names the command too. |
 | `standards/reas/README.md` | Authored | It says which commit of the REAS repository the copy beside it is, and what was copied. |
 | `standards/reas/` | Derived, committed | A copy of the REAS repository at the commit that `standards/reas/README.md` names. No script makes the copy. No file of it is edited here; [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) says when the copy is made again. |

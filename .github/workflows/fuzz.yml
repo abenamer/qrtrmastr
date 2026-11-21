@@ -1,0 +1,53 @@
+name: Fuzz
+# The fuzz targets (REAS-TEST-003): one for each reader of bytes that another party wrote.
+# scripts/check.sh fuzz runs each target for a time budget; the budget of each stage is here:
+#
+#   pull request   30 seconds for each of the seven targets
+#   nightly        300 seconds for each target, once a day on the default branch, and by hand
+#   release        no stage: the project publishes no release (ADR 0017)
+#
+# A run starts from the inputs that earlier runs found, which the cache below keeps, and from
+# the committed seeds in fuzz/seeds/. A failure prints its input in base64 in the log.
+#
+# The job has its own name and is not one of the seven that branch protection requires; the
+# maintainer decides whether to require it. scripts/check.sh lists reads this file as it reads
+# ci.yml: no condition on the job, the two triggers, the budget line, and the toolchain that
+# the script names.
+on:
+  pull_request:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      QM_FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '30' || '300' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `cargo fuzz` needs a nightly compiler. The date is the one that scripts/check.sh names;
+      # it moves in a pull request of its own.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: nightly-2026-11-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: fuzz -> target
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
+        with:
+          tool: cargo-fuzz@0.13.1
+      # The inputs that earlier runs found. A run saves what it has at its end under a new key,
+      # and the next run takes the newest one.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - name: Each fuzz target for its budget
+        run: scripts/check.sh fuzz
