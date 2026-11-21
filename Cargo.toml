@@ -58,6 +58,8 @@ toml = "1.2.1"
 # `clippy.toml` leaves `unwrap` and `expect` free in test code, which REAS-RUST-005 excludes.
 [lints.rust]
 unsafe_code = "forbid"                         # REAS-SEC-004
+# `lint_canary` is the flag of examples/lint_canary.rs, the planted violations of this table.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(lint_canary)"] }
 
 [lints.clippy]
 wildcard_enum_match_arm = "deny"               # REAS-RUST-001

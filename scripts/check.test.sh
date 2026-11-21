@@ -37,7 +37,7 @@ expect() {
 lists() { scripts/check.sh lists "$ci" "$hook" "$scan"; }
 
 # Usage.
-expect 2 "usage: scripts/check.sh {rust|toolchain|compile|database|sqlx|deny|audit|docs|privacy|hooks|lists|all}" \
+expect 2 "usage: scripts/check.sh {rust|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|hooks|lists|all}" \
   scripts/check.sh no-such-group
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh database
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh sqlx
@@ -45,7 +45,7 @@ expect 1 "QM_CANARY_TERMS names a file that cannot be read" env QM_CANARY_TERMS=
 # Each group that the head of the script describes is a group that it runs, and the reverse.
 described=$(sed -n 's|^#   scripts/check\.sh \([a-z]*\) .*|\1|p' scripts/check.sh | tr '\n' ' ')
 cases=$((cases + 1))
-if [ "$described" != "rust toolchain compile database sqlx deny audit docs privacy hooks lists all " ]; then
+if [ "$described" != "rust planted toolchain compile database sqlx deny audit docs privacy hooks lists all " ]; then
   echo "FAIL: the head of scripts/check.sh describes: $described" >&2
   failed=1
 fi
