@@ -575,6 +575,11 @@ mod tests {
 
     /// The committed snapshot is derived from redacted HTML, so it is provably what the store
     /// holds; redaction must not change what the parser reads.
+    ///
+    /// The snapshot is a derived file (REAS-DOC-002): do not edit it. When the parser is meant
+    /// to give another value, `INSTA_UPDATE=always cargo test --lib the_parsed_receipt_matches`
+    /// writes the file again. With that setting the test passes whatever the parser gives, so
+    /// read the difference of the file before you commit it.
     #[test]
     fn the_parsed_receipt_matches_its_snapshot_and_redaction_does_not_change_it() {
         use crate::adapters::mail::redact::{RedactionTerms, Redactor};

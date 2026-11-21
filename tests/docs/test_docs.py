@@ -13,8 +13,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.check_docs import (  # noqa: E402
+    SKIPPED_DIRECTORIES,
     Counts,
+    authority_errors,
+    authority_rows,
     check,
+    committed_files,
     freshness_warnings,
     parse_document,
     retired_terms,
@@ -23,7 +27,7 @@ from scripts.check_docs import (  # noqa: E402
 )
 
 TODAY = date(2026, 11, 21)
-INDEX = "---\nokf_version: '0.2'\n---\n# Index\n\n[Concept](/concept.md) [Terms](/terminology.md) [Log](/log.md)\n\n[Retired terms](/terminology.md#retired-terms)\n"
+INDEX = "---\nokf_version: '0.2'\n---\n# Index\n\n[Concept](/concept.md) [Terms](/terminology.md) [Log](/log.md) [Files](/reference/files.md)\n\n[Retired terms](/terminology.md#retired-terms)\n"
 CONCEPT = (
     "---\ntype: Concept\nupdated: 2026-11-01\n---\n# Concept\n\n## Part one\n\n"
     "See [the terms](/terminology.md#retired-terms).\n"
@@ -33,6 +37,19 @@ TERMS = (
     "## Retired terms\n\n| Retired term | Replacement |\n| --- | --- |\n| oldword | new word |\n"
 )
 LOG = "# Log\n\n## 2026-11-01\n* **New**: a line.\n"
+FILES_HEAD = (
+    "---\ntype: Technical Reference\nupdated: 2026-11-01\n---\n# Files\n\n"
+    "## The class of each file\n\n| Path | Class | Who or what writes it |\n| --- | --- | --- |\n"
+)
+# One row for each file of the fixture, for the tests of the gate itself.
+FILES_ROWS = (
+    "| `docs/log.md` | Evidence | The record of each change. |\n"
+    "| `docs/` | Authored | The bundle. |\n"
+    "| `standards/` | Derived, committed | A copy; `standards/README.md` names the commit. |\n"
+    "| `LICENSE` | Authored | The license. |\n"
+)
+FILES = FILES_HEAD + FILES_ROWS
+FILES_PATH = "docs/reference/files.md"
 
 
 class FixtureTests(unittest.TestCase):
@@ -47,8 +64,20 @@ class FixtureTests(unittest.TestCase):
             "docs/terminology.md": TERMS,
             "docs/log.md": LOG,
             "standards/standard.md": "## REAS-TEST-001: a rule\n",
+            "LICENSE": "The license of the fixture.\n",
         }
         base.update(files or {})
+        if FILES_PATH not in base:
+            # A test of another gate adds and removes files. Its page of the authority classes
+            # has one row for each file that the fixture then holds, so that gate has nothing
+            # to say; a test of the authority classes brings its own page.
+            names = sorted(
+                name for name, content in base.items()
+                if content is not None and name.split("/")[0] not in SKIPPED_DIRECTORIES
+            )
+            base[FILES_PATH] = FILES_HEAD + "".join(
+                f"| `{name}` | Authored | A file of the fixture. |\n" for name in [FILES_PATH] + names
+            )
         for name, content in base.items():
             if content is None:
                 continue
@@ -336,10 +365,10 @@ class RetiredTermTests(FixtureTests):
 
 class FloorTests(FixtureTests):
     def test_a_gate_that_looked_at_nothing_fails(self):
-        self.assertEqual(Counts(concepts=1, links=1, fragments=1, retired_terms=1, documents_read_for_terms=1, rules=1).floor_errors(), [])
-        self.assertEqual(len(Counts().floor_errors()), 5)
-        for name in ("concepts", "links", "fragments", "retired_terms", "documents_read_for_terms", "rules"):
-            counts = Counts(concepts=1, links=1, fragments=1, retired_terms=1, documents_read_for_terms=1, rules=1)
+        self.assertEqual(Counts(concepts=1, links=1, fragments=1, retired_terms=1, documents_read_for_terms=1, rules=1, files_with_a_class=1).floor_errors(), [])
+        self.assertEqual(len(Counts().floor_errors()), 6)
+        for name in ("concepts", "links", "fragments", "retired_terms", "documents_read_for_terms", "rules", "files_with_a_class"):
+            counts = Counts(concepts=1, links=1, fragments=1, retired_terms=1, documents_read_for_terms=1, rules=1, files_with_a_class=1)
             setattr(counts, name, 0)
             self.assertEqual(len(counts.floor_errors()), 1, name)
 
@@ -356,8 +385,8 @@ class FloorTests(FixtureTests):
     def test_the_counts_of_the_fixture_are_the_ones_it_holds(self):
         counts = check(self.fixture(), TODAY).counts
         self.assertEqual(
-            (counts.concepts, counts.links, counts.fragments, counts.retired_terms, counts.documents_read_for_terms, counts.rules),
-            (2, 5, 2, 1, 2, 1),
+            (counts.concepts, counts.links, counts.fragments, counts.retired_terms, counts.documents_read_for_terms, counts.rules, counts.files_with_a_class),
+            (3, 6, 2, 1, 3, 1, 7),
         )
 
 
@@ -367,7 +396,8 @@ class FileTests(FixtureTests):
         self.assert_one_error({"notes.markdown": "text\n"}, "notes.markdown: A Markdown file must have the extension .md")
 
     def test_a_symbolic_link_is_rejected_and_its_target_is_not_read(self):
-        root = self.fixture()
+        # The page with a row for the directory: the link is made after the fixture is written.
+        root = self.fixture({FILES_PATH: FILES})
         with tempfile.TemporaryDirectory() as outside:
             secret = Path(outside) / "secret.md"
             secret.write_text("---\ntype: [unclosed\n---\n# REAS-bad heading with SECRET-TEXT\n\n[x](SECRET-LINK.md)\n")
@@ -469,7 +499,7 @@ class CommandTests(FixtureTests):
         status, output = self.run_main(self.fixture())
         self.assertEqual(status, 0)
         self.assertIn("PASS:", output)
-        self.assertIn("CHECKED: 2 concepts, 5 local links, 2 fragments, 1 retired terms in 2 documents, 1 rule declarations", output)
+        self.assertIn("CHECKED: 3 concepts, 6 local links, 2 fragments, 1 retired terms in 3 documents, 1 rule declarations, 7 files with an authority class", output)
         status, output = self.run_main(self.fixture({"docs/concept.md": CONCEPT + "\n[x](absent.md)\n"}))
         self.assertEqual(status, 1)
         self.assertIn("ERROR: docs/concept.md: Broken local link: absent.md", output)
@@ -563,6 +593,249 @@ class RealRepositoryTests(unittest.TestCase):
         self.assertGreaterEqual(counts.documents_read_for_terms, 30)
         # The rules are declared in the vendored copy of the standard, 44 in 1.7.0-draft.
         self.assertGreaterEqual(counts.rules, 44)
+
+
+class AuthorityClassTests(FixtureTests):
+    """REAS-DOC-002: each committed file has one authority class, from the table of one page."""
+
+    def files_page(self, rows):
+        return {"docs/reference/files.md": FILES_HEAD + rows}
+
+    def test_the_fixture_gives_each_of_its_files_a_class(self):
+        for files in (None, {FILES_PATH: FILES}):
+            result = check(self.fixture(files), TODAY)
+            self.assertEqual(result.errors, [])
+            # Index, concept, terminology, log, the page itself, the vendored rule, the license.
+            self.assertEqual(result.counts.files_with_a_class, 7)
+
+    def test_a_file_that_no_row_matches_has_no_class(self):
+        files = self.files_page(FILES_ROWS)
+        files["scripts/new.sh"] = "echo\n"
+        self.assertEqual(self.errors(files), ["scripts/new.sh: No authority class; add a row to docs/reference/files.md"])
+        # The control: with a row for it, the same file passes.
+        files = self.files_page(FILES_ROWS + "| `scripts/` | Authored | The checks. |\n")
+        files["scripts/new.sh"] = "echo\n"
+        self.assertEqual(self.errors(files), [])
+
+    def test_a_file_takes_the_first_row_that_matches_it(self):
+        rows = authority_rows(FILES)[:3]
+        self.assertEqual(rows[0], ("`docs/log.md`", "Evidence", "The record of each change."))
+        # The row of the log stands above the row of its directory, so each row takes a file.
+        errors, with_a_class = authority_errors(rows, ["docs/log.md", "docs/index.md", "standards/a.md"])
+        self.assertEqual((errors, with_a_class), ([], 3))
+        # Below the row of the directory, the row of the log takes no file.
+        below = [rows[1], rows[0], rows[2]]
+        errors, with_a_class = authority_errors(below, ["docs/log.md", "docs/index.md", "standards/a.md"])
+        self.assertEqual(with_a_class, 3)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("'docs/log.md': No file has this row as its first match", errors[0])
+
+    def test_a_row_that_no_file_takes_fails(self):
+        errors = self.errors(self.files_page(FILES_ROWS + "| `migrations/` | Authored | The schema. |\n"))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("'migrations/': No file has this row as its first match", errors[0])
+
+    def test_a_class_that_is_not_one_of_the_four_fails(self):
+        for word in ("Generated", "authored", "Derived", ""):
+            rows = FILES_ROWS.replace("| `docs/` | Authored |", f"| `docs/` | {word} |")
+            errors = self.errors(self.files_page(rows))
+            self.assertEqual(errors, [f"docs/reference/files.md: 'docs/': '{word}' is not an authority class"], word)
+
+    def test_a_derived_row_names_its_command_or_record(self):
+        rows = FILES_ROWS.replace("A copy; `standards/README.md` names the commit.", "A copy of the source.")
+        errors = self.errors(self.files_page(rows))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("'standards/': A derived file must name, in a code span", errors[0])
+
+    def test_a_companion_row_names_what_it_summarizes(self):
+        rows = "| `docs/concept.md` | Companion | |\n" + FILES_ROWS
+        errors = self.errors(self.files_page(rows))
+        self.assertEqual(errors, ["docs/reference/files.md: 'docs/concept.md': A companion file must name what it summarizes"])
+        rows = "| `docs/concept.md` | Companion | A summary of the terms. |\n" + FILES_ROWS
+        self.assertEqual(self.errors(self.files_page(rows)), [])
+
+    def test_a_path_is_a_file_a_directory_or_a_name_with_a_star(self):
+        rows = [("`a.md`", "Authored", ""), ("`dir/`", "Authored", ""), ("`*.lock`", "Derived, committed", "`cargo`")]
+        files = ["a.md", "dir/b.md", "dir/deep/c.md", "x.lock", "dir2/y.lock"]
+        self.assertEqual(authority_errors(rows, files), ([], 5))
+        # A file name is the whole path, a directory needs its slash, and a prefix is no match.
+        for other in ("a.md.bak", "sub/a.md", "dir", "directory/b.md", "x.locked", "A.md", "X.LOCK"):
+            errors, _ = authority_errors(rows, files + [other])
+            self.assertEqual(errors, [f"{other}: No authority class; add a row to docs/reference/files.md"], other)
+        # A row without the slash is one file of that name, not the directory.
+        errors, with_a_class = authority_errors([("`dir`", "Authored", "")], ["dir", "dir/b.md"])
+        self.assertEqual((errors, with_a_class), (["dir/b.md: No authority class; add a row to docs/reference/files.md"], 1))
+
+    def test_a_row_for_everything_and_a_pattern_with_another_wildcard_fail(self):
+        for pattern in ("*", "**", "*/", "/", "file?.txt", "a[1]*", "*.[ch]"):
+            errors, with_a_class = authority_errors([(f"`{pattern}`", "Authored", "")], ["file1.txt", "a1", "x.c"])
+            self.assertEqual(with_a_class, 0, pattern)
+            self.assertEqual(
+                errors[0],
+                f"docs/reference/files.md: '{pattern}': A path must name a file, a directory or a part of a name; `*` is the one wildcard",
+            )
+        # The control: a star with a part of a name is a pattern.
+        self.assertEqual(authority_errors([("`*.c`", "Authored", "")], ["x.c"]), ([], 1))
+        # In the page, a row for everything gives no file a class.
+        errors = self.errors(self.files_page("| `*` | Authored | Everything. |\n"))
+        self.assertIn("Floor: no file was given an authority class", errors)
+
+    def test_a_row_in_a_comment_or_a_code_block_or_with_an_indent_is_not_read_as_a_row(self):
+        hidden = "| `scripts/` | Authored | The checks. |\n"
+        for section in (
+            FILES_ROWS + "\n<!--\n" + hidden + "-->\n",
+            FILES_ROWS + "\n```\n" + hidden + "```\n",
+            FILES_ROWS + "\n~~~\n" + hidden + "~~~\n",
+            FILES_ROWS + "    " + hidden,
+            FILES_ROWS + " " + hidden,
+        ):
+            files = self.files_page(section)
+            files["scripts/new.sh"] = "echo\n"
+            errors = self.errors(files)
+            self.assertEqual(len([e for e in errors if e.startswith("docs/reference/files.md: ")]), 1, section)
+            self.assertIn("Floor: no file was given an authority class", errors, section)
+        self.assertEqual(authority_rows(FILES_HEAD + FILES_ROWS + "\n<!-- note -->\n"), "The section must hold no comment and no code block")
+        self.assertEqual(authority_rows(FILES_HEAD + FILES_ROWS + " | `x` | Authored | |\n"), "A line of the table must start at the margin")
+
+    def test_the_table_starts_with_its_header_row(self):
+        without_header = FILES.replace("| Path | Class | Who or what writes it |\n| --- | --- | --- |\n", "")
+        self.assertNotEqual(without_header, FILES)
+        self.assertEqual(authority_rows(without_header), "The table must start with the header row: Path, Class and one more column")
+        errors = self.errors({FILES_PATH: without_header})
+        self.assertIn("docs/reference/files.md: The table must start with the header row: Path, Class and one more column", errors)
+        for header in ("| Class | Path | Who |", "| Path | Class |", "| Path | Class | Who | More |"):
+            page = FILES.replace("| Path | Class | Who or what writes it |", header)
+            self.assertIsInstance(authority_rows(page), str, header)
+
+    def test_a_path_that_is_not_one_code_span_fails(self):
+        for cell in ("docs/", "`docs/` and `src/`", "**`docs/`**"):
+            rows = FILES_ROWS.replace("| `docs/` |", f"| {cell} |")
+            errors = self.errors(self.files_page(rows))
+            self.assertIn(f"docs/reference/files.md: '{cell}': The path of a row must be one code span", errors, cell)
+
+    def test_the_page_its_section_and_its_table_must_exist(self):
+        self.assertIn(
+            "docs/reference/files.md: The page of the authority classes is missing",
+            self.errors({"docs/reference/files.md": None, "docs/index.md": INDEX.replace(" [Files](/reference/files.md)", "")}),
+        )
+        no_section = FILES.replace("## The class of each file", "## Another heading")
+        self.assertNotEqual(no_section, FILES)
+        self.assertIn(
+            "docs/reference/files.md: The section '## The class of each file' is missing",
+            self.errors({"docs/reference/files.md": no_section}),
+        )
+        errors = self.errors(self.files_page(""))
+        self.assertIn("docs/reference/files.md: The table of the authority classes is empty", errors)
+        self.assertIn("Floor: no file was given an authority class", errors)
+
+    def test_the_command_fails_on_a_file_without_a_class(self):
+        files = self.files_page(FILES_ROWS)
+        files["Cargo.lock"] = "version = 4\n"
+        status, output = self.run_main(self.fixture(files))
+        self.assertEqual(status, 1)
+        self.assertIn("ERROR: Cargo.lock: No authority class; add a row to docs/reference/files.md", output)
+        status, output = self.run_main(self.fixture(self.files_page(FILES_ROWS)))
+        self.assertEqual(status, 0)
+        self.assertIn("7 files with an authority class", output)
+
+    def test_a_directory_that_is_no_repository_gives_each_file_below_it(self):
+        root = self.fixture({"target/built.md": "skipped\n", "a/b/c.txt": "x\n", "a/target/d.txt": "x\n"})
+        files = committed_files(root)
+        self.assertIn("a/b/c.txt", files)
+        self.assertIn("docs/log.md", files)
+        # A build directory is left out at the top only, as for the Markdown files.
+        self.assertNotIn("target/built.md", files)
+        self.assertIn("a/target/d.txt", files)
+
+
+class AuthorityClassGitTests(FixtureTests):
+    """The gate reads the index of git: what is committed, and what is staged."""
+
+    def git(self, root, *arguments):
+        import subprocess
+
+        return subprocess.run(["git", "-C", str(root), *arguments], capture_output=True, check=True)
+
+    def repository(self):
+        root = self.fixture({FILES_PATH: FILES})
+        self.git(root, "init", "--quiet")
+        self.git(root, "add", "--all")
+        return root
+
+    def test_a_staged_file_is_checked_and_a_file_that_is_not_staged_is_not(self):
+        root = self.repository()
+        self.assertEqual(validate(root, TODAY), [])
+        self.assertEqual(len(committed_files(root)), 7)
+        (root / "new.txt").write_text("x\n", encoding="utf-8")
+        self.assertEqual(validate(root, TODAY), [])
+        self.assertNotIn("new.txt", committed_files(root))
+        self.git(root, "add", "new.txt")
+        self.assertIn("new.txt", committed_files(root))
+        self.assertEqual(validate(root, TODAY), ["new.txt: No authority class; add a row to docs/reference/files.md"])
+        # The entry counts also when the file is gone from the working tree again.
+        (root / "new.txt").unlink()
+        self.assertEqual(validate(root, TODAY), ["new.txt: No authority class; add a row to docs/reference/files.md"])
+
+    def test_a_file_that_git_ignores_has_no_class_to_check(self):
+        root = self.fixture({FILES_PATH: FILES, ".gitignore": "secret.txt\n", "secret.txt": "x\n"})
+        page = FILES + "| `.gitignore` | Authored | What git does not track. |\n"
+        (root / FILES_PATH).write_text(page, encoding="utf-8")
+        self.git(root, "init", "--quiet")
+        self.git(root, "add", "--all")
+        self.assertEqual(validate(root, TODAY), [])
+        self.assertNotIn("secret.txt", committed_files(root))
+
+    def test_a_repository_that_git_cannot_read_fails_the_gate(self):
+        root = self.repository()
+        (root / ".git" / "index").write_bytes(b"not an index")
+        self.assertIsNone(committed_files(root))
+        errors = validate(root, TODAY)
+        self.assertIn("docs/reference/files.md: git cannot list the files of the repository", errors)
+        self.assertIn("Floor: no file was given an authority class", errors)
+
+    def test_a_missing_git_command_fails_the_gate_with_the_same_message(self):
+        import os
+        from unittest import mock
+
+        root = self.repository()
+        with mock.patch.dict(os.environ, {"PATH": ""}):
+            self.assertIsNone(committed_files(root))
+            self.assertIn("docs/reference/files.md: git cannot list the files of the repository", validate(root, TODAY))
+
+
+class RealRepositoryAuthorityTests(unittest.TestCase):
+    def test_git_lists_the_files_of_the_repository_and_each_has_a_class(self):
+        files = committed_files(ROOT)
+        self.assertIn("Cargo.lock", files)
+        self.assertIn("scripts/check_docs.py", files)
+        # The list is the index of git, not a walk of the tree: git gives the same names.
+        import subprocess
+
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True)
+        self.assertEqual(files, sorted(name for name in listed.stdout.decode().split("\0") if name))
+        counts = check(ROOT).counts
+        self.assertEqual(counts.files_with_a_class, len(files))
+        self.assertGreaterEqual(counts.files_with_a_class, 150)
+
+    def test_the_lockfile_and_the_vendored_standard_are_derived_and_the_log_is_evidence(self):
+        text = (ROOT / "docs/reference/files.md").read_text(encoding="utf-8")
+        classes = {}
+        rows = authority_rows(text)
+        for name in ("Cargo.lock", "standards/reas/standard/index.md", "standards/reas/README.md", "docs/log.md", "docs/index.md", "src/main.rs", "README.md"):
+            for cell, authority, _ in rows:
+                pattern = cell.strip("`")
+                if name == pattern or (pattern.endswith("/") and name.startswith(pattern)):
+                    classes[name] = authority
+                    break
+        self.assertEqual(classes, {
+            "Cargo.lock": "Derived, committed",
+            "standards/reas/standard/index.md": "Derived, committed",
+            "standards/reas/README.md": "Authored",
+            "docs/log.md": "Evidence",
+            "docs/index.md": "Authored",
+            "src/main.rs": "Authored",
+            "README.md": "Companion",
+        })
 
 
 if __name__ == "__main__":
