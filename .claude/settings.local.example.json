@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(//path/to/your/exports/**)",
+      "Read(//path/to/your/config/**)",
+      "Read(//path/to/your/state/**)"
+    ]
+  }
+}

@@ -39,7 +39,7 @@ expect() {
 lists() { scripts/check.sh lists "$ci" "$hook" "$scan"; }
 
 # Usage.
-expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|hooks|lists|all}" \
+expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|rules|hooks|lists|all}" \
   scripts/check.sh no-such-group
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh database
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh sqlx
@@ -47,7 +47,7 @@ expect 1 "QM_CANARY_TERMS names a file that cannot be read" env QM_CANARY_TERMS=
 # Each group that the head of the script describes is a group that it runs, and the reverse.
 described=$(sed -n 's|^#   scripts/check\.sh \([a-z]*\) .*|\1|p' scripts/check.sh | tr '\n' ' ')
 cases=$((cases + 1))
-if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy hooks lists all " ]; then
+if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks lists all " ]; then
   echo "FAIL: the head of scripts/check.sh describes: $described" >&2
   failed=1
 fi
@@ -77,6 +77,7 @@ for planted in \
   '      - run: cargo test --locked' \
   '        run: python scripts/check_docs.py' \
   '      - run: scripts/pii_canary.sh' \
+  '      - run: bash scripts/pii_canary.test.sh' \
   '        run: cargo deny check' \
   '          cargo clippy --all-targets' \
   '          active=$(rustc --version | cut -d" " -f2)' \
@@ -413,11 +414,101 @@ for part in layers planted; do
   fi
 done
 
+# The rules group: the Read deny rules of the settings and the rules that the privacy page
+# lists. The two files of the repository agree, and so do their copies.
+expect 0 "PASS: rules" scripts/check.sh rules
+settings="$work/settings.json"
+page="$work/privacy.md"
+rules() { scripts/check.sh rules "$settings" "$page"; }
+fresh_rules() {
+  cp .claude/settings.json "$settings"
+  cp docs/concepts/privacy.md "$page"
+}
+fresh_rules
+expect 0 "PASS: rules" rules
+# A rule that one of the two files does not hold.
+one_rule=$(sed -n '/"deny"/,/\]/p' .claude/settings.json | grep -m1 -oE '"Read\(~/[^"]*\)"' | tr -d '"')
+cases=$((cases + 1))
+if [ -z "$one_rule" ]; then
+  echo "FAIL: the settings hold no Read deny rule that starts at the home directory" >&2
+  failed=1
+fi
+fresh_rules
+grep -vF "\"$one_rule\"" .claude/settings.json > "$settings"
+expect 1 "differ" rules
+fresh_rules
+grep -vF "\`$one_rule\`" docs/concepts/privacy.md > "$page"
+expect 1 "differ" rules
+fresh_rules
+sed -i 's|^\( *\)"Read(\./\.env)",$|\1"Read(./.env)",\n\1"Read(~/another-place/**)",|' "$settings"
+expect 1 "differ" rules
+fresh_rules
+printf '\nThe page also names `Read(~/another-place/**)`.\n' >> "$page"
+expect 1 "differ" rules
+# A rule with the home directory of one person, in both files. The path is put together from
+# two pieces: the privacy canary reads this file.
+for home in "//ho""me/somebody" "//Us""ers/somebody" "/ho""me/somebody" "//mnt/c/Us""ers/somebody" '$HO''ME' '${HO''ME}'; do
+  fresh_rules
+  sed -i "s|^\\( *\\)\"Read(\\./\\.env)\",\$|\\1\"Read(./.env)\",\\n\\1\"Read($home/qm-data/**)\",|" "$settings"
+  printf '\nThe page also names `Read(%s/qm-data/**)`.\n' "$home" >> "$page"
+  expect 1 "names a home directory; write it with ~/" rules
+done
+# A Read rule that is not in the deny list is no deny rule: the two lists still agree.
+fresh_rules
+sed -i 's|^\( *\)"allow": \[$|\1"allow": [\n\1  "Read(./docs/**)",|' "$settings"
+expect 0 "PASS: rules" rules
+# Settings that a session would not read as these rules: a second deny list that replaces the
+# first, the list under another name, and a file that is no JSON.
+fresh_rules
+sed -i 's|^\( *\)"hooks": {$|\1"permissions2": {},\n\1"hooks": {|' "$settings"
+expect 0 "PASS: rules" rules
+fresh_rules
+python3 - "$settings" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+marker = '"deny": ['
+assert marker in text
+open(path, "w").write(text.replace(marker, '"deny": [], "deny_was": [', 1))
+PY
+expect 1 "fewer than the floor" rules
+fresh_rules
+sed -i 's|"permissions": {|"permission": {|' "$settings"
+expect 1 "fewer than the floor" rules
+fresh_rules
+printf ',\n' >> "$settings"
+expect 1 "fewer than the floor" rules
+# One rule out of both files: the two lists agree, and the count does not.
+fresh_rules
+grep -vF "\"$one_rule\"" .claude/settings.json > "$settings"
+grep -vF "\`$one_rule\`" docs/concepts/privacy.md > "$page"
+expect 1 "fewer than the floor of 10" rules
+cases=$((cases + 1))
+if ! grep -qx 'RULE_FLOOR=10' scripts/check.sh; then
+  echo "FAIL: scripts/check.sh does not hold the line RULE_FLOOR=10" >&2
+  failed=1
+fi
+# The groups that CI and the Stop hook call run the parts that have no step of their own.
+for pair in "privacy:  rules || status=1" "hooks:  run bash scripts/pii_canary.test.sh" "hooks:  run bash scripts/check.test.sh" "hooks:  run bash .claude/hooks/guard-bash.test.sh"; do
+  cases=$((cases + 1))
+  if ! sed -n "/^${pair%%:*}() {\$/,/^}\$/p" scripts/check.sh | grep -qxF -- "${pair#*:}"; then
+    echo "FAIL: the ${pair%%:*} group of scripts/check.sh does not hold the line:${pair#*:}" >&2
+    failed=1
+  fi
+done
+# The floor: a deny list without its Read rules, and no settings at all.
+fresh_rules
+grep -v '"Read(' .claude/settings.json > "$settings"
+expect 1 "fewer than the floor" rules
+fresh_rules
+rm "$settings"
+expect 1 "fewer than the floor" rules
+
 if [ "$failed" != 0 ]; then
   echo "FAIL: scripts/check.sh does not do what its test expects" >&2
   exit 1
 fi
-if [ "$cases" -lt 410 ]; then
+if [ "$cases" -lt 445 ]; then
   echo "FAIL: only $cases cases ran" >&2
   exit 1
 fi

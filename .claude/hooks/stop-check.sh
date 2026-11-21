@@ -28,7 +28,7 @@ fi
 
 rust=$(echo "$changed" | grep -E '^(src|tests|migrations|examples|benches|\.sqlx|\.cargo)/|^Cargo\.(toml|lock)$|^build\.rs$|^clippy\.toml$|^rust-toolchain\.toml$' | head -1)
 docs=$(echo "$changed" | grep -iE '\.(md|markdown)"?$|^scripts/check_docs\.py$|^tests/docs/|^requirements-docs\.txt$' | head -1)
-hooks=$(echo "$changed" | grep -E '^\.claude/hooks/|^scripts/check(\.test)?\.sh$|^\.github/workflows/|^CLAUDE\.md$|^README\.md$|^docs/runbooks/develop\.md$' | head -1)
+hooks=$(echo "$changed" | grep -E '^\.claude/hooks/|^scripts/check(\.test)?\.sh$|^scripts/pii_canary(\.test)?\.sh$|^\.github/workflows/|^CLAUDE\.md$|^README\.md$|^docs/runbooks/develop\.md$' | head -1)
 
 failed=0
 if [ -n "$rust" ]; then

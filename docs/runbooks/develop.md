@@ -113,8 +113,9 @@ The checker has limits:
 | `deny` | `cargo deny check` | `deny`, through a pinned action with its own version of the tool |
 | `audit` | `cargo audit` | `audit` |
 | `docs` | The documentation checker and its tests | `docs` |
-| `privacy` | The privacy canary: shapes, and your terms when the terms file exists | `privacy`, shapes only |
-| `hooks` | The test of the guard hook and the test of the script | `privacy` |
+| `privacy` | The `rules` group, then the privacy canary over every tracked file: shapes, and your terms when the terms file exists | `privacy`, shapes only |
+| `rules` | The `Read` deny rules of `.claude/settings.json` are the ones that [Privacy](/concepts/privacy.md#what-a-claude-session-may-not-read) lists, and none names a home directory | `privacy`, as a part of the `privacy` group |
+| `hooks` | The tests of the guard hook, of the privacy canary and of the script | `privacy` |
 | `lists` | The gate below | `privacy` |
 
 `scripts/check.sh all` runs every group except `sqlx`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
@@ -158,14 +159,15 @@ Which job reads a path that a change can touch:
 | `src/`, `tests/`, `examples/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
 | `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
 | Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
-| `.claude/hooks/guard-bash.sh` and its test, `scripts/check.sh` and its test | `privacy`, the `hooks` group runs the two tests; each job that calls the script runs a part of it |
+| `.claude/hooks/guard-bash.sh`, `scripts/pii_canary.sh` and `scripts/check.sh`, each with its test | `privacy`, the `hooks` group runs the three tests; each job that calls the script runs a part of it |
 | `.github/workflows/`, `.claude/hooks/stop-check.sh`, and the name of the script in `CLAUDE.md`, `README.md` and this page | `privacy`, the `lists` group, which reads them as text. No job runs the Stop hook or tests its patterns. |
 | Each tracked file | `secrets` |
-| `tests/`, `docs/`, `src/`, `migrations/`, `README.md`, `CHANGELOG.md`, without the synthetic inputs, images and lockfiles | `privacy`, the canary. It reads no other tracked file: not `scripts/`, `.claude/`, `.github/`, `standards/`, `CLAUDE.md`, `AGENTS.md`, or the files at the top such as `Cargo.toml` and `compose.yaml`. |
+| Each tracked file, without the synthetic inputs, images and lockfiles | `privacy`, the canary, for the shapes of personal data. It fails when it does not read ten named files or leaves out more files than its number allows. |
 | `standards/` | `docs` for the links of its Markdown files; `dependency-review` for its lockfiles. No job compiles or reads its Rust files, manifests and corpus files. |
 | `Dockerfile`, `compose.yaml`, `.dockerignore` | No job. Nothing in CI builds the image. |
-| `scripts/due_page.sh`, `scripts/pii_canary.sh`, `.claude/hooks/format.sh` | No job runs a test of these scripts. The canary runs, and its exclusions have no test. |
-| `.claude/settings.json`, `.github/dependabot.yml`, `.gitleaks.toml`, `.gitignore`, `.env.example`, `LICENSE`, `backups/.gitkeep` | No job, except `secrets`. |
+| `scripts/due_page.sh`, `.claude/hooks/format.sh` | No job runs a test of these scripts. |
+| `.claude/settings.json` | `privacy`: the `rules` group compares its `Read` deny rules with the page on privacy, and the canary reads it. No job checks its other rules or its hooks section. |
+| `.github/dependabot.yml`, `.gitleaks.toml`, `.gitignore`, `.env.example`, `LICENSE`, `backups/.gitkeep` | No job, except `secrets` and the canary. |
 
 ## Develop: a database for the tests
 

@@ -21,6 +21,8 @@ The runbook [Export your FreshDirect mail and import it](docs/runbooks/takeout-e
 
 Real receipts never enter this repository, even redacted; it may become public. The redaction terms and the mail export live outside it. See [Privacy](docs/concepts/privacy.md).
 
+If you work in this repository with Claude Code: `.claude/settings.json` comes with the clone, and for a session that starts at the top of the repository its `deny` rules refuse a read of the places where your data is before redaction: `.env`, your exports directory `~/qm-data`, your configuration and state directories, and a mailbox or message file in any place. The rules name no person; `~/` is your own home directory. If you keep the exports, the configuration or the Gmail token in another place, copy `.claude/settings.local.example.json` to `.claude/settings.local.json` and write your places into it. [What a Claude session may not read](docs/concepts/privacy.md#what-a-claude-session-may-not-read) lists each rule and what the rules do not stop.
+
 ## Quick start
 
 Nothing is installed on the host; the database and the command run as containers. Start the Takeout export first, since Google needs time to build it.
