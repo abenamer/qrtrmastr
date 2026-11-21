@@ -4,6 +4,7 @@ title: Database schema
 description: Every table of the store, its purpose, and the migration that made it.
 tags: [database, schema, postgresql]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: m0001
     resource: ../../migrations/0001_raw_mail.sql

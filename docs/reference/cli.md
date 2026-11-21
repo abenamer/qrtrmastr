@@ -4,6 +4,7 @@ title: Command line
 description: The qm commands, their arguments, and their exit status.
 tags: [cli, reference]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: cli
     resource: ../../src/adapters/cli/mod.rs

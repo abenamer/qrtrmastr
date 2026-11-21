@@ -19,6 +19,14 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+  # requirements-docs.txt: the two packages of the documentation checker and mdurl.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:

@@ -4,6 +4,7 @@ title: Application overview
 description: What Quartermaster does, how its layers fit together, and the code path of a command.
 tags: [architecture, overview]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-21
 sources:
   - id: lib
     resource: ../../src/lib.rs

@@ -4,6 +4,7 @@ title: Restaurant mail is stored at import and parsed later
 description: Why the import stores the order mail of six restaurant platforms beside FreshDirect before a parser exists for any of them, and which rules decide what is stored.
 tags: [decision, import, mail]
 generated: { by: "process:claude-code", at: "2026-11-18T16:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0007 — Restaurant mail is stored at import and parsed later

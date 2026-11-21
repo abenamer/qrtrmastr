@@ -4,6 +4,7 @@ title: qm due ranks by recent habit
 description: The backtest that compared the gap rule, frequency rules and a fitted model on the maintainer's history, and why the default of qm due is now the count of a product in the latest orders.
 tags: [decision, recommendation]
 generated: { by: "process:claude-code", at: "2026-11-18T19:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0009 — qm due ranks by recent habit
@@ -21,7 +22,7 @@ generated: { by: "process:claude-code", at: "2026-11-18T19:00:00Z" }
 
 ## Consequences
 
-* The list is the staples. It does not say when a product runs out and it cannot name a product that is bought every few months; `--gap` is the rule for that question.
+* The list is the products that are in the largest number of the latest orders. It does not say when a product runs out and it cannot name a product that is bought every few months; `--gap` is the rule for that question.
 * About half of the first five products listed are in the next order, and a list of fifteen holds about a third of what the next order holds. Most of an order is not habit.
 * A dropped product leaves the list after 20 orders, about four months.
 * The latest orders are taken by delivery date, with no upper limit. A receipt with a date far ahead, which a forged mail can carry ([ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md)), keeps one of the 20 places until 20 later orders exist. Nothing leaves out an order of a later date or a non-verified order yet.

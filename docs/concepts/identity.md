@@ -4,6 +4,7 @@ title: Product identity
 description: How a printed product name becomes a product, why aliases sit between lines and products, and how a mistake is corrected.
 tags: [identity, aliases, normalization]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-13
 sources:
   - id: identity
     resource: ../../src/domain/identity.rs

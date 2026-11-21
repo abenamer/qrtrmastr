@@ -875,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn a_lapsed_item_and_a_one_off_are_told_apart_from_a_staple() {
+    fn a_lapsed_item_and_a_one_off_are_told_apart_from_an_item_bought_often() {
         let lapsed = vec![
             buy(3, "10000000001", d(2025, 1, 1), "1"),
             buy(3, "10000000002", d(2025, 1, 8), "1"),

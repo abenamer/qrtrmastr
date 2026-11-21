@@ -4,6 +4,7 @@ title: Project terminology
 description: Project-specific technical terms used in this bundle and in the code.
 tags: [terminology, ste]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-21
 sources:
   - id: reas-terms
     resource: https://github.com/abenamer/reas/blob/main/standard/terminology.md
@@ -43,3 +44,13 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Takeout export | What Google Takeout delivers for Gmail: one or more `.zip` archives, each with the mail in mbox form under `Takeout/Mail/`. The MVP's mail source, read in place. It carries personal data and lives outside the repository. |
 | Typical quantity | The median billed quantity of a product over its purchases; what `qm due` suggests. |
 | Usual gap | The median gap, in days, between a product's distinct purchase dates. |
+
+## Retired terms
+
+A retired term is a word that this bundle used for a concept and does not use now. Use the replacement. The checker fails when a document uses a retired term in its text outside code; this table, the log, the changelog and the language review can name one. Write a retired term in the table as plain text.
+
+| Retired term | Replacement | Reason |
+| --- | --- | --- |
+| staple | essential, or extra | [ADR 0011](/decisions/0011-essentials-extras-reminders-and-additions-with-a-reason.md) gave the products of the habit rule two names. The older word did not say which of the two it meant. |
+| unverified | non-verified | The tag of an order from a receipt without a DKIM pass is `non-verified` ([ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md)). One word for the tag in the text and in the database. |
+

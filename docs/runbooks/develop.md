@@ -4,6 +4,7 @@ title: Develop and run
 description: Running qm through Docker Compose, the toolchain for development, the database options, the checks, and the pull-request flow.
 tags: [runbook, development, docker]
 generated: { by: "process:claude-code", at: "2026-11-13T23:30:00Z" }
+updated: 2026-11-21
 sources:
   - id: compose
     resource: ../../compose.yaml
@@ -58,6 +59,38 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 * `clippy.toml` leaves `unwrap` and `expect` free inside a test function and a test module. A helper function in `tests/` is outside both; `tests/database.rs` has one attribute for the file.
 
 The release profile sets `overflow-checks = true`: an arithmetic overflow stops the program with an error and a failure exit status; the number does not wrap.
+
+## Develop: the documentation checker
+
+`python3 scripts/check_docs.py` reads each file whose name ends in `.md`, in the working tree. It does not read the directories `.git`, `target`, `.venv` and `node_modules` at the top of the repository. [ADR 0016](/decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md) says where the checker comes from. It fails on:
+
+* a concept without a `type`, without an `updated` date, or with an `updated` value that is not a day as `YYYY-MM-DD` or is after today. A concept is each file of `docs/` except `docs/log.md` and a file named `index.md`;
+* a concept that `docs/index.md` does not reach through links in the bundle;
+* a local link to a file that does not exist, and a fragment (`#heading`) that the target does not have;
+* a `generated` or `verified` event without an actor or without a time that has a UTC offset;
+* a heading of `docs/log.md` at level two that is not a date;
+* a retired term of [the terminology](/terminology.md) in the text outside code, in the title of a link, in HTML, or in the `title` or the `description` of the front matter. The table itself, the log, the changelog, the language review and `standards/` can name one;
+* a file with the extension `.MD` or `.markdown`, and a Markdown file that is a symbolic link;
+* a gate that looked at nothing: no concept, no local link, no fragment, no retired term, or no rule declaration (the vendored standard holds them).
+
+It prints a warning for a concept whose `updated` date is older than 90 days (an audit report), 180 days (a technical reference or a review procedure) or 365 days (any other type). Read the page against the code, and then move the date or remove the page. `--strict-freshness` makes the warning an error; CI does not use it.
+
+`tests/docs/test_docs.py` plants a violation for each of these checks in a small bundle and asserts that the checker names it. Five tests call the entry point of the command and read its exit status and what it prints.
+
+The checker has limits:
+
+* It does not fetch an external link, and it does not check the language.
+* It searches a retired term as plain text. It does not find a term with an invisible character in it, or with a letter of another alphabet that looks the same. In a block of HTML it does not find a term with a tag or an entity inside the word. A term of two words is also found when a line or a paragraph ends between the two words.
+* It searches the `title` and the `description` of the front matter, and no other key.
+* A term in the table of retired terms is plain text with single spaces. The checker refuses a term with markup; a term with an entity or two spaces in it finds nothing.
+* It reads the table of retired terms from the first line that is the heading `## Retired terms`.
+* A file named `index.md` below `docs/` is a page of links and not a concept: the checker asks it for no type and no date.
+* A link that the reader cannot see (a link with no text, a link in an HTML template) counts for reachability.
+* It reads the HTML attributes `href`, `src`, `id` and `name`. It does not read `srcset`, `data` or `poster`, and it does not read a tag that follows an inline `<script>` or `<style>` or an attribute that is not closed.
+* It takes a link with a colon in its first part, such as `x:page.md`, as an external link.
+* It reads the extensions `.md` and `.markdown`. It does not read a file with another extension that a site can show as Markdown, such as `.mkd`.
+* It reads a directory named `target`, `.venv` or `node_modules` below the top of the repository, also when git ignores it. It does not follow a symbolic link to a directory.
+* It reads a footnote as CommonMark does, as a link definition.
 
 ## Develop: a database for the tests
 

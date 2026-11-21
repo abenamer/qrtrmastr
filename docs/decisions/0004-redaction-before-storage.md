@@ -4,6 +4,7 @@ title: Redaction before storage
 description: What the redactor removes, in what order, why a surviving term refuses the message, and why the export stays the durable original.
 tags: [decision, privacy, redaction]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0004 — Redaction before storage

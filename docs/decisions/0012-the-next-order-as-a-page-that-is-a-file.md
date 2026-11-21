@@ -4,6 +4,7 @@ title: The next order as a page that is a file
 description: Why the web page of qm due is one self-contained HTML file that the tool prints and no server, what the page shows, and what it cannot do.
 tags: [decision, recommendation, cli]
 generated: { by: "process:claude-code", at: "2026-11-19T17:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0012 — The next order as a page that is a file

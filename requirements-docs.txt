@@ -1,1 +1,4 @@
 PyYAML==6.0.3
+markdown-it-py==4.0.0
+# The one requirement of markdown-it-py, pinned so that an install takes no newer release.
+mdurl==0.1.2

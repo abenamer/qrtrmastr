@@ -4,6 +4,7 @@ title: Dates and times with jiff, not chrono
 description: Why the project left chrono after two unmaintained advisories stopped the deny job, what replaced it at each place a date is read, computed or stored, and what was checked.
 tags: [decision, dependencies, supply-chain]
 generated: { by: "process:claude-code", at: "2026-11-20T19:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0014 — Dates and times with jiff, not chrono

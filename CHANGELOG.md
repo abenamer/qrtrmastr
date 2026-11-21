@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- The documentation checker also fails on a page without an `updated` date, a page that the index does not reach, a link to a heading that does not exist, and a retired term. Each page of `docs/` has its date, and `docs/terminology.md` has a table of retired terms. The checker needs `markdown-it-py`: run `pip install -r requirements-docs.txt` again. [ADR 0016](docs/decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md).
 - Arithmetic and reads by position in `qm` are checked (REAS-SEC-003): a number at the bound of its type gives an answer and does not stop the program (no such stop is known from a real receipt), and Clippy refuses new unchecked arithmetic, an index and a cut of a text outside tests. Each pattern has a size limit of 1 MiB; a redaction term or a phone number of several hundred characters is refused when the redactor is built. No result changed for a value that `qm` accepted before.
 - A character that a terminal obeys (an escape sequence, a line break, a direction mark) in a product name from a receipt, in the Message-ID of a mail or in a file name is shown as text, `\u{1b}`, in the tables of `qm due`, the report of `qm import` and `qm fetch`, the error line and the log. `qm due --json` writes such a character as a JSON escape; the value is the same.
 - `rust-toolchain.toml` pins Rust 1.99.1 for development and CI, the version the image is built with.

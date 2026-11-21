@@ -4,6 +4,7 @@ title: Product identity through aliases
 description: Why an order line points at an alias and not a product, how a name is normalized, and what the product link path may become.
 tags: [decision, identity]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-13
 ---
 
 # ADR 0005 — Product identity through aliases

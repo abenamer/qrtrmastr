@@ -4,13 +4,14 @@ title: Sizes of one product count as one, and a bulk purchase is a stock
 description: Why the habit rule joins products with the same name and leaves out a product whose last purchase was a multiple of the usual amount, with the backtest that also rejected a general not-due-yet filter.
 tags: [decision, recommendation]
 generated: { by: "process:claude-code", at: "2026-11-18T21:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0010 — Sizes of one product count as one, and a bulk purchase is a stock
 
 ## Context
 
-The habit rule of [ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md) listed a seaweed snack as a staple last bought 48 days before. The maintainer had bought a case of 36 on 2026-11-01. The case is another product in the catalog: the same name, the size text `36ct, 0.17oz ea` and not `3ct, 0.17oz ea`. 139 names in the history have more than one product, 307 products in all. ADR 0009 rejected a merge by similar names; a merge by the same name was not measured there.
+The habit rule of [ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md) listed a seaweed snack that was last bought 48 days before. The maintainer had bought a case of 36 on 2026-11-01. The case is another product in the catalog: the same name, the size text `36ct, 0.17oz ea` and not `3ct, 0.17oz ea`. 139 names in the history have more than one product, 307 products in all. ADR 0009 rejected a merge by similar names; a merge by the same name was not measured there.
 
 ## Decision
 
@@ -29,7 +30,7 @@ The habit rule of [ADR 0009](/decisions/0009-qm-due-ranks-by-recent-habit.md) li
 
 ## Alternatives
 
-* Leave out every product whose usual gap has not passed, with the gap scaled by the amount bought: measured, worse at every threshold (see Runs). Staples are bought again before their usual gap has passed.
+* Leave out every product whose usual gap has not passed, with the gap scaled by the amount bought: measured, worse at every threshold (see Runs). A product that is bought often is bought again before its usual gap has passed.
 * A threshold of 2 usual amounts: measured, it left out products that were bought anyway.
 * A merge in the catalog (`qm product merge`): it stays a manual step; a case and a small pack are different things to order.
 

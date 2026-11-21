@@ -4,6 +4,7 @@ title: Import
 description: How a mail export becomes stored messages and parsed orders, what each message state means, and why nothing is dropped.
 tags: [import, parsing, states]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: import
     resource: ../../src/application/import.rs

@@ -4,6 +4,7 @@ title: Privacy
 description: What personal data the mail carries, what the store keeps, and the two canaries that guard the repository.
 tags: [privacy, security, redaction]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: canary
     resource: ../../scripts/pii_canary.sh
