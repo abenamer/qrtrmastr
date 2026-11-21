@@ -11,6 +11,7 @@
 //! port returns a `Result` because a real repository can fail, even though
 //! the in-memory adapter here cannot (REAS-RUST-005).
 
+/// Domain types. They depend on nothing outside the standard library.
 pub mod domain {
     use std::fmt;
     use std::num::NonZeroU32;
@@ -27,6 +28,7 @@ pub mod domain {
     /// Error from `TeamId::new`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum InvalidTeamId {
+        /// The raw value was zero.
         Zero,
     }
 
@@ -46,18 +48,23 @@ pub mod domain {
             NonZeroU32::new(raw).map(Self).ok_or(InvalidTeamId::Zero)
         }
 
+        /// Returns the raw identifier.
         pub fn get(self) -> u32 {
             self.0.get()
         }
     }
 
+    /// A team. The fields carry no invariant beyond their types.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Team {
+        /// The team's identifier.
         pub id: TeamId,
+        /// The team's display name.
         pub name: String,
     }
 }
 
+/// Application use cases and the ports they need.
 pub mod application {
     use std::fmt;
 
@@ -65,12 +72,17 @@ pub mod application {
 
     /// Outbound port. The application defines it; an adapter implements it.
     pub trait TeamRepository {
+        /// Finds a team by identifier.
+        ///
+        /// # Errors
+        /// Returns [`RepositoryError::Unavailable`] when the store cannot be reached.
         fn find(&self, id: TeamId) -> Result<Option<Team>, RepositoryError>;
     }
 
     /// Typed error for the repository port.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum RepositoryError {
+        /// The store cannot be reached; the payload is the adapter's reason.
         Unavailable(String),
     }
 
@@ -93,16 +105,22 @@ pub mod application {
     }
 
     impl<R: TeamRepository> FindTeam<R> {
+        /// Connects the use case to its adapter.
         pub fn new(repository: R) -> Self {
             Self { repository }
         }
 
+        /// Runs the use case.
+        ///
+        /// # Errors
+        /// Propagates the port's [`RepositoryError`].
         pub fn execute(&self, id: TeamId) -> Result<Option<Team>, RepositoryError> {
             self.repository.find(id)
         }
     }
 }
 
+/// Outbound adapters.
 pub mod adapters {
     use std::collections::HashMap;
 
@@ -116,6 +134,7 @@ pub mod adapters {
     }
 
     impl InMemoryTeamRepository {
+        /// Builds the adapter from the teams it should hold.
         pub fn new(teams: impl IntoIterator<Item = Team>) -> Self {
             let teams = teams.into_iter().map(|team| (team.id, team)).collect();
             Self { teams }
@@ -129,6 +148,7 @@ pub mod adapters {
     }
 }
 
+/// The inbound adapter.
 pub mod cli {
     use crate::application::{FindTeam, TeamRepository};
     use crate::domain::TeamId;
@@ -154,6 +174,7 @@ pub mod cli {
     }
 }
 
+/// The composition root.
 pub mod composition {
     use crate::adapters::InMemoryTeamRepository;
     use crate::application::FindTeam;

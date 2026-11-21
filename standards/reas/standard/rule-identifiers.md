@@ -3,6 +3,7 @@ type: Technical Reference
 title: Rule identifiers
 description: Identifier stability and historical mappings for REAS rules.
 tags: [rules, compatibility, history]
+updated: 2026-11-20
 ---
 
 # Rule identifiers
@@ -25,6 +26,23 @@ This table records the conflict; it cannot make the old references unambiguous.
 | Async and CPU work | `REAS-TEST-002` | [REAS-RUST-007](core-rust.md#reas-rust-007) |
 | Security properties | `REAS-TEST-003` | [REAS-SEC-001](validation.md#reas-sec-001) |
 | Evidence reporting | `REAS-TEST-004` | [REAS-TEST-002](validation.md#reas-test-002) |
+
+## Split in 1.5.0-draft
+
+Version 1.5.0-draft moved the `REAS-SEC` family from `validation.md` to [`security.md`](security.md).
+The identifiers did not change.
+`validation.md` keeps an anchor for `REAS-SEC-001` that points to the new location.
+
+REAS-SEC-001 kept its identifier and its purpose.
+Its requirements for the project's own `unsafe` code moved to [REAS-SEC-004](security.md#reas-sec-004).
+A reference to REAS-SEC-001 for a `SAFETY` comment or a Miri result from before 1.5.0-draft now means REAS-SEC-004.
+
+## Split in 1.7.0-draft
+
+Version 1.7.0-draft added the `REAS-NATIVE` family in [`native-code.md`](native-code.md).
+REAS-SEC-004 kept its identifier and its purpose, confinement of unsafe code.
+Its three sentences on Miri and sanitizer runs moved to [REAS-NATIVE-004](native-code.md#reas-native-004).
+A reference to REAS-SEC-004 for a Miri or sanitizer result from before 1.7.0-draft now means REAS-NATIVE-004.
 
 The current identifiers remain in use to avoid another reassignment.
 Resolve an old reference against its cited version or commit.

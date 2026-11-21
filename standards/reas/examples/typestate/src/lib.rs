@@ -51,8 +51,11 @@ mod sealed {
 /// Marker trait for the states of a [`Job`]. Only this crate can implement it.
 pub trait JobState: sealed::Sealed {}
 
+/// The job has not started.
 pub struct Pending;
+/// The job is running.
 pub struct Running;
+/// The job has completed.
 pub struct Completed;
 
 impl sealed::Sealed for Pending {}
@@ -63,12 +66,14 @@ impl JobState for Pending {}
 impl JobState for Running {}
 impl JobState for Completed {}
 
+/// A job whose lifecycle state is its type parameter.
 pub struct Job<State: JobState> {
     id: u64,
     state: PhantomData<State>,
 }
 
 impl Job<Pending> {
+    /// Creates a pending job.
     pub fn new(id: u64) -> Self {
         Self {
             id,
@@ -76,6 +81,7 @@ impl Job<Pending> {
         }
     }
 
+    /// Starts the job. Only a pending job can start.
     pub fn start(self) -> Job<Running> {
         Job {
             id: self.id,
@@ -85,6 +91,7 @@ impl Job<Pending> {
 }
 
 impl Job<Running> {
+    /// Completes the job. Only a running job can complete.
     pub fn complete(self) -> Job<Completed> {
         Job {
             id: self.id,
@@ -94,6 +101,7 @@ impl Job<Running> {
 }
 
 impl<State: JobState> Job<State> {
+    /// Returns the job identifier in every state.
     pub fn id(&self) -> u64 {
         self.id
     }

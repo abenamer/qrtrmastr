@@ -3,6 +3,7 @@ type: Architecture Decision
 title: Define the OKF bundle boundary
 description: Explain why standard/ is the documentation knowledge bundle.
 tags: [decision, documentation, okf]
+updated: 2026-11-20
 ---
 
 # ADR 0001 — Define the OKF bundle boundary
