@@ -225,7 +225,15 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
     if row.header {
         return Classified::Header;
     }
-    let non_empty: Vec<&String> = row.cells.iter().filter(|c| !c.is_empty()).collect();
+    let non_empty: Vec<&str> = row
+        .cells
+        .iter()
+        .map(String::as_str)
+        .filter(|c| !c.is_empty())
+        .collect();
+    // The cells of a row come from the mail. Each rule below names the cells that it reads
+    // in a pattern, so a row with fewer cells does not match the rule (REAS-SEC-003).
+    let non_empty = non_empty.as_slice();
     if non_empty.is_empty() {
         return Classified::Blank;
     }
@@ -233,13 +241,22 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
     // cells, the order number, the summary box with the payment, and the legend of the flags.
     let titles =
         row.cells.iter().any(|c| c == "Final Price") && row.cells.iter().any(|c| c == "Unit Price");
-    if titles || (non_empty.len() == 1 && FURNITURE.is_match(non_empty[0])) {
+    if titles || matches!(non_empty, [only] if FURNITURE.is_match(only)) {
         return Classified::Header;
     }
-    if let Some(caps) = QTY_CELL.captures(&row.cells[0]) {
-        if row.cells.len() < 6 {
+    if let Some(caps) = row.cells.first().and_then(|cell| QTY_CELL.captures(cell)) {
+        let [
+            _,
+            name_cell,
+            weight_cell,
+            unit_price_cell,
+            options_cell,
+            final_price_cell,
+            flag_cells @ ..,
+        ] = row.cells.as_slice()
+        else {
             return Classified::Unknown(format!("quantity row with {} cells", row.cells.len()));
-        }
+        };
         let (Ok(qty_first), Ok(qty_second)) =
             (Quantity::parse(&caps[1]), Quantity::parse(&caps[2]))
         else {
@@ -247,17 +264,17 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
                 "quantity cell does not hold two positive numbers".to_owned(),
             );
         };
-        let raw_name = row.cells[1].clone();
+        let raw_name = name_cell.clone();
         if raw_name.is_empty() {
             return Classified::Unknown("quantity row without a product name".to_owned());
         }
-        let weight = WEIGHT_CELL.captures(&row.cells[2]).and_then(|w| {
+        let weight = WEIGHT_CELL.captures(weight_cell).and_then(|w| {
             Quantity::parse(&w[1]).ok().map(|value| Weight {
                 value,
                 unit: w[2].to_lowercase(),
             })
         });
-        let unit_price = UNIT_PRICE_CELL.captures(&row.cells[3]).and_then(|u| {
+        let unit_price = UNIT_PRICE_CELL.captures(unit_price_cell).and_then(|u| {
             let amount = Money::parse(&u[1].replace(' ', "")).ok()?;
             let per = match u[2].to_lowercase().as_str() {
                 "ea" | "each" => PricePer::Each,
@@ -265,14 +282,16 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
             };
             Some(UnitPrice { amount, per })
         });
-        let options_price = (!row.cells[4].is_empty())
-            .then(|| money(&row.cells[4]))
+        let options_price = (!options_cell.is_empty())
+            .then(|| money(options_cell))
             .flatten();
-        let Some(final_price) = money(&row.cells[5]) else {
-            return Classified::Unknown(format!("price cell {:?} is not an amount", row.cells[5]));
+        let Some(final_price) = money(final_price_cell) else {
+            return Classified::Unknown(format!(
+                "price cell {final_price_cell:?} is not an amount"
+            ));
         };
         let mut flags = Flags::default();
-        for cell in row.cells.iter().skip(6) {
+        for cell in flag_cells {
             match cell.trim() {
                 "T" => flags.taxable = true,
                 "S" => flags.special = true,
@@ -295,20 +314,22 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
         }));
     }
     // A totals row is a label and an amount; a taxable fee carries a flag letter after them.
-    let label_and_amount = non_empty.len() == 2
-        || (non_empty.len() == 3 && matches!(non_empty[2].trim(), "T" | "S" | "D"));
-    if label_and_amount
-        && let (Some(label), Some(amount)) =
-            (FOOTER_LABEL.captures(non_empty[0]), money(non_empty[1]))
+    let label_and_amount = match non_empty {
+        [label, amount] => Some((label, amount)),
+        [label, amount, flag] if matches!(flag.trim(), "T" | "S" | "D") => Some((label, amount)),
+        _ => None,
+    };
+    if let Some((label, amount)) = label_and_amount
+        && let (Some(label), Some(amount)) = (FOOTER_LABEL.captures(label), money(amount))
     {
         return Classified::Footer(label[1].to_lowercase(), amount);
     }
-    if non_empty.len() == 1
-        && !non_empty[0].contains('$')
-        && non_empty[0].len() <= 40
-        && !MONEY_CELL.is_match(non_empty[0])
+    if let [only] = non_empty
+        && !only.contains('$')
+        && only.len() <= 40
+        && !MONEY_CELL.is_match(only)
     {
-        return Classified::Department(non_empty[0].clone());
+        return Classified::Department((*only).to_owned());
     }
     Classified::Unknown("no rule matched".to_owned())
 }
@@ -373,15 +394,18 @@ impl ReceiptParser for FreshDirect2026 {
         let mut anomalies = Vec::new();
         let mut footers = FooterSums::default();
         let mut department: Option<String> = None;
-        let mut line_no: u32 = 0;
+        // The number that the next item line gets. It is computed in one place, below.
+        let mut next_line_no: u32 = 1;
 
         for (index, tr) in own_rows(item_table).into_iter().enumerate() {
             let row = read_row(tr);
-            match classify(&row, line_no + 1, department.as_deref()) {
+            match classify(&row, next_line_no, department.as_deref()) {
                 Classified::Header | Classified::Blank => {}
                 Classified::Department(name) => department = Some(name),
                 Classified::Item(item) => {
-                    line_no += 1;
+                    next_line_no = next_line_no
+                        .checked_add(1)
+                        .ok_or(ParseError::TooManyLines)?;
                     lines.push(*item);
                 }
                 Classified::Footer(label, amount) => footers.apply(&label, amount),
@@ -649,6 +673,131 @@ mod tests {
         }
         for (reason, count) in &reasons {
             println!("anomaly {count:4} {reason}");
+        }
+    }
+
+    fn row(cells: &[&str]) -> Row {
+        Row {
+            cells: cells.iter().map(|cell| (*cell).to_owned()).collect(),
+            link_path: None,
+            header: false,
+        }
+    }
+
+    #[test]
+    fn a_row_with_fewer_cells_than_a_rule_reads_matches_no_rule() {
+        // No cell, and only empty cells.
+        assert!(matches!(classify(&row(&[]), 1, None), Classified::Blank));
+        assert!(matches!(
+            classify(&row(&["", ""]), 1, None),
+            Classified::Blank
+        ));
+        // A quantity cell with no cell to four cells after it: an item row needs five.
+        for count in 1..=5 {
+            let mut cells = vec!["1/1"];
+            cells.resize(count, "x");
+            let Classified::Unknown(reason) = classify(&row(&cells), 1, None) else {
+                panic!("a quantity row with {count} cells is not an item");
+            };
+            assert_eq!(reason, format!("quantity row with {count} cells"));
+        }
+        // Six cells: an item with no flag cell. Seven and more: each later cell can be a flag.
+        let six = ["2/2", "Milk", "", "$1.00/ea", "", "$2.00"];
+        let Classified::Item(item) = classify(&row(&six), 4, Some("Dairy")) else {
+            panic!("six cells are an item row");
+        };
+        assert_eq!(item.line_no, 4);
+        assert_eq!(item.raw_name, "Milk");
+        assert_eq!(item.department.as_deref(), Some("Dairy"));
+        assert_eq!(item.final_price, Money::from_cents(200));
+        assert_eq!(item.options_price, None);
+        assert_eq!(item.flags, Flags::default());
+        let nine = ["2/2", "Milk", "", "", "$0.50", "$2.00", "T", "", "D"];
+        let Classified::Item(item) = classify(&row(&nine), 1, None) else {
+            panic!("nine cells are an item row");
+        };
+        assert_eq!(item.options_price, Some(Money::from_cents(50)));
+        assert!(item.flags.taxable && item.flags.deposit && !item.flags.special);
+        // A price cell that is no amount.
+        let bad_price = ["2/2", "Milk", "", "", "", "two dollars"];
+        assert!(matches!(
+            classify(&row(&bad_price), 1, None),
+            Classified::Unknown(reason) if reason == "price cell \"two dollars\" is not an amount"
+        ));
+        // A quantity cell that is not the first cell starts no item row.
+        assert!(matches!(
+            classify(&row(&["", "2/2", "Milk", "", "", "", "$2.00"]), 1, None),
+            Classified::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn a_totals_row_is_a_label_and_an_amount_with_at_most_one_flag_cell() {
+        let footer = |cells: &[&str]| {
+            if let Classified::Footer(label, amount) = classify(&row(cells), 0, None) {
+                Some((label, amount))
+            } else {
+                None
+            }
+        };
+        assert_eq!(
+            footer(&["Subtotal", "$5.00"]),
+            Some(("subtotal".to_owned(), Money::from_cents(500)))
+        );
+        assert_eq!(
+            footer(&["", "Delivery Fee", "", "$5.99", "T"]),
+            Some(("delivery fee".to_owned(), Money::from_cents(599)))
+        );
+        // A third cell that is no flag, four cells, and a label with no amount.
+        assert_eq!(footer(&["Tip", "$1.00", "x"]), None);
+        assert_eq!(footer(&["Tip", "$1.00", "T", "T"]), None);
+        assert_eq!(footer(&["Tip", "one"]), None);
+        // One cell alone is a department, unless it is long or an amount.
+        assert!(matches!(
+            classify(&row(&["", "Dairy"]), 0, None),
+            Classified::Department(name) if name == "Dairy"
+        ));
+        assert!(matches!(
+            classify(&row(&["$5.00"]), 0, None),
+            Classified::Unknown(_)
+        ));
+        let long = "x".repeat(41);
+        assert!(matches!(
+            classify(&row(&[long.as_str()]), 0, None),
+            Classified::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn the_item_lines_of_a_receipt_are_numbered_from_one_without_a_gap() {
+        let receipt = FreshDirect2026
+            .parse(&Html::parse_document(FIXTURE))
+            .expect("the fixture is a receipt");
+        assert!(receipt.lines.len() > 1);
+        let numbers: Vec<u32> = receipt.lines.iter().map(|line| line.line_no).collect();
+        let expected: Vec<u32> = (1..).take(receipt.lines.len()).collect();
+        assert_eq!(numbers, expected);
+    }
+
+    #[test]
+    fn every_group_that_the_code_indexes_takes_part_in_every_match() {
+        // `caps[1]` stops the program when group 1 took no part in the match, and no lint
+        // sees it. For these patterns the engine can say that each group is in every match.
+        for (name, pattern) in [
+            ("ORDER_NUMBER", &*ORDER_NUMBER),
+            ("DELIVERY_DATE", &*DELIVERY_DATE),
+            ("DELIVERY_SENTENCE", &*DELIVERY_SENTENCE),
+            ("DELIVERY_WINDOW", &*DELIVERY_WINDOW),
+            ("QTY_CELL", &*QTY_CELL),
+            ("WEIGHT_CELL", &*WEIGHT_CELL),
+            ("UNIT_PRICE_CELL", &*UNIT_PRICE_CELL),
+            ("FOOTER_LABEL", &*FOOTER_LABEL),
+        ] {
+            assert_eq!(
+                pattern.static_captures_len(),
+                Some(pattern.captures_len()),
+                "{name}"
+            );
         }
     }
 }

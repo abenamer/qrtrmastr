@@ -75,7 +75,7 @@ No value from outside data goes into a shell command: `scripts/due_page.sh` pass
 
 What the encoding does not do:
 
-* A panic is not encoded. The program sets no panic hook, so the text of a panic goes to the terminal as it is, and a panic on a cut of a text quotes a piece of that text. No panic that carries outside data is known; step 3 of [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) removes the cuts that could cause one.
+* A panic is not encoded. The program sets no panic hook, so the text of a panic goes to the terminal as it is, and a panic on a cut of a text quotes a piece of that text. No panic that carries outside data is known. Since step 3 of [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) the code of the project has no cut by position outside its tests, and Clippy refuses a new one (`string_slice`, `indexing_slicing`); a dependency can still panic with a text of its own.
 * The encoding for the terminal counts characters, not columns. A name of wide characters can make a row wider than the table, and a narrow terminal then wraps it.
 * An argument that you type is shown by the argument parser as you typed it.
 * `qm due --html` writes a page, with the encoding of HTML. When you run it without a redirect to a file, the page goes to the terminal, and a control character of a name goes with it. `scripts/due_page.sh` writes the page to a file.

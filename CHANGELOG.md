@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- Arithmetic and reads by position in `qm` are checked (REAS-SEC-003): a number at the bound of its type gives an answer and does not stop the program (no such stop is known from a real receipt), and Clippy refuses new unchecked arithmetic, an index and a cut of a text outside tests. Each pattern has a size limit of 1 MiB; a redaction term or a phone number of several hundred characters is refused when the redactor is built. No result changed for a value that `qm` accepted before.
 - A character that a terminal obeys (an escape sequence, a line break, a direction mark) in a product name from a receipt, in the Message-ID of a mail or in a file name is shown as text, `\u{1b}`, in the tables of `qm due`, the report of `qm import` and `qm fetch`, the error line and the log. `qm due --json` writes such a character as a JSON escape; the value is the same.
 - `rust-toolchain.toml` pins Rust 1.99.1 for development and CI, the version the image is built with.
 - A mail whose Message-ID or link holds a `%`, one character and then a character of more than one byte no longer stops `qm import` and `qm fetch`. In a release build an arithmetic overflow stops the program with an error; the number does not wrap. `Cargo.toml` declares the lint levels of REAS 1.6.0-draft; `docs/runbooks/develop.md` says how to work with them.

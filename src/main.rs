@@ -257,7 +257,9 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     remember,
                     seed: seed.unwrap_or_else(|| {
                         // The day as a number: the days since the first day of year 1, that day counted.
-                        (days_between(jiff::civil::date(1, 1, 1), as_of) + 1).unsigned_abs()
+                        days_between(jiff::civil::date(1, 1, 1), as_of)
+                            .saturating_add(1)
+                            .unsigned_abs()
                     }),
                 };
                 let report = due.run_habit(options, as_of).await?;

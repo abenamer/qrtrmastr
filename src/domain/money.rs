@@ -58,8 +58,11 @@ impl Money {
     /// Reads what a receipt prints: `$17.37`, `-$2.00`, `($2.00)`, `$1,234.56`, `5`.
     pub fn parse(raw: &str) -> Result<Self, MoneyError> {
         let text = raw.trim();
-        let (negative, text) = if text.starts_with('(') && text.ends_with(')') {
-            (true, &text[1..text.len() - 1])
+        let (negative, text) = if let Some(inner) = text
+            .strip_prefix('(')
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            (true, inner)
         } else if let Some(rest) = text.strip_prefix('-') {
             (true, rest)
         } else {
@@ -72,7 +75,9 @@ impl Money {
             return Err(MoneyError::Parse(raw.to_owned()));
         }
         value.rescale(2);
-        Ok(Self(if negative { -value } else { value }))
+        // The value is not negative here, so this sets the sign that the text gave.
+        value.set_sign_negative(negative);
+        Ok(Self(value))
     }
 
     pub fn checked_add(self, other: Money) -> Result<Money, MoneyError> {
@@ -99,9 +104,11 @@ impl Money {
             .ok_or(MoneyError::Overflow)
     }
 
-    /// The size of the gap between two amounts, for reconciliation tolerances.
+    /// The size of the gap between two amounts, for reconciliation tolerances. Two amounts
+    /// at opposite ends of the type's range give the largest amount, not a panic: such a gap
+    /// is outside every tolerance, which is the right answer.
     pub fn abs_diff(self, other: Money) -> Money {
-        Money((self.0 - other.0).abs())
+        Money(self.0.saturating_sub(other.0).abs())
     }
 
     pub fn is_negative(self) -> bool {
@@ -114,7 +121,7 @@ impl Money {
 
     /// Whole cents; `None` only past the range of an `i64`, which no receipt reaches.
     pub fn cents(self) -> Option<i64> {
-        (self.0 * Decimal::ONE_HUNDRED).to_i64()
+        self.0.checked_mul(Decimal::ONE_HUNDRED)?.to_i64()
     }
 }
 
@@ -216,5 +223,54 @@ mod tests {
         assert!(Quantity::parse("-1").is_err());
         assert!(Quantity::parse("1.2345").is_err());
         assert!(Quantity::parse("two").is_err());
+    }
+
+    #[test]
+    fn a_bracket_or_a_sign_at_the_edge_of_a_text_is_an_error_or_an_amount() {
+        for text in ["()", "(-", "-", "$", "( )", "(($1.00))", "(\u{e9})"] {
+            assert!(Money::parse(text).is_err(), "{text}");
+        }
+        assert_eq!(Money::parse("( $2.00 )"), Ok(Money::from_cents(-200)));
+        assert_eq!(Money::parse("($0.00)"), Ok(Money::ZERO));
+        assert!(!Money::parse("($0.00)").expect("zero").is_negative());
+        assert!(!Money::parse("-0").expect("zero").is_negative());
+        assert_eq!(
+            Money::from_cents(-200).abs_diff(Money::from_cents(300)),
+            Money::from_cents(500)
+        );
+        assert_eq!(
+            Money::parse("92233720368547758.07")
+                .expect("amount")
+                .cents(),
+            Some(i64::MAX)
+        );
+        assert_eq!(
+            Money::parse("92233720368547758.08")
+                .expect("amount")
+                .cents(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_text_of_one_bracket_is_an_error_like_any_text_that_is_no_amount() {
+        // The reader takes the brackets off with `strip_prefix` and `strip_suffix`, so no
+        // position is computed for a text of one character.
+        for text in ["(", ")", ")(", "(\u{e9}", "\u{e9})"] {
+            assert!(Money::parse(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn amounts_at_the_ends_of_the_range_give_an_answer_and_no_panic() {
+        let most = Money::parse("79228162514264337593543950335").expect("the largest decimal");
+        let least = Money::parse("-79228162514264337593543950335").expect("the smallest decimal");
+        // The gap is outside the range of the type: the largest amount stands for it.
+        assert_eq!(most.abs_diff(least), most);
+        assert_eq!(least.abs_diff(most), most);
+        assert_eq!(most.abs_diff(most), Money::ZERO);
+        // In cents the amount is outside the range of a decimal.
+        assert_eq!(most.cents(), None);
+        assert_eq!(least.cents(), None);
     }
 }

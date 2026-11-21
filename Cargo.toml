@@ -70,6 +70,9 @@ allow_attributes = "deny"                      # REAS-RUST-006
 allow_attributes_without_reason = "deny"       # REAS-RUST-006
 undocumented_unsafe_blocks = "deny"            # REAS-SEC-004
 multiple_unsafe_ops_per_block = "deny"         # REAS-SEC-004
+arithmetic_side_effects = "deny"               # REAS-SEC-003
+indexing_slicing = "deny"                      # REAS-SEC-003
+string_slice = "deny"                          # REAS-SEC-003: a cut of a text by position
 
 [profile.release]
 opt-level = 3
