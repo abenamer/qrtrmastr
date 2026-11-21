@@ -4,6 +4,7 @@ title: One-time Takeout import, with the Gmail API deferred
 description: Why the MVP reads a Google Takeout export instead of the Gmail API, how the two paths will share a key, and what the mail source port costs.
 tags: [decision, import, mail]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0003 — One-time Takeout import, with the Gmail API deferred

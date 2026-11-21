@@ -4,6 +4,7 @@ title: Simplified Technical English review
 description: Status and steps for checking this bundle against ASD-STE100 Issue 9.
 tags: [documentation, ste, review]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-13
 ---
 
 # Simplified Technical English review

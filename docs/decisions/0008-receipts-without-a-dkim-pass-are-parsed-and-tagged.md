@@ -4,13 +4,14 @@ title: Receipts without a DKIM pass are parsed and tagged
 description: Why the parse step no longer refuses a receipt without a DKIM pass, what the tag on the order means, and the backtest of the FreshDirect parser version 2 over the stored receipts.
 tags: [decision, parsing, import]
 generated: { by: "process:claude-code", at: "2026-11-18T18:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0008 — Receipts without a DKIM pass are parsed and tagged
 
 ## Context
 
-The first import of the maintainer's mailbox stored 510 FreshDirect receipts and parsed none. 429 were refused because Gmail recorded no DKIM pass for `freshdirect.com`: every FreshDirect mail before 2025-06-19 lacks one. The other 81 failed with `no delivery date found`, because parser version 1 was written against an invented layout. The maintainer's decision: the mailbox is the maintainer's own, a receipt is read-only data, and a forged receipt could do no more than add a wrong order to a private history; read them all and tag the unverified ones.
+The first import of the maintainer's mailbox stored 510 FreshDirect receipts and parsed none. 429 were refused because Gmail recorded no DKIM pass for `freshdirect.com`: every FreshDirect mail before 2025-06-19 lacks one. The other 81 failed with `no delivery date found`, because parser version 1 was written against an invented layout. The maintainer's decision: the mailbox is the maintainer's own, a receipt is read-only data, and a forged receipt could do no more than add a wrong order to a private history; read them all and tag the ones without a DKIM pass.
 
 ## Decision
 

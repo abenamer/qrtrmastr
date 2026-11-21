@@ -4,6 +4,7 @@ title: Essentials, extras, reminders, and additions with a reason
 description: Why qm due prints the habit list in two parts with a shuffled list of products that left the history, and why the user finishes the list by hand with a reason for each addition.
 tags: [decision, recommendation]
 generated: { by: "process:claude-code", at: "2026-11-19T15:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0011 — Essentials, extras, reminders, and additions with a reason

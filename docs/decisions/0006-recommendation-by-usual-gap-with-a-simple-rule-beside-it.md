@@ -4,6 +4,7 @@ title: Recommendation by usual gap, with a simple rule beside it
 description: The two rules behind qm due, why neither is a forecast, the thresholds, and what would justify more.
 tags: [decision, recommendation]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-13
 ---
 
 # ADR 0006 — Recommendation by usual gap, with a simple rule beside it

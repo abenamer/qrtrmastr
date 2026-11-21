@@ -4,6 +4,7 @@ title: Recommendation
 description: The two rules behind qm due, what each number means, the thresholds, and what the rules cannot know.
 tags: [recommendation, rules]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: recommend
     resource: ../../src/domain/recommend.rs

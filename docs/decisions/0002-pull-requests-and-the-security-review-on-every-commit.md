@@ -4,6 +4,7 @@ title: Pull requests into main and the security review on every commit
 description: How every commit that reaches main is checked, which jobs run, what runs on the maintainer's machine before a commit, and why the AI review action is not used.
 tags: [decision, ci, security, process]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-14
 ---
 
 # ADR 0002 — Pull requests into main and the security review on every commit

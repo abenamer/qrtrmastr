@@ -4,6 +4,7 @@ title: Fetch new receipts from Gmail
 description: The one-time setup of a Google Cloud project and the sign-in, then qm fetch for the receipts that arrived since the last import.
 tags: [runbook, import, gmail]
 generated: { by: "process:claude-code", at: "2026-11-19T20:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: gmail
     resource: ../../src/adapters/mail/gmail.rs

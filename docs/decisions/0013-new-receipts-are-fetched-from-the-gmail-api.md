@@ -4,6 +4,7 @@ title: New receipts are fetched from the Gmail API
 description: Why qm fetch reads new receipts from the Gmail API with the read-only scope, how the sign-in works without an open port, where the token lives, and the limits of the adapter.
 tags: [decision, import, mail, security]
 generated: { by: "process:claude-code", at: "2026-11-19T20:00:00Z" }
+updated: 2026-11-20
 ---
 
 # ADR 0013 — New receipts are fetched from the Gmail API

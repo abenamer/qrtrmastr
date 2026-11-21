@@ -4,6 +4,7 @@ title: Configuration
 description: Every environment variable the application reads, with its default.
 tags: [configuration, reference]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
+updated: 2026-11-20
 sources:
   - id: config
     resource: ../../src/adapters/config.rs

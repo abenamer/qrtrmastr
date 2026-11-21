@@ -4,6 +4,7 @@ title: Export your FreshDirect mail and import it
 description: The one-time Google Takeout export of the receipts, the configuration file with your redaction terms, and the import through Docker Compose.
 tags: [runbook, import, takeout]
 generated: { by: "process:claude-code", at: "2026-11-13T23:30:00Z" }
+updated: 2026-11-20
 sources:
   - id: reader
     resource: ../../src/adapters/mail/mod.rs
