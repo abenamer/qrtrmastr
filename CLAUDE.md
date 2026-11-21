@@ -6,19 +6,18 @@ This project follows the [REAS standard](https://github.com/abenamer/reas). Its 
 
 # Commands
 
-- Format, check, lint: `cargo fmt --all`, `cargo check --all-targets`, `cargo clippy --all-targets -- -D warnings`
-- Unit tests, no database: `cargo test --lib`; one module: `cargo test --lib <module>`
-- Integration tests: `DATABASE_URL=... cargo test --test database`, each test in a fresh database (see [docs/runbooks/develop.md](docs/runbooks/develop.md))
-- Supply chain: `cargo deny check`, `cargo audit --file Cargo.lock`
-- Privacy canary: `scripts/pii_canary.sh` (shapes), `scripts/pii_canary.sh --terms ~/.config/qrtrmastr/canary-terms.txt` (your real terms)
-- Docs: `python3 scripts/check_docs.py` and `python3 -m unittest discover -s tests/docs -t .`
+`scripts/check.sh` is the one list of the checks. CI and the Stop hook call it, and `scripts/check.sh lists` fails when a workflow or the hook runs one of its commands without it. Add a check to the script, never to a workflow or the hook.
+
+- The checks: `scripts/check.sh all` runs every group except `sqlx`, and the last line names what it did not run. The integration tests run when `DATABASE_URL` is set (see [docs/runbooks/develop.md](docs/runbooks/develop.md)); each test uses a fresh database.
+- One group: `scripts/check.sh rust` (toolchain, format, compile, lint, unit tests, doc tests, documentation build), `toolchain`, `compile`, `database` (every test target, with the integration tests), `sqlx`, `deny`, `audit`, `docs`, `privacy` (the canary: shapes, and your real terms when `~/.config/qrtrmastr/canary-terms.txt` exists), `hooks`, `lists`
+- While you work: `cargo fmt --all` to format; unit tests, no database: `cargo test --lib`; one module: `cargo test --lib <module>`
 - Run: `qm migrate`, later `qm import --takeout <path>`, `qm due`, `qm cart`
 
 # Commit protocol (ADR 0002)
 
 1. Work on a branch from `main`. Nothing is committed to `main` directly; branch protection enforces it, and the guard hook refuses the common forms of such a push as a backstop.
 2. Before each commit, run the `/security-review` skill over the pending changes and record its findings and what was done about them in that day's entry of [docs/log.md](docs/log.md), even when it found nothing. The rule is literal: every commit, including a one-line follow-up, a documentation-only change and a change to the privacy canary or the hooks. A fix the review asks for goes into the same commit, and a follow-up commit gets its own review. Two commits were made without one: the bootstrap commit that created `main`, before a base existed to review against, and a three-line canary follow-up on 2026-11-13 that was reviewed retroactively the next day; neither is a precedent.
-3. Run every command above that applies to the change, and report only the ones that ran.
+3. Run every group of `scripts/check.sh` that applies to the change, and report only the commands that ran; the script prints each one.
 4. Push the branch and open a pull request. Merge only when all CI jobs pass. The seven jobs are required by branch protection.
 5. A Dependabot pull request is never merged as Dependabot left it: its commit had no review, and the seven jobs are a toolchain, not the review. Redo the bump on a branch from `main` under points 1 to 4: check that the pinned commit is the one the tag names on the source repository (`git ls-remote --tags`; for an annotated tag the `^{}` line is the commit) and that it matches what Dependabot proposed, read the release notes between the two versions for changed inputs, permissions or behaviour, then review, log and open the pull request. The tag check shows what the tag names today, not that the tag is honest; the release notes and the match with Dependabot's proposal are the stronger evidence. Dependabot closes its own pull request once `main` carries the version. Push nothing to a Dependabot branch; Dependabot stops maintaining a branch that someone else has changed. Version updates arrive grouped once a month; a security update arrives on its own and is handled the same way.
 

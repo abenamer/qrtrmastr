@@ -1,5 +1,5 @@
 //! Receipt parsers: pure format adapters that turn one platform's HTML into a domain
-//! [`Receipt`](crate::domain::receipt::Receipt). Each parser has a name and a version; the
+//! [`Receipt`]. Each parser has a name and a version; the
 //! registry picks the one that recognizes the layout best.
 
 pub mod freshdirect_2026;
