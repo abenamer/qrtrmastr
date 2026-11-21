@@ -2,7 +2,6 @@
 //! (ADR 0011).
 
 use jiff::civil::Date;
-use serde::Serialize;
 
 use super::ports::{Catalog, NewAddition, ProductLabel, ShoppingList, StoreError};
 use crate::domain::ids::AdditionId;
@@ -10,7 +9,7 @@ use crate::domain::list::{ItemText, the_one_product};
 use crate::domain::states::AddReason;
 
 /// What `qm add` stored: the addition and the product its text named, if exactly one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Added {
     /// The number of the addition, which `qm drop` takes.
     pub id: AdditionId,

@@ -4,7 +4,6 @@
 use std::fmt;
 
 use jiff::civil::Date;
-use serde::Serialize;
 use thiserror::Error;
 
 use super::ids::{AdditionId, ProductId};
@@ -30,8 +29,7 @@ pub enum ItemTextError {
 }
 
 /// What the user typed for an item: one line, trimmed, one space between words.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemText(String);
 
 impl ItemText {
@@ -70,7 +68,7 @@ impl fmt::Display for ItemText {
 }
 
 /// One addition as it is stored.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Addition {
     /// The number of the addition: what `qm add` prints and `qm drop` takes.
     pub id: AdditionId,
@@ -78,7 +76,6 @@ pub struct Addition {
     pub item: ItemText,
     /// The product of the history that the item text named on the day it was added, when it
     /// named exactly one ([`the_one_product`]). `None` when no product or several matched.
-    #[serde(rename = "product_id")]
     pub product: Option<ProductId>,
     /// Why the user added the item.
     pub reason: AddReason,

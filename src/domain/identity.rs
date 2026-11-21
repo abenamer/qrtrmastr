@@ -7,11 +7,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::domain::pattern::fixed;
-use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 /// The normalized identity of one receipt name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Normalized {
     /// The name without its size suffix: NFKC, lowercase, one space between words, no trailing
     /// punctuation, dash variants unified, `approx.` removed.

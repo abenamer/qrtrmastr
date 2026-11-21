@@ -28,7 +28,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
 | Local fixture | A real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. Tests use it when present. |
-| Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing, is empty or carries a configured name, mail address, address line or phone number. `domain::ids::MessageKey`. |
+| Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing, is empty or carries a configured name, mail address, address line or phone number. A key has a kind, `message_id` or `sha256`, and a text; the store keeps them in two columns, and the text is unique whatever its kind. Written with its kind, a key is `message_id:<text>` or `sha256:<text>`. `domain::ids::MessageKey`. |
 | Order number | FreshDirect's identifier of an order: 11 digits until August 2026, 13 after. Text, never a number. The primary key of `grocery_orders`. |
 | Order cadence | The median gap, in days, between all distinct delivery dates: how often you order at all. The horizon of "due soon". |
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |

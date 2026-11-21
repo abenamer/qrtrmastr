@@ -1,0 +1,35 @@
+{
+  "orders": 12,
+  "rows": [
+    {
+      "product": {
+        "id": 7,
+        "display_name": "Organic Whole Milk",
+        "size_text": "1/2 gallon",
+        "sold_by": "each",
+        "department": "Dairy",
+        "latest_raw_name": "Organic Whole Milk - (1/2 gallon)"
+      },
+      "product_id": 107,
+      "orders_with_product": 9,
+      "orders_total": 12,
+      "typical_quantity": "2",
+      "last_price": "0"
+    },
+    {
+      "product": {
+        "id": 8,
+        "display_name": "Bananas \"ripe\" & <green>",
+        "size_text": null,
+        "sold_by": "weight",
+        "department": null,
+        "latest_raw_name": "Bananas \"ripe\" & <green>"
+      },
+      "product_id": 108,
+      "orders_with_product": 6,
+      "orders_total": 12,
+      "typical_quantity": "0.125",
+      "last_price": "999999.99"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ use thiserror::Error;
 use super::mail::gmail::Credentials;
 use super::mail::redact::RedactionTerms;
 use crate::domain::recommend::Thresholds;
-use crate::domain::states::Platform;
+use crate::domain::states::{Platform, UnknownText};
 
 /// Why the settings cannot be loaded, or why a command cannot get a section of them. No
 /// variant carries a value of the configuration file, because the file holds personal data.
@@ -136,7 +136,36 @@ pub struct ImportConfig {
     pub senders: Vec<String>,
     /// The exact From addresses of each restaurant platform's order mail (ADR 0007). A table in
     /// the file replaces the whole default. Mail from any other address is counted, not stored.
+    #[serde(deserialize_with = "restaurant_senders")]
     pub restaurant_senders: BTreeMap<Platform, Vec<String>>,
+}
+
+/// A key of the `[import.restaurant_senders]` table as the file writes it: the stored text
+/// of a platform, such as `seamless`. The domain type has no deserializer of its own
+/// (REAS-DATA-001), so the key is read as text here and goes through `Platform::from_str`,
+/// the one place that knows the platforms (REAS-SEC-002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "String")]
+struct PlatformKey(Platform);
+
+impl TryFrom<String> for PlatformKey {
+    type Error = UnknownText;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        text.parse().map(Self)
+    }
+}
+
+/// Reads the `[import.restaurant_senders]` table. A key that is not a platform is an error
+/// of the file, at that key.
+fn restaurant_senders<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<Platform, Vec<String>>, D::Error> {
+    let table = BTreeMap::<PlatformKey, Vec<String>>::deserialize(deserializer)?;
+    Ok(table
+        .into_iter()
+        .map(|(PlatformKey(platform), addresses)| (platform, addresses))
+        .collect())
 }
 
 impl Default for ImportConfig {
@@ -375,6 +404,43 @@ mod tests {
                 "{key} missing in {text}"
             );
         }
+    }
+
+    #[test]
+    fn an_unknown_platform_in_the_file_is_an_error_at_its_key() {
+        let error: figment::Error = Figment::new()
+            .merge(Toml::string(
+                "[import.restaurant_senders]\nubereats = [\"orders@uber.example\"]\n",
+            ))
+            .extract::<FileConfig>()
+            .expect_err("ubereats is not a platform");
+        assert_eq!(
+            describe_without_values(&error),
+            "cannot be read at import.restaurant_senders.ubereats"
+        );
+        // The key is the stored text of the platform as it is: another case and a space at
+        // an end are not repaired.
+        for key in ["Toast", "TOAST", "\" toast\"", "\"toast \"", "\"\""] {
+            let file = format!("[import.restaurant_senders]\n{key} = []\n");
+            assert!(
+                Figment::new()
+                    .merge(Toml::string(&file))
+                    .extract::<FileConfig>()
+                    .is_err(),
+                "{key}"
+            );
+        }
+        // The control: a platform at the same place is read, through the same path.
+        let file: FileConfig = Figment::new()
+            .merge(Toml::string(
+                "[import.restaurant_senders]\ntoast = [\"orders@toast.example\"]\n",
+            ))
+            .extract()
+            .expect("toast is a platform");
+        assert_eq!(
+            file.import.restaurant_senders,
+            BTreeMap::from([(Platform::Toast, vec!["orders@toast.example".to_owned()])])
+        );
     }
 
     #[test]

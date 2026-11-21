@@ -595,7 +595,7 @@ mod tests {
             .parse(&document)
             .expect("the redacted receipt parses");
         assert_eq!(from_redacted, parsed());
-        insta::assert_yaml_snapshot!(from_redacted);
+        insta::assert_debug_snapshot!(from_redacted);
     }
 
     #[test]

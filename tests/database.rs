@@ -98,12 +98,14 @@ use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
-    AttemptRecord, GroceryStore, MailSource, MailStream, ParseFinish, ParserTag, RawMail,
-    RawMessageStore, StoreError,
+    AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage, ParseFinish,
+    ParserTag, RawMail, RawMessageStore, StoreError,
 };
 use qrtrmastr::application::recommend::{Due, DueOptions};
+use qrtrmastr::domain::ids::{IdError, MessageKey};
 use qrtrmastr::domain::recommend::{Status, Thresholds};
-use qrtrmastr::domain::states::{ParseOutcome, ParseState, Platform};
+use qrtrmastr::domain::states::{KeyKind, MessageKind, ParseOutcome, ParseState, Platform};
+use std::collections::HashSet;
 
 const FIXTURE: &str = include_str!("fixtures/synthetic/input/freshdirect/2026/receipt-basic.html");
 
@@ -135,6 +137,155 @@ fn receipt_mail(order: &str, date: &str, message_id: &str) -> RawMail {
     RawMail {
         bytes: bytes.into_bytes(),
     }
+}
+
+/// Inserts a raw message row with the given key columns, past the store: what a row from an
+/// older version, or a row that someone changed by hand, looks like.
+async fn insert_raw_row(pool: &PgPool, kind: &str, text: &str, hash: &[u8]) -> i64 {
+    let (id,): (i64,) = sqlx::query_as(
+        "insert into raw_messages \
+           (message_key, key_kind, received_at, subject, kind, dkim_pass, body_html, \
+            source_sha256, redaction_version) \
+         values ($1, $2, now(), 'subject', 'receipt', true, '<p>stored</p>', $3, 1) \
+         returning id",
+    )
+    .bind(text)
+    .bind(kind)
+    .bind(hash)
+    .fetch_one(pool)
+    .await
+    .expect("the row is inserted");
+    id
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    assert_eq!(store.known_keys().await.expect("the keys"), HashSet::new());
+    assert_eq!(store.newest_received_at().await.expect("the newest"), None);
+    let report = ImportMail::new(
+        Mails(vec![receipt_mail(
+            "12345678901",
+            "Tuesday, March 3, 2026",
+            "r1",
+        )]),
+        reader(),
+        store.clone(),
+    )
+    .run()
+    .await
+    .expect("import");
+    assert_eq!(report.inserted, 1);
+    // The Date header of the mail, 06:15 at five hours behind UTC.
+    assert_eq!(
+        store.newest_received_at().await.expect("the newest"),
+        Some("2026-03-03T11:15:00Z".parse().expect("a timestamp"))
+    );
+    let digest = "0123456789abcdef".repeat(4);
+    insert_raw_row(&pool, "sha256", &digest, b"hash of the second row").await;
+
+    let from_header = MessageKey::from_message_id("<r1@mail.example>").expect("a key");
+    let from_bytes = MessageKey::from_parts(KeyKind::Sha256, &digest).expect("a key");
+    assert_eq!(
+        store.known_keys().await.expect("the keys"),
+        HashSet::from([from_header.clone(), from_bytes.clone()])
+    );
+
+    let body = store
+        .body_by_key(&from_header)
+        .await
+        .expect("the lookup")
+        .expect("the imported message");
+    assert_eq!(body.key, from_header);
+    assert_eq!(body.platform, Platform::Freshdirect);
+    assert!(
+        body.body_html
+            .is_some_and(|html| html.contains("12345678901"))
+    );
+    let body = store
+        .body_by_key(&from_bytes)
+        .await
+        .expect("the lookup")
+        .expect("the row with the digest");
+    assert_eq!(body.key, from_bytes);
+    assert_eq!(body.body_html.as_deref(), Some("<p>stored</p>"));
+
+    // A text that is stored under the other kind is not that key, and a text that is not
+    // stored is no key at all.
+    let digest_as_header = MessageKey::from_parts(KeyKind::MessageId, &digest).expect("a key");
+    assert_eq!(
+        store
+            .body_by_key(&digest_as_header)
+            .await
+            .expect("the lookup"),
+        None
+    );
+    let absent = MessageKey::from_message_id("<r2@mail.example>").expect("a key");
+    assert_eq!(store.body_by_key(&absent).await.expect("the lookup"), None);
+
+    // The text is unique in the table whatever its kind, so the insert of the same text
+    // under the other kind stores nothing and says that the message is known.
+    let outcome = store
+        .insert(&NewRawMessage {
+            platform: Platform::Freshdirect,
+            key: digest_as_header,
+            received_at: jiff::Timestamp::UNIX_EPOCH,
+            subject: "subject".to_owned(),
+            kind: MessageKind::Receipt,
+            dkim_pass: true,
+            body_html: None,
+            body_text: None,
+            source_sha256: [7; 32],
+            redaction_version: 1,
+        })
+        .await
+        .expect("the insert");
+    assert_eq!(outcome, InsertOutcome::AlreadyKnown);
+    assert_eq!(count(&pool, "select count(*) from raw_messages").await, 2);
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_stored_key_that_does_not_fit_its_kind_is_an_invalid_row(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // The control: a row whose key fits its kind is read.
+    insert_raw_row(&pool, "message_id", "good@mail.example", b"first").await;
+    assert_eq!(store.known_keys().await.expect("the keys").len(), 1);
+    assert_eq!(
+        store
+            .pending(Platform::Freshdirect)
+            .await
+            .expect("the pending messages")
+            .len(),
+        1
+    );
+
+    // The check constraint admits the kind; only the domain knows what a digest is.
+    let id = insert_raw_row(&pool, "sha256", "not-a-digest", b"second").await;
+    let invalid = StoreError::InvalidRow {
+        table: "raw_messages",
+        id,
+        reason: IdError::NotSha256.to_string(),
+    };
+    assert_eq!(
+        store
+            .known_keys()
+            .await
+            .expect_err("the row is invalid")
+            .to_string(),
+        invalid.to_string()
+    );
+    assert_eq!(
+        store
+            .pending(Platform::Freshdirect)
+            .await
+            .expect_err("the row is invalid")
+            .to_string(),
+        invalid.to_string()
+    );
+    // The reason names the rule and not the stored text.
+    assert!(!invalid.to_string().contains("not-a-digest"));
 }
 
 #[derive(Clone)]

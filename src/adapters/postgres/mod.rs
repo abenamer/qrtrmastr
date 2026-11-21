@@ -133,6 +133,14 @@ fn invalid_row(table: &'static str, id: i64, reason: &dyn std::fmt::Display) -> 
     }
 }
 
+/// The key of a stored message from its two columns. A row read back is outside data
+/// (REAS-SEC-002): a kind that the domain does not know, or a text that does not fit its
+/// kind, makes the row invalid. The reason names the rule and never the text.
+fn stored_key(id: i64, kind: &str, text: &str) -> Result<MessageKey, StoreError> {
+    let kind = KeyKind::from_str(kind).map_err(|e| invalid_row("raw_messages", id, &e))?;
+    MessageKey::from_parts(kind, text).map_err(|e| invalid_row("raw_messages", id, &e))
+}
+
 #[derive(sqlx::FromRow)]
 struct PendingRow {
     id: i64,
@@ -149,12 +157,7 @@ struct PendingRow {
 impl PendingRow {
     fn into_domain(self) -> Result<PendingMessage, StoreError> {
         let id = self.id;
-        let key_kind =
-            KeyKind::from_str(&self.key_kind).map_err(|e| invalid_row("raw_messages", id, &e))?;
-        let key = match key_kind {
-            KeyKind::MessageId => MessageKey::MessageId(self.message_key),
-            KeyKind::Sha256 => MessageKey::Sha256(self.message_key),
-        };
+        let key = stored_key(id, &self.key_kind, &self.message_key)?;
         Ok(PendingMessage {
             id: RawMessageId::new(id).map_err(|e| invalid_row("raw_messages", id, &e))?,
             key,
@@ -181,22 +184,21 @@ struct BodyRow {
 }
 
 impl RawMessageStore for PostgresStore {
-    async fn body_by_key(&self, key: &str) -> Result<Option<StoredBody>, StoreError> {
+    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
+        // The unique index on message_key serves the lookup; the kind is compared on the one
+        // row that the index finds.
         let row: Option<BodyRow> = sqlx::query_as(
-            "select id, platform, message_key, key_kind, received_at, body_html from raw_messages where message_key = $1",
+            "select id, platform, message_key, key_kind, received_at, body_html \
+             from raw_messages where message_key = $1 and key_kind = $2",
         )
-        .bind(key)
+        .bind(key.as_str())
+        .bind(key.kind().as_str())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| database_error("find message by key", e))?;
         row.map(|row| {
             let id = row.id;
-            let key = match KeyKind::from_str(&row.key_kind)
-                .map_err(|e| invalid_row("raw_messages", id, &e))?
-            {
-                KeyKind::MessageId => MessageKey::MessageId(row.message_key),
-                KeyKind::Sha256 => MessageKey::Sha256(row.message_key),
-            };
+            let key = stored_key(id, &row.key_kind, &row.message_key)?;
             Ok(StoredBody {
                 platform: Platform::from_str(&row.platform)
                     .map_err(|e| invalid_row("raw_messages", id, &e))?,
@@ -217,12 +219,15 @@ impl RawMessageStore for PostgresStore {
         Ok(newest.map(jiff_sqlx::Timestamp::to_jiff))
     }
 
-    async fn known_keys(&self) -> Result<HashSet<String>, StoreError> {
-        let rows: Vec<(String,)> = sqlx::query_as("select message_key from raw_messages")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| database_error("list message keys", e))?;
-        Ok(rows.into_iter().map(|(key,)| key).collect())
+    async fn known_keys(&self) -> Result<HashSet<MessageKey>, StoreError> {
+        let rows: Vec<(i64, String, String)> =
+            sqlx::query_as("select id, key_kind, message_key from raw_messages")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| database_error("list message keys", e))?;
+        rows.into_iter()
+            .map(|(id, kind, text)| stored_key(id, &kind, &text))
+            .collect()
     }
 
     async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError> {

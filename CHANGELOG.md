@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- `qm due --json` is written from wire types in the command-line adapter (`src/adapters/cli/wire.rs`), and the domain and the application layer carry no serialization (REAS-DATA-001). The JSON is the same, byte for byte, for every report that was compared. `qm fixture add` takes the key as before, and also with its kind before it, `message_id:<text>` or `sha256:<text>`; a key that is empty, that starts or ends with a space, or that is named `sha256` and is not 64 lowercase hexadecimal digits is refused with status 2. Its two error lines, for a key that is not stored and for a message without an HTML body, now show the key with its kind. A stored message key that does not fit its kind stops `qm import`, `qm fetch` and the parse step with an error that names the row; no such row is known. `scripts/check.sh layers` fails when the domain or the application layer names a dependency that the script does not list for that layer, such as serde or SQLx.
 - Each public item of the adapters has a doc comment, and Clippy now refuses a public item without one (REAS-RUST-009). The help of `qm drop` and of `qm fixture add` describes the argument, and the help of `qm due --include-tentative` says which items it adds.
 - Each public item of the domain and the application layer has a doc comment (REAS-RUST-009). No behaviour changed.
 - A lint that is taken out of `Cargo.toml`, or lowered, fails the `rust` job: `examples/lint_canary.rs` holds one planted violation of each lint, and `scripts/check.sh planted` asserts that each one fires.

@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use jiff::civil::Date;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use serde::Serialize;
 
 use super::ids::{OrderNumber, ProductId};
 use super::money::{Money, Quantity};
@@ -127,8 +126,7 @@ impl Default for Thresholds {
 }
 
 /// Where an item stands against its own history on the day of the question.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     /// Bought once; nothing to say about a gap.
     BoughtOnce,
@@ -155,10 +153,9 @@ pub enum Status {
 
 /// One product under the gap rule: its history in numbers, and where it stands on the day of
 /// the question. [`evaluate`] makes one for each product, and it is one row of `qm due --gap`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recommendation {
     /// The product that the purchases belong to.
-    #[serde(rename = "product_id")]
     pub product: ProductId,
     /// On how many distinct delivery dates the product was bought. Two lines of one day count
     /// once. At least 1.
@@ -385,10 +382,9 @@ pub const STOCKED_RATIO: u32 = 3;
 /// The habit rule: how often a product is in the latest orders. It is the default of `qm due`
 /// because, on held-out orders, it names what the next order holds about twice as often as the
 /// gap rule and as often as a fitted model (ADR 0009). No dates and no gaps: an order counts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HabitRecommendation {
     /// The product. After [`merge_variants`] it stands for every size of its name.
-    #[serde(rename = "product_id")]
     pub product: ProductId,
     /// Of the latest `recent_orders` orders, how many hold the product.
     pub in_recent: usize,
@@ -427,10 +423,9 @@ pub const ESSENTIAL_ONE_IN: usize = 4;
 pub const REMEMBER_MIN_ORDERS: usize = 3;
 
 /// A product bought before that left the latest orders: a question, not a prediction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reminder {
     /// The product to ask about.
-    #[serde(rename = "product_id")]
     pub product: ProductId,
     /// How many orders of the whole history hold the product. At least
     /// [`REMEMBER_MIN_ORDERS`].
@@ -618,10 +613,9 @@ pub fn habit(purchases: &[Purchase], as_of: Date) -> Vec<HabitRecommendation> {
 
 /// The simple rule: products present in at least half of all orders and absent from the most
 /// recent one, ranked by the share of orders they appear in. No dates involved.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimpleRecommendation {
     /// The product: in at least half of the orders, and not in the most recent one.
-    #[serde(rename = "product_id")]
     pub product: ProductId,
     /// How many orders hold the product. Twice this number is at least `orders_total`.
     pub orders_with_product: usize,
