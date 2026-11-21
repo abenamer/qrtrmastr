@@ -45,9 +45,9 @@ pub enum Command {
     /// parse the new FreshDirect receipts. Idempotent: messages already stored are skipped.
     ///
     /// The path is a folder that holds the .zip archives as Google delivers them, one archive,
-    /// or an unzipped Takeout/Mail/<label>.mbox file. Archives are read in place, one at a
+    /// or an unzipped `Takeout/Mail/<label>.mbox` file. Archives are read in place, one at a
     /// time; nothing is extracted. Through Compose the path starts with /data. The command needs the
-    /// [redaction] section of config.toml and refuses to run without it. How to request the
+    /// `[redaction]` section of config.toml and refuses to run without it. How to request the
     /// export and write the terms: docs/runbooks/takeout-export.md
     Import {
         /// A folder of Takeout archives, one archive, or one mailbox file.

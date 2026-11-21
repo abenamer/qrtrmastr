@@ -4,7 +4,7 @@ title: Pull requests into main and the security review on every commit
 description: How every commit that reaches main is checked, which jobs run, what runs on the maintainer's machine before a commit, and why the AI review action is not used.
 tags: [decision, ci, security, process]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-14
+updated: 2026-11-21
 ---
 
 # ADR 0002 — Pull requests into main and the security review on every commit
@@ -16,19 +16,19 @@ The maintainer asked for a security review on every commit, run through GitHub A
 ## Decision
 
 * Nothing is committed to `main` directly. Every change is a branch and a pull request. Branch protection requires the jobs below before a merge and forbids force pushes and deletion; that is the control. The guard hook on the maintainer's machine refuses the common forms of a push to `main` and of a forced push as a best-effort backstop, and the first commit, which created `main` through a renamed `bootstrap` branch so that no push ever targeted `main`, is the one exception.
-* `.github/workflows/ci.yml` runs on every pull request and on the push of the merge commit to `main`. Every action is pinned to a commit, with the tag in a comment. Jobs get a read-only token.
+* `.github/workflows/ci.yml` runs on every pull request and on the push of the merge commit to `main`. Every action is pinned to a commit, with the tag in a comment. Jobs get a read-only token. Since 2026-11-21 each step calls a group of `scripts/check.sh`, the one list of the checks, and a second workflow, `scan.yml`, runs the audit and the deny check once a day ([Develop and run](/runbooks/develop.md)).
 
 | Job | What it checks | Fails on |
 | --- | --- | --- |
-| `rust` | `cargo fmt --check`, `cargo check --all-targets --locked`, `cargo clippy -D warnings`, migrations applied to an empty PostgreSQL 17, `cargo sqlx prepare --check`, `cargo test --locked` | any |
+| `rust` | The pinned toolchain, then with `--workspace --locked`: `cargo fmt --check`, `cargo check --all-targets`, `cargo clippy -D warnings`, `cargo doc` with warnings denied, migrations applied to an empty PostgreSQL 17, `cargo sqlx prepare --check`, `cargo test` | any |
 | `audit` | `cargo audit --file Cargo.lock` against the RustSec database | a vulnerability not ignored in `.cargo/audit.toml` with a reason |
 | `deny` | `cargo deny check`: advisories, licenses on an allow list, bans, sources limited to crates.io | any |
 | `secrets` | gitleaks over the full history | any secret |
-| `privacy` | `scripts/pii_canary.sh` in shape mode: no tracked file under `tests/fixtures/local/` or `backups/`, no personal-data shape in tracked files; fails closed on a file it cannot read | any match or scan error |
+| `privacy` | The test of the guard hook, the test of `scripts/check.sh` and its `lists` group, and `scripts/pii_canary.sh` in shape mode: no tracked file under `tests/fixtures/local/` or `backups/`, no personal-data shape in tracked files; fails closed on a file it cannot read | any match or scan error |
 | `docs` | `scripts/check_docs.py` and its tests | a structural error in the bundle |
 | `dependency-review` | GitHub's dependency review on pull requests | a new dependency with a moderate or worse advisory |
 
-* Before each commit, on the maintainer's machine: the Stop hook runs `cargo check`, the docs checker and the privacy canary in both modes; the maintainer or the assistant runs the Claude Code `/security-review` skill over the pending changes and records its findings and their resolution in the day's log entry. The rule is literal (decided 2026-11-14 after a three-line follow-up commit went in without one): every commit, including documentation-only changes and changes to the canary or the hooks; a fix the review asks for goes into the same commit; a follow-up commit gets its own review. The bootstrap commit that created `main` is the one commit without a review, because no base existed to review against.
+* Before each commit, on the maintainer's machine: the Stop hook runs `cargo check`, the docs checker, the privacy canary in both modes and, after a change to a hook or a workflow, the tests of the hooks and the `lists` gate, through `scripts/check.sh`; the maintainer or the assistant runs the Claude Code `/security-review` skill over the pending changes and records its findings and their resolution in the day's log entry. The rule is literal (decided 2026-11-14 after a three-line follow-up commit went in without one): every commit, including documentation-only changes and changes to the canary or the hooks; a fix the review asks for goes into the same commit; a follow-up commit gets its own review. The bootstrap commit that created `main` is the one commit without a review, because no base existed to review against.
 * Dependabot proposes version updates for Cargo, the actions and the base images, grouped per ecosystem once a month, and a security update on its own as soon as the advisory is published (`.github/dependabot.yml`). A Dependabot pull request is evidence, not a commit to merge: its commit had no `/security-review`. The bump is redone on a branch from `main` under this protocol: the pinned commit is checked against the tag on the source repository (`git ls-remote --tags`, the peeled `^{}` line for an annotated tag) and against what Dependabot proposed, the release notes between the two versions are read for changed inputs, permissions or behaviour, and the change gets its review, its log entry and its own pull request. The tag check shows what the tag names today, not that the tag is honest (a retagged release looks the same); the release notes and the agreement with Dependabot's proposal are the stronger evidence. Dependabot security updates are a repository setting that `dependabot.yml` cannot set (Settings, Code security, Dependabot security updates); the maintainer keeps it enabled, so an advisory opens its own pull request without waiting for the month. Dependabot closes its pull request when `main` carries the version. Nothing is pushed to a Dependabot branch, because Dependabot stops maintaining a branch that someone else has changed. Decided 2026-11-14, after the first Dependabot bump (`actions/setup-python` 7.1.0, pull request #4) was merged without a review; it was reviewed retroactively that day. `#![forbid(unsafe_code)]` in the crate root.
 
 ## Consequences

@@ -92,6 +92,56 @@ The checker has limits:
 * It reads a directory named `target`, `.venv` or `node_modules` below the top of the repository, also when git ignores it. It does not follow a symbolic link to a directory.
 * It reads a footnote as CommonMark does, as a link definition.
 
+## Develop: the checks
+
+`scripts/check.sh` is the one list of the checks (REAS-DOC-006). CI and the Stop hook call its groups. To add a check, add it to a group of the script.
+
+| Group | What it runs | CI job |
+| --- | --- | --- |
+| `toolchain` | `rust-toolchain.toml`, `rustc` and, in CI, the toolchain that the workflow installed name one version | `rust` |
+| `rust` | The `toolchain` group, `cargo fmt --check`, `cargo check`, `cargo clippy` with warnings denied, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
+| `compile` | `cargo check` only | none; the Stop hook |
+| `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
+| `database` | `cargo test` for every test target, with the integration tests; needs `DATABASE_URL` | `rust` |
+| `deny` | `cargo deny check` | `deny`, through a pinned action with its own version of the tool |
+| `audit` | `cargo audit` | `audit` |
+| `docs` | The documentation checker and its tests | `docs` |
+| `privacy` | The privacy canary: shapes, and your terms when the terms file exists | `privacy`, shapes only |
+| `hooks` | The test of the guard hook and the test of the script | `privacy` |
+| `lists` | The gate below | `privacy` |
+
+`scripts/check.sh all` runs every group except `sqlx`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
+
+Two jobs are actions with no command in the script: `secrets` (gitleaks over the history) and `dependency-review` (the dependencies that a pull request changes). A second workflow, `scan.yml`, runs the audit and the deny check once a day on `main`, because an advisory arrives without a change to the code. Its jobs are named `daily-audit` and `daily-deny`; a failed run sends a notification and blocks nothing.
+
+`scripts/check.sh lists` is a gate against drift. It fails when:
+
+* a line of a workflow or of the Stop hook runs a command of the script without the script, such as `cargo test`;
+* the workflow of pull requests does not run each of its nine groups in exactly one step, or does not run on a pull request and on a push;
+* a workflow has an `if`, a `needs`, a `continue-on-error` or a `shell` line in its plain spelling, other than the one condition of the dependency review. Branch protection takes a job that is skipped as passed, so a condition on a required job can switch it off;
+* the deny action or its `check` command is not in a workflow, or the daily workflow has no schedule, no audit, or a job with the name of a required check;
+* `.github/workflows/` holds a workflow that the script does not know;
+* the Stop hook does not call one of its five groups in the form `scripts/check.sh <group> 1>&2 || failed=1`;
+* `CLAUDE.md`, the README or this page does not name the script.
+
+`scripts/check.test.sh` plants each of these, except the last, in a copy of the files and asserts the failure. The gate knows the commands of the script only: it does not find a tool that the script does not use, a command in another spelling, or a change inside a group. It is not a control against a change that is meant to switch a check off; the review of the pull request is.
+
+Which job reads a path that a change can touch:
+
+| Path | Read by |
+| --- | --- |
+| `src/`, `tests/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
+| `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
+| Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
+| `.claude/hooks/guard-bash.sh` and its test, `scripts/check.sh` and its test | `privacy`, the `hooks` group runs the two tests; each job that calls the script runs a part of it |
+| `.github/workflows/`, `.claude/hooks/stop-check.sh`, and the name of the script in `CLAUDE.md`, `README.md` and this page | `privacy`, the `lists` group, which reads them as text. No job runs the Stop hook or tests its patterns. |
+| Each tracked file | `secrets` |
+| `tests/`, `docs/`, `src/`, `migrations/`, `README.md`, `CHANGELOG.md`, without the synthetic inputs, images and lockfiles | `privacy`, the canary. It reads no other tracked file: not `scripts/`, `.claude/`, `.github/`, `standards/`, `CLAUDE.md`, `AGENTS.md`, or the files at the top such as `Cargo.toml` and `compose.yaml`. |
+| `standards/` | `docs` for the links of its Markdown files; `dependency-review` for its lockfiles. No job compiles or reads its Rust files, manifests and corpus files. |
+| `Dockerfile`, `compose.yaml`, `.dockerignore` | No job. Nothing in CI builds the image. |
+| `scripts/due_page.sh`, `scripts/pii_canary.sh`, `.claude/hooks/format.sh` | No job runs a test of these scripts. The canary runs, and its exclusions have no test. |
+| `.claude/settings.json`, `.github/dependabot.yml`, `.gitleaks.toml`, `.gitignore`, `.env.example`, `LICENSE`, `backups/.gitkeep` | No job, except `secrets`. |
+
 ## Develop: a database for the tests
 
 The integration tests create a fresh database per test from `DATABASE_URL`, so they need a server where that user may create databases. Two options.
@@ -118,18 +168,9 @@ Expected result: `psql -h 127.0.0.1 -p 5433 -d qrtrmastr -c "select 1"` prints `
 3. Run the checks:
 
        cargo fmt --all
-       cargo check --all-targets
-       cargo clippy --all-targets -- -D warnings
-       cargo test --lib
-       DATABASE_URL=... cargo test --test database
-       cargo deny check
-       cargo audit --file Cargo.lock
-       python3 scripts/check_docs.py
-       python3 -m unittest discover -s tests/docs -t .
-       scripts/pii_canary.sh
-       bash .claude/hooks/guard-bash.test.sh
+       DATABASE_URL=... scripts/check.sh all
 
-   Expected result: every command exits 0.
+   Expected result: the last line starts with `PASS: all` and names what did not run: always the `sqlx` group, and the integration tests when `DATABASE_URL` is not set.
 4. Run the `/security-review` skill in Claude Code over the pending changes. Record the result in the log entry of the day.
 5. Commit, push the branch, and open a pull request: `gh pr create --fill`.
 6. Merge when all CI jobs pass. The jobs are listed in [ADR 0002](/decisions/0002-pull-requests-and-the-security-review-on-every-commit.md).
