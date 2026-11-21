@@ -19,8 +19,8 @@ These are project-specific technical terms. They are not a reproduction of the A
 | --- | --- |
 | Addition | An item the user put on the next order by hand with `qm add`, stored with its reason: `out-of-stock` (none is left at home), `running-low` (almost used up), `recipe`, `new-food` or `repeat-favorite`. Open until an order is delivered after the day it was added. |
 | Alias | One normalized name and size text as a receipt prints a product, pointing at one product. Stored in `product_aliases`; a line stores its alias, so a merge of two products is one update on the alias. |
-| Anomaly | A row of a receipt's item table that no parser rule classified, kept with its raw cells in `order_line_anomalies`. The order is still stored. Nothing is dropped. |
-| Billed quantity | The quantity the receipt charged for: the weight when the item is sold by weight, else the second number of the quantity cell. Stored as `billed_qty`. |
+| Anomaly | A row of a receipt's item table that no parser rule classified, kept with its raw cells in `order_line_anomalies`; also a check of the receipt's amounts that did not hold, kept there with no cells. The order is still stored. Nothing is dropped. |
+| Billed quantity | The quantity the receipt charged for: the weight when the receipt gives the line one, else the second number of the quantity cell. Stored as `billed_qty`. |
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
 | DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`. An order from a receipt without it is tagged `non-verified`. |
 | Essential | A product in at least a quarter of the latest 20 orders. The other products of the habit rule are extras. |
@@ -28,14 +28,14 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
 | Local fixture | A real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. Tests use it when present. |
-| Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header when present, else the SHA-256 of the raw bytes. `domain::ids::MessageKey`. |
+| Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing, is empty or carries a configured name, mail address, address line or phone number. `domain::ids::MessageKey`. |
 | Order number | FreshDirect's identifier of an order: 11 digits until August 2026, 13 after. Text, never a number. The primary key of `grocery_orders`. |
 | Order cadence | The median gap, in days, between all distinct delivery dates: how often you order at all. The horizon of "due soon". |
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |
 | Platform | Where a message came from: `freshdirect`, or a restaurant platform (`seamless`, `grubhub`, `toast`, `square`, `clover`, `doordash`). Found from the exact sender address. Another source adds a value, not a table. |
 | Purchase | One line of one order, read through its alias to a product: product, delivery date, billed quantity and price. The `purchases` view. |
 | Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
-| Reconciled | The sum of an order's line prices matches its subtotal within one cent. Stored as `reconciled` on the order. |
+| Reconciled | The receipt of an order agrees with itself within one cent in three checks: the line prices sum to the subtotal; the subtotal, tax, bottle deposit, delivery fee, service fee and tip sum to the total; each line with a unit price is that price times its billed quantity, except a line with an options price or the special-price flag, which is not checked. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
 | Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |
 | Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |

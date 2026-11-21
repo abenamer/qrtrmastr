@@ -10,16 +10,21 @@ use thiserror::Error;
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("{text:?} is not a {name}")]
 pub struct UnknownText {
+    /// The name of the Rust enum that the text was read into, such as `ParseState`.
     pub name: &'static str,
+    /// The text that was read, whole. It matches no stored text of that enum.
     pub text: String,
 }
 
 macro_rules! text_enum {
-    ($(#[$doc:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+    (
+        $(#[$doc:meta])*
+        $name:ident { $($(#[$variant_doc:meta])* $variant:ident => $text:literal),+ $(,)? }
+    ) => {
         $(#[$doc])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum $name {
-            $($variant),+
+            $($(#[$variant_doc])* $variant),+
         }
 
         impl $name {
@@ -70,12 +75,19 @@ text_enum!(
     /// Where a message came from: the grocer, or one of the restaurant platforms whose receipts
     /// the import stores (ADR 0007). A new source adds a value, not a table.
     Platform {
+        /// FreshDirect, the grocer. The only platform whose receipts a parser reads.
         Freshdirect => "freshdirect",
+        /// Seamless, a restaurant platform. Its mail is stored and not parsed yet.
         Seamless => "seamless",
+        /// Grubhub, a restaurant platform. Its mail is stored and not parsed yet.
         Grubhub => "grubhub",
+        /// Toast, a restaurant platform. Its mail is stored and not parsed yet.
         Toast => "toast",
+        /// Square, a restaurant platform. Its mail is stored and not parsed yet.
         Square => "square",
+        /// Clover, a restaurant platform. Its mail is stored and not parsed yet.
         Clover => "clover",
+        /// DoorDash, a restaurant platform. Its mail is stored and not parsed yet.
         Doordash => "doordash",
     }
 );
@@ -83,9 +95,13 @@ text_enum!(
 text_enum!(
     /// Which of a platform's mails this is. `Unknown` is stored, never skipped.
     MessageKind {
+        /// The mail that confirms that an order was placed.
         Placed => "placed",
+        /// The mail that says that a placed order changed.
         Updated => "updated",
+        /// The receipt of an order. The parse step reads this kind only.
         Receipt => "receipt",
+        /// Any other mail of the platform, such as an offer: the subject matched no rule.
         Unknown => "unknown",
     }
 );
@@ -93,7 +109,10 @@ text_enum!(
 text_enum!(
     /// How a raw message's key was made.
     KeyKind {
+        /// The key is the `Message-ID` header of the mail.
         MessageId => "message_id",
+        /// The key is the SHA-256 of the raw bytes: the `Message-ID` header is missing, is
+        /// empty, or carries a configured name, mail address, address line or phone number.
         Sha256 => "sha256",
     }
 );
@@ -102,10 +121,16 @@ text_enum!(
     /// The lifecycle of a raw message. `Fetched` is the only start state; the four others are
     /// outcomes of a parse attempt and can be reached again by a reparse.
     ParseState {
+        /// The message is stored, and no parser ran over it yet.
         Fetched => "fetched",
+        /// The last attempt stored an order, and the order reconciled.
         Parsed => "parsed",
+        /// The last attempt stored an order that did not reconcile.
         Partial => "partial",
+        /// The last attempt stored no order: the message has no stored HTML body, or the
+        /// parser that recognized the layout could not read the receipt.
         Failed => "failed",
+        /// The last attempt stored no order: no parser recognized the layout.
         Unsupported => "unsupported",
     }
 );
@@ -113,9 +138,14 @@ text_enum!(
 text_enum!(
     /// The result of one parser run over one message, as `parse_attempts.outcome` stores it.
     ParseOutcome {
+        /// The parser read the receipt, and its amounts reconciled.
         Ok => "ok",
+        /// The parser read the receipt, and at least one check of the amounts did not hold.
         Partial => "partial",
+        /// No receipt was read: the message has no stored HTML body, or the parser that
+        /// recognized the layout returned an error.
         Failed => "failed",
+        /// No receipt was read: no parser recognized the layout.
         Unsupported => "unsupported",
     }
 );
@@ -124,12 +154,16 @@ text_enum!(
     /// Whether Gmail recorded a DKIM pass for the sender of the receipt an order came from.
     /// A receipt without one is parsed all the same; its order carries the tag (ADR 0008).
     SenderCheck {
+        /// The receipt has a DKIM pass.
         Verified => "verified",
+        /// No DKIM pass was recorded for the receipt.
         NonVerified => "non-verified",
     }
 );
 
 impl SenderCheck {
+    /// The tag of an order, from the `dkim_pass` of the receipt it came from. `false` gives
+    /// `NonVerified`: it says that no pass was recorded, not why.
     pub fn from_dkim_pass(passed: bool) -> Self {
         if passed {
             SenderCheck::Verified
@@ -142,7 +176,9 @@ impl SenderCheck {
 text_enum!(
     /// How an alias came to point at its product.
     AliasSource {
+        /// The parse step made the alias from a line of a receipt.
         Auto => "auto",
+        /// A person pointed the alias at its product. No command writes this value yet.
         Manual => "manual",
     }
 );
@@ -150,7 +186,11 @@ text_enum!(
 text_enum!(
     /// Whether a product is priced by the piece or by weight.
     SoldBy {
+        /// By the piece: the line that made the product has no weight, and its unit price, when
+        /// it has one, is for one piece.
         Each => "each",
+        /// By weight: the line that made the product has a weight, or its unit price is for one
+        /// pound.
         Weight => "weight",
     }
 );
@@ -159,10 +199,15 @@ text_enum!(
     /// Why the user adds an item to the next order by hand (ADR 0011). `OutOfStock` is the
     /// user's own stock: none is left at home. `RunningLow`: some is left, not for long.
     AddReason {
+        /// None is left at home.
         OutOfStock => "out-of-stock",
+        /// Some is left at home, not for long.
         RunningLow => "running-low",
+        /// A recipe needs the item.
         Recipe => "recipe",
+        /// A food that the user wants to try.
         NewFood => "new-food",
+        /// A favorite that the user wants again.
         RepeatFavorite => "repeat-favorite",
     }
 );
@@ -183,8 +228,12 @@ impl AddReason {
 /// A transition the current state does not permit (REAS-STATE-001).
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TransitionError {
+    /// A first parse was asked of a message that already has the outcome of an attempt. Holds
+    /// the state the message is in.
     #[error("a first parse needs a fetched message; this one is {0}")]
     NotFetched(ParseState),
+    /// A reparse was asked of a message that no parser ran over yet. Holds the state the
+    /// message is in, which is `Fetched`.
     #[error("a reparse needs a message that was parsed before; this one is {0}")]
     NeverParsed(ParseState),
 }
@@ -203,6 +252,11 @@ impl ParseOutcome {
 
 impl ParseState {
     /// The first attempt over a message. Legal from `Fetched` only.
+    ///
+    /// # Errors
+    ///
+    /// [`TransitionError::NotFetched`] when the state is `Parsed`, `Partial`, `Failed` or
+    /// `Unsupported`.
     pub fn first_parse(self, outcome: ParseOutcome) -> Result<ParseState, TransitionError> {
         match self {
             ParseState::Fetched => Ok(outcome.into_state()),
@@ -214,6 +268,10 @@ impl ParseState {
     }
 
     /// A later attempt with a newer parser. Legal from every outcome state, never from `Fetched`.
+    ///
+    /// # Errors
+    ///
+    /// [`TransitionError::NeverParsed`] when the state is `Fetched`.
     pub fn reparse(self, outcome: ParseOutcome) -> Result<ParseState, TransitionError> {
         match self {
             ParseState::Fetched => Err(TransitionError::NeverParsed(self)),

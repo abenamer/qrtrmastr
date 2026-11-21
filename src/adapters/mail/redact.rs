@@ -32,11 +32,16 @@ use thiserror::Error;
 /// last digit of an address term.
 pub const REDACTION_VERSION: i32 = 7;
 
+/// The `[redaction]` section of the configuration file: the redaction terms of the
+/// maintainer, by kind. Every value is personal data. A key that the section leaves out is an
+/// empty list: no term of that kind is configured, and the patterns for the shapes still run.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct RedactionTerms {
     /// Full names and first names as the mail greets you.
     #[serde(default)]
     pub names: Vec<String>,
+    /// Email addresses of the maintainer, each replaced as one term in any case. The pattern
+    /// for the shape of an address removes other addresses too.
     #[serde(default)]
     pub emails: Vec<String>,
     /// Phone numbers; any formatting, only the digits are used.
@@ -54,25 +59,50 @@ pub struct RedactionTerms {
 /// names the kind and the position in the configured list, never the text (REAS-SEC-001).
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum RedactionError {
+    /// A name, an email address or an address line has fewer than three characters, spaces
+    /// at its ends not counted.
     #[error("{kind} term #{position} is too short to redact safely; use at least three characters")]
-    TermTooShort { kind: &'static str, position: usize },
+    TermTooShort {
+        /// Which list holds the term: `name`, `email` or `address`.
+        kind: &'static str,
+        /// The position of the term in that list of the configuration; the first is 1.
+        position: usize,
+    },
+    /// The pattern made from a name, an email address or an address line does not compile
+    /// within the size limit of a pattern: the term is several hundred characters long.
     #[error(
         "{kind} term #{position} cannot be used as a pattern; a term of several hundred characters is too long"
     )]
-    BadTerm { kind: &'static str, position: usize },
+    BadTerm {
+        /// Which list holds the term: `name`, `email` or `address`.
+        kind: &'static str,
+        /// The position of the term in that list of the configuration; the first is 1.
+        position: usize,
+    },
+    /// A phone number has fewer than seven digits, or so many that its pattern does not
+    /// compile within the size limit. The value is its position in `phones`; the first is 1.
     #[error("phone #{0} needs at least seven digits, and not several hundred")]
     BadPhone(usize),
+    /// A card term does not hold exactly four digits; other characters are not counted. The
+    /// value is its position in `card_last4`; the first is 1.
     #[error("card_last4 #{0} is not exactly four digits")]
     BadLast4(usize),
     /// `check` says which assertion found the term; it never carries the text.
     #[error("{kind} survived redaction ({check})")]
     Survived {
+        /// The kind of the term that is still there: `name`, `email`, `address`, `phone` or
+        /// `card`.
         kind: &'static str,
+        /// A fixed text for the assertion that found it: in the markup, in the text once the
+        /// tags are removed, or as the same letters and digits with other punctuation.
         check: &'static str,
     },
 }
 
 impl RedactionError {
+    /// The kind of term the error is about: `name`, `email`, `address`, `phone` or `card`.
+    /// The import puts it into the error and the report of a refused message, which can name
+    /// the kind and must not name the term.
     pub fn kind(&self) -> &'static str {
         match self {
             RedactionError::TermTooShort { kind, .. } | RedactionError::BadTerm { kind, .. } => {
@@ -204,6 +234,9 @@ struct Literal {
     length: usize,
 }
 
+/// The redaction terms as compiled patterns, with the passes and the assertion that use them.
+/// A command builds one from the configuration and uses it for every message. It holds the
+/// terms inside its patterns and does not implement `Debug`.
 pub struct Redactor {
     literals: Vec<Literal>,
     phones: Vec<Regex>,
@@ -272,6 +305,19 @@ impl Redactor {
         clippy::needless_pass_by_value,
         reason = "the terms are personal data: the constructor takes them from the caller, so no copy stays there after the redactor is built"
     )]
+    /// Compiles the terms into patterns. The lists are checked in the order names, email
+    /// addresses, address lines, phone numbers, cards, and the first term that cannot be used
+    /// ends the construction. No error carries the text of a term.
+    ///
+    /// # Errors
+    ///
+    /// - [`RedactionError::TermTooShort`] when a name, an email address or an address line has
+    ///   fewer than three characters.
+    /// - [`RedactionError::BadTerm`] when the pattern of such a term does not compile within
+    ///   the size limit, which a term of several hundred characters causes.
+    /// - [`RedactionError::BadPhone`] when a phone number has fewer than seven digits, or its
+    ///   pattern does not compile within the size limit.
+    /// - [`RedactionError::BadLast4`] when a card term does not hold exactly four digits.
     pub fn new(terms: RedactionTerms) -> Result<Self, RedactionError> {
         let mut literals = Vec::new();
         for (kind, list) in [
@@ -371,6 +417,17 @@ impl Redactor {
     }
 
     /// Redacts HTML: structure first, then text passes over the normalized serialized result.
+    ///
+    /// # Errors
+    ///
+    /// [`RedactionError::Survived`] when the assertion still finds a configured name, email
+    /// address, address line, phone number or card ending in the result. The caller must not
+    /// store the message then.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic for any input. The function it calls for a CSS selector has an `expect`
+    /// on a selector that is a constant of the source.
     pub fn redact_html(&self, html: &str) -> Result<String, RedactionError> {
         let mut document = Html::parse_document(html);
         let element = selector("td, div, p, li, section, address, span");
@@ -435,6 +492,12 @@ impl Redactor {
 
     /// Redacts plain text, or already-serialized HTML: normalization, literal terms, shapes, then
     /// the assertion.
+    ///
+    /// # Errors
+    ///
+    /// [`RedactionError::Survived`] when the assertion still finds a configured name, email
+    /// address, address line, phone number or card ending in the result. The caller must not
+    /// store the message then.
     pub fn redact_text(&self, text: &str) -> Result<String, RedactionError> {
         // The terms first, then the phone numbers, then the terms again. A phone pattern takes
         // an optional country code 1 before the number, and that 1 can be the last digit of

@@ -9,10 +9,18 @@ pub struct Migrate<S: SchemaStore> {
 }
 
 impl<S: SchemaStore> Migrate<S> {
+    /// Builds the use case over the store whose schema it brings up to date.
     pub fn new(store: S) -> Self {
         Self { store }
     }
 
+    /// Applies the pending migrations and reports which were new. A second run applies
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// - [`StoreError::Database`] when the list of the applied migrations cannot be read.
+    /// - [`StoreError::Migration`] when a migration cannot be applied.
     pub async fn run(&self) -> Result<MigrationReport, StoreError> {
         self.store.migrate().await
     }

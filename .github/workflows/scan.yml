@@ -1,0 +1,37 @@
+name: Daily scan
+# An advisory arrives without a change to the code (REAS-SEC-001): the two scans of the
+# dependencies run once a day on the default branch, and by hand. A failed run sends a
+# notification; it blocks nothing. The jobs have their own names, so that a result here is
+# never taken for a required check of a pull request. scripts/check.sh lists reads this file
+# as it reads ci.yml.
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  daily-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
+        with:
+          tool: cargo-audit
+      - name: Audit dependencies against the RustSec database
+        run: scripts/check.sh audit
+
+  daily-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --all-features

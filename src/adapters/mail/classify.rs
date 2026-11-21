@@ -13,10 +13,10 @@ static FD_RECEIPT: LazyLock<Regex> =
 static FD_UPDATED: LazyLock<Regex> =
     LazyLock::new(|| fixed(r"(?i)order information has been updated|has been updated"));
 static FD_PLACED: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*your order for\b"));
-/// Seamless and Grubhub confirm an order with "Thanks for your <Restaurant> order".
+/// Seamless and Grubhub confirm an order with "Thanks for your `<Restaurant>` order".
 static THANKS_FOR_ORDER: LazyLock<Regex> =
     LazyLock::new(|| fixed(r"(?i)^\s*thanks for your\b.*\border\b"));
-/// Square: "Receipt from <Merchant> #xxxx".
+/// Square: "Receipt from `<Merchant>` #xxxx".
 static RECEIPT_FROM: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*receipt from\b"));
 /// Toast and Clover: no subject is on record yet, so the word itself is the rule (ADR 0007).
 static RECEIPT_WORD: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)\breceipt\b"));

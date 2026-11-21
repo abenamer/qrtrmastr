@@ -4,7 +4,7 @@ title: Command line
 description: The qm commands, their arguments, and their exit status.
 tags: [cli, reference]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-20
+updated: 2026-11-21
 sources:
   - id: cli
     resource: ../../src/adapters/cli/mod.rs
@@ -41,7 +41,7 @@ The command runs as a container: `docker compose run --rm qm <command>` ([Develo
 | `--seed NUMBER` | The seed of the "remember this?" shuffle; the day when omitted. |
 | `--as-of YYYY-MM-DD` | The day to judge from; today when omitted. For the habit rule it is the day a stock is judged from. |
 | `--gap` | The gap rule instead. The three options below apply to it. |
-| `--include-tentative` | Also items bought only twice. |
+| `--include-tentative` | Also items bought on more than one day and on fewer days than `min_purchases`, three by default: their usual gap is a guess. |
 | `--include-lapsed` | Also items not bought for more than three usual gaps. |
 | `--include-not-due` | Also items that are not due yet. |
 | `--simple` | The simple rule instead: in at least half your orders and missing from the last. |
