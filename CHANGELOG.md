@@ -2,6 +2,8 @@
 
 ## 0.1.0 — unreleased
 
+- `rust-toolchain.toml` pins Rust 1.99.1 for development and CI, the version the image is built with.
+- A mail whose Message-ID or link holds a `%`, one character and then a character of more than one byte no longer stops `qm import` and `qm fetch`. In a release build an arithmetic overflow stops the program with an error; the number does not wrap. `Cargo.toml` declares the lint levels of REAS 1.6.0-draft; `docs/runbooks/develop.md` says how to work with them.
 - The project follows REAS 1.7.0-draft (it was 1.4.0-draft): the vendored copy in `standards/reas/` is new, the [self-audit](docs/self-audit.md) lists each rule with its status, and [ADR 0015](docs/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) gives the ten steps that close the gaps. No behaviour of `qm` changed.
 - `qm fetch` reads new receipts from the Gmail API with read-only access, after a one-time `qm gmail login`. Setup in `docs/runbooks/gmail-fetch.md`. [ADR 0013](docs/decisions/0013-new-receipts-are-fetched-from-the-gmail-api.md).
 - `qm due --html` prints the next order as a web page; `scripts/due_page.sh` writes it to your exports directory. [ADR 0012](docs/decisions/0012-the-next-order-as-a-page-that-is-a-file.md).

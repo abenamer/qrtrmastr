@@ -7,8 +7,9 @@
 //! * [`adapters`]: the concrete implementations of those ports (PostgreSQL, the mbox file,
 //!   the command line), named for the system each one adapts.
 //!
-//! The project follows the REAS standard vendored at `standards/reas/`.
-#![forbid(unsafe_code)]
+//! The project follows the REAS standard vendored at `standards/reas/`. Unsafe code is
+//! forbidden for every target of the package, under `[lints.rust]` in `Cargo.toml`
+//! (REAS-SEC-004).
 
 pub mod adapters;
 pub mod application;

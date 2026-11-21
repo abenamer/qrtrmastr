@@ -9,6 +9,7 @@ pub mod ids;
 pub mod list;
 pub mod money;
 pub mod pack;
+pub(crate) mod pattern;
 pub mod receipt;
 pub mod recommend;
 pub mod states;

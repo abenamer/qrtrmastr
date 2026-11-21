@@ -5,27 +5,24 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::domain::pattern::fixed;
 use crate::domain::states::{MessageKind, Platform};
 
-fn rule(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("a subject rule is a valid regex")
-}
-
 static FD_RECEIPT: LazyLock<Regex> =
-    LazyLock::new(|| rule(r"(?i)here'?s your receipt|your receipt"));
+    LazyLock::new(|| fixed(r"(?i)here'?s your receipt|your receipt"));
 static FD_UPDATED: LazyLock<Regex> =
-    LazyLock::new(|| rule(r"(?i)order information has been updated|has been updated"));
-static FD_PLACED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*your order for\b"));
+    LazyLock::new(|| fixed(r"(?i)order information has been updated|has been updated"));
+static FD_PLACED: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*your order for\b"));
 /// Seamless and Grubhub confirm an order with "Thanks for your <Restaurant> order".
 static THANKS_FOR_ORDER: LazyLock<Regex> =
-    LazyLock::new(|| rule(r"(?i)^\s*thanks for your\b.*\border\b"));
+    LazyLock::new(|| fixed(r"(?i)^\s*thanks for your\b.*\border\b"));
 /// Square: "Receipt from <Merchant> #xxxx".
-static RECEIPT_FROM: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*receipt from\b"));
+static RECEIPT_FROM: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*receipt from\b"));
 /// Toast and Clover: no subject is on record yet, so the word itself is the rule (ADR 0007).
-static RECEIPT_WORD: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)\breceipt\b"));
-static DD_PLACED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*order confirmation for\b"));
-static DD_RECEIPT: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*final receipt\b"));
-static DD_UPDATED: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)^\s*adjustment\b"));
+static RECEIPT_WORD: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)\breceipt\b"));
+static DD_PLACED: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*order confirmation for\b"));
+static DD_RECEIPT: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*final receipt\b"));
+static DD_UPDATED: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)^\s*adjustment\b"));
 
 fn receipt_or_unknown(is_receipt: bool) -> MessageKind {
     if is_receipt {

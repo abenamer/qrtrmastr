@@ -33,9 +33,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rust-toolchain.toml names the toolchain, and rustup follows that file for every cargo
+      # call in the checkout. The version below must be the same one, so that this step
+      # installs what the later steps use; the step after it fails when the two differ. A
+      # newer stable Clippy can report other findings than the pinned one, so the toolchain
+      # moves in a pull request of its own, not on the day of a release.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        id: toolchain
         with:
+          toolchain: 1.99.1
           components: clippy, rustfmt
+      - name: The workflow and rust-toolchain.toml name the same toolchain (REAS-DATA-004)
+        env:
+          INSTALLED: ${{ steps.toolchain.outputs.name }}
+        run: |
+          pinned=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          active=$(rustc --version | cut -d' ' -f2)
+          echo "file $pinned, workflow $INSTALLED, rustc in the checkout $active"
+          test -n "$pinned"
+          test "$active" = "$pinned"
+          case "$INSTALLED" in "$pinned"|"$pinned"-*) ;; *) exit 1 ;; esac
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:

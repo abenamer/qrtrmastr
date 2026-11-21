@@ -52,7 +52,28 @@ rstest = "0.28.0"
 tempfile = "3.27.0"
 toml = "1.2.1"
 
+# The lint levels that REAS 1.6.0-draft names, declared once (REAS-RUST-006). CI runs Clippy with
+# `-D warnings`, so a `warn` here fails the `rust` job as a `deny` does; the two levels differ
+# only in a local build. Suppress a lint with `#[expect(lint, reason = "...")]`, never `#[allow]`.
+# `clippy.toml` leaves `unwrap` and `expect` free in test code, which REAS-RUST-005 excludes.
+[lints.rust]
+unsafe_code = "forbid"                         # REAS-SEC-004
+
+[lints.clippy]
+wildcard_enum_match_arm = "deny"               # REAS-RUST-001
+same_name_method = "deny"                      # REAS-RUST-003
+needless_pass_by_value = "warn"                # REAS-RUST-004
+redundant_clone = "warn"                       # REAS-RUST-004
+unwrap_used = "deny"                           # REAS-RUST-005, REAS-SEC-002
+expect_used = "warn"                           # REAS-RUST-005
+allow_attributes = "deny"                      # REAS-RUST-006
+allow_attributes_without_reason = "deny"       # REAS-RUST-006
+undocumented_unsafe_blocks = "deny"            # REAS-SEC-004
+multiple_unsafe_ops_per_block = "deny"         # REAS-SEC-004
+
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 4
+# An overflow in arithmetic on a number from a receipt panics; it does not wrap (REAS-SEC-003).
+overflow-checks = true

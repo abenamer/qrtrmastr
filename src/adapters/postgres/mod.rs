@@ -105,7 +105,7 @@ use crate::domain::money::{Money, Quantity};
 use crate::domain::recommend::Purchase;
 use crate::domain::states::{AddReason, KeyKind, MessageKind, ParseState, Platform, SoldBy};
 
-fn invalid_row(table: &'static str, id: i64, reason: impl ToString) -> StoreError {
+fn invalid_row(table: &'static str, id: i64, reason: &dyn std::fmt::Display) -> StoreError {
     StoreError::InvalidRow {
         table,
         id,
@@ -130,21 +130,21 @@ impl PendingRow {
     fn into_domain(self) -> Result<PendingMessage, StoreError> {
         let id = self.id;
         let key_kind =
-            KeyKind::from_str(&self.key_kind).map_err(|e| invalid_row("raw_messages", id, e))?;
+            KeyKind::from_str(&self.key_kind).map_err(|e| invalid_row("raw_messages", id, &e))?;
         let key = match key_kind {
             KeyKind::MessageId => MessageKey::MessageId(self.message_key),
             KeyKind::Sha256 => MessageKey::Sha256(self.message_key),
         };
         Ok(PendingMessage {
-            id: RawMessageId::new(id).map_err(|e| invalid_row("raw_messages", id, e))?,
+            id: RawMessageId::new(id).map_err(|e| invalid_row("raw_messages", id, &e))?,
             key,
             kind: MessageKind::from_str(&self.kind)
-                .map_err(|e| invalid_row("raw_messages", id, e))?,
+                .map_err(|e| invalid_row("raw_messages", id, &e))?,
             dkim_pass: self.dkim_pass,
             received_at: self.received_at.to_jiff(),
             body_html: self.body_html,
             parse_state: ParseState::from_str(&self.parse_state)
-                .map_err(|e| invalid_row("raw_messages", id, e))?,
+                .map_err(|e| invalid_row("raw_messages", id, &e))?,
             version: self.version,
         })
     }
@@ -172,14 +172,14 @@ impl RawMessageStore for PostgresStore {
         row.map(|row| {
             let id = row.id;
             let key = match KeyKind::from_str(&row.key_kind)
-                .map_err(|e| invalid_row("raw_messages", id, e))?
+                .map_err(|e| invalid_row("raw_messages", id, &e))?
             {
                 KeyKind::MessageId => MessageKey::MessageId(row.message_key),
                 KeyKind::Sha256 => MessageKey::Sha256(row.message_key),
             };
             Ok(StoredBody {
                 platform: Platform::from_str(&row.platform)
-                    .map_err(|e| invalid_row("raw_messages", id, e))?,
+                    .map_err(|e| invalid_row("raw_messages", id, &e))?,
                 key,
                 received_at: row.received_at.to_jiff(),
                 body_html: row.body_html,
@@ -230,7 +230,7 @@ impl RawMessageStore for PostgresStore {
         .map_err(|e| database_error("insert raw message", e))?;
         match row {
             Some((id,)) => Ok(InsertOutcome::Inserted(
-                RawMessageId::new(id).map_err(|e| invalid_row("raw_messages", id, e))?,
+                RawMessageId::new(id).map_err(|e| invalid_row("raw_messages", id, &e))?,
             )),
             None => Ok(InsertOutcome::AlreadyKnown),
         }
@@ -408,14 +408,14 @@ impl GroceryStore for PostgresStore {
             .map(|row| {
                 let id = row.product_id;
                 Ok(Purchase {
-                    product: ProductId::new(id).map_err(|e| invalid_row("purchases", id, e))?,
+                    product: ProductId::new(id).map_err(|e| invalid_row("purchases", id, &e))?,
                     order_number: OrderNumber::parse(&row.order_number)
-                        .map_err(|e| invalid_row("purchases", id, e))?,
+                        .map_err(|e| invalid_row("purchases", id, &e))?,
                     delivery_date: row.delivery_date.to_jiff(),
                     quantity: Quantity::new(row.billed_qty)
-                        .map_err(|e| invalid_row("purchases", id, e))?,
+                        .map_err(|e| invalid_row("purchases", id, &e))?,
                     price: Money::from_decimal(row.final_price)
-                        .map_err(|e| invalid_row("purchases", id, e))?,
+                        .map_err(|e| invalid_row("purchases", id, &e))?,
                     units: row.billed_qty,
                 })
             })
@@ -438,7 +438,7 @@ impl GroceryStore for PostgresStore {
                 .await
                 .map_err(|e| database_error("list muted products", e))?;
         rows.into_iter()
-            .map(|(id,)| ProductId::new(id).map_err(|e| invalid_row("product_preferences", id, e)))
+            .map(|(id,)| ProductId::new(id).map_err(|e| invalid_row("product_preferences", id, &e)))
             .collect()
     }
 }
@@ -466,7 +466,7 @@ impl ShoppingList for PostgresStore {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| database_error("add an addition", e))?;
-        AdditionId::new(id).map_err(|e| invalid_row("list_additions", id, e))
+        AdditionId::new(id).map_err(|e| invalid_row("list_additions", id, &e))
     }
 
     async fn open_additions(&self) -> Result<Vec<Addition>, StoreError> {
@@ -518,7 +518,7 @@ impl Catalog for PostgresStore {
         .await
         .map_err(|e| database_error("find alias", e))?;
         if let Some((id,)) = existing {
-            return AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, e));
+            return AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, &e));
         }
 
         let mut tx = self
@@ -551,7 +551,7 @@ impl Catalog for PostgresStore {
         match inserted {
             Some((id,)) => {
                 tx.commit().await.map_err(|e| database_error("commit", e))?;
-                AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, e))
+                AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, &e))
             }
             None => {
                 // Someone else inserted the same alias meanwhile: keep theirs, drop our product.
@@ -564,7 +564,7 @@ impl Catalog for PostgresStore {
                 .fetch_one(&self.pool)
                 .await
                 .map_err(|e| database_error("find alias again", e))?;
-                AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, e))
+                AliasId::new(id).map_err(|e| invalid_row("product_aliases", id, &e))
             }
         }
     }
@@ -585,7 +585,7 @@ impl Catalog for PostgresStore {
             .map(|row| {
                 let id = row.id;
                 Ok(ProductLabel {
-                    id: ProductId::new(id).map_err(|e| invalid_row("products", id, e))?,
+                    id: ProductId::new(id).map_err(|e| invalid_row("products", id, &e))?,
                     latest_raw_name: row
                         .latest_raw_name
                         .unwrap_or_else(|| row.display_name.clone()),
@@ -594,7 +594,7 @@ impl Catalog for PostgresStore {
                     sold_by: row
                         .sold_by
                         .parse::<SoldBy>()
-                        .map_err(|e| invalid_row("products", id, e))?,
+                        .map_err(|e| invalid_row("products", id, &e))?,
                     department: row.department,
                 })
             })

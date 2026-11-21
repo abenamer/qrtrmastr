@@ -1,0 +1,7 @@
+# The Rust toolchain of the project (REAS-DATA-004). rustup reads this file, so a build on a
+# developer's machine and the `rust` job of CI use the same compiler and the same Clippy. The
+# image of the `Dockerfile` is the same minor version; move the two together, in one pull
+# request, and expect new lint findings from a newer Clippy in it.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
