@@ -58,6 +58,7 @@ toml = "1.2.1"
 # `clippy.toml` leaves `unwrap` and `expect` free in test code, which REAS-RUST-005 excludes.
 [lints.rust]
 unsafe_code = "forbid"                         # REAS-SEC-004
+missing_docs = "deny"                          # REAS-RUST-009
 # `lint_canary` is the flag of examples/lint_canary.rs, the planted violations of this table.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(lint_canary)"] }
 
@@ -75,6 +76,8 @@ multiple_unsafe_ops_per_block = "deny"         # REAS-SEC-004
 arithmetic_side_effects = "deny"               # REAS-SEC-003
 indexing_slicing = "deny"                      # REAS-SEC-003
 string_slice = "deny"                          # REAS-SEC-003: a cut of a text by position
+missing_errors_doc = "deny"                    # REAS-RUST-009
+missing_panics_doc = "deny"                    # REAS-RUST-009
 
 [profile.release]
 opt-level = 3

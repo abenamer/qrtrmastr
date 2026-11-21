@@ -34,6 +34,8 @@ const HOW_TO: &str = "qm reads Google Takeout exports of your mail: a folder of 
     file. Through Compose, your exports directory (QM_DATA_DIR) is /data inside the container. \
     How to request the export: docs/runbooks/takeout-export.md";
 
+/// A Takeout export on disk as a mail source: the path that `qm import --takeout` names.
+/// Nothing is read until the use case asks for the messages.
 pub struct TakeoutExport {
     path: PathBuf,
 }
@@ -69,6 +71,8 @@ fn read_error(path: &Path, error: impl std::fmt::Display) -> MailError {
 }
 
 impl TakeoutExport {
+    /// A source for the mailbox file, the archive or the folder at `path`. The path is not
+    /// checked here: one that cannot be opened is the first error of the message stream.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }

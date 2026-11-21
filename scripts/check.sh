@@ -50,11 +50,12 @@ NOT_RUN=()
 # gives an error and `warn` a warning. `forbid` keeps its own word here, because a forbidden
 # lint lowered to `deny` could be expected away in the code. A lint that is added to the
 # manifest is added here and gets its violation in examples/lint_canary.rs, in the same
-# change. The list does not get shorter: LINT_FLOOR is its length on 2026-11-21.
-LINT_FLOOR=14
+# change. The list does not get shorter: LINT_FLOOR is its length.
+LINT_FLOOR=17
 FLAG_DECLARATION='unexpected_cfgs = { level = "warn", check-cfg = ["cfg(lint_canary)"] }'
 LINT_LEVELS=(
   unsafe_code=forbid
+  missing_docs=error
   clippy::wildcard_enum_match_arm=error
   clippy::same_name_method=error
   clippy::needless_pass_by_value=warning
@@ -68,6 +69,8 @@ LINT_LEVELS=(
   clippy::arithmetic_side_effects=error
   clippy::indexing_slicing=error
   clippy::string_slice=error
+  clippy::missing_errors_doc=error
+  clippy::missing_panics_doc=error
 )
 
 # Prints the command as a shell reads it, so that a quoted argument stays one argument.

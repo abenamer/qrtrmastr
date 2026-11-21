@@ -25,6 +25,9 @@ pub struct PlatformMail {
 }
 
 impl PlatformMail {
+    /// A reader for the given sender addresses, each with its platform, as
+    /// `ImportConfig::sender_platforms` lists them. An address is trimmed and compared without
+    /// regard to ASCII case. Mail from an address that is not in the list is not stored.
     pub fn new(senders: Vec<(String, Platform)>, redactor: Redactor) -> Self {
         let senders = senders
             .into_iter()

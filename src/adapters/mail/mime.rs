@@ -4,15 +4,36 @@
 use jiff::Timestamp;
 use mail_parser::MessageParser;
 
+/// What the importer reads from one message, before redaction. Every text here can carry
+/// personal data. The subject and the bodies are redacted before they are stored. The
+/// `Message-ID` becomes the message key as it is, unless it carries a configured name, mail
+/// address, address line or phone number; the key is stored and printed in the import report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMail {
+    /// The `Message-ID` header without its angle brackets. `None` when the message has none;
+    /// the message key is then the hash of the raw bytes.
     pub message_id: Option<String>,
+    /// The `Date` header, which the sender wrote, as a moment in time. `None` when the header
+    /// is missing or does not read as a date; the reader refuses such a message of a
+    /// configured sender as malformed. The mail library reads a day or an hour that is too
+    /// large as a later moment, and of two `Date` headers it reads the last.
     pub date: Option<Timestamp>,
+    /// The `Subject` header, decoded. Empty when the message has none. The kind of the
+    /// message is classified from it.
     pub subject: String,
+    /// The address of the first mailbox of the `From` header, without the display name and in
+    /// the case the sender wrote. `None` when there is none. The platform is found from it.
     pub from_address: Option<String>,
     /// Every `Authentication-Results` header, as text.
     pub authentication_results: Vec<String>,
+    /// The first part of the body, as HTML. When that part is text, `mail-parser` gives the
+    /// text converted to HTML here, also when an HTML part follows it. A message of headers
+    /// only gives an empty page. `None` when the first part of the body is neither HTML nor
+    /// text, such as an image.
     pub html: Option<String>,
+    /// The first part of the body, as text. When that part is HTML, `mail-parser` gives the
+    /// HTML converted to text here. A message of headers only gives an empty text. `None` as
+    /// for `html`.
     pub text: Option<String>,
 }
 
