@@ -51,7 +51,9 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 
 * Unsafe code does not compile, in any target of the package.
 * An `unwrap` outside test code does not pass. An `expect` outside test code passes only below `#[expect(clippy::expect_used, reason = "...")]`; the reason says why the failure cannot occur. Put the attribute on the one statement or the one small function that holds the call, so that it does not cover a later call.
-* A pattern that is a constant of the source is compiled with `domain::pattern::fixed`. A pattern built from data returns an error when it does not compile.
+* A pattern that is a constant of the source is compiled with `domain::pattern::fixed`, which sets `SIZE_LIMIT`, 1 MiB, as the most memory of the compiled pattern. A pattern built from data sets the same limit and returns an error when it does not compile.
+* Arithmetic outside test code is written with a `checked_` or a `saturating_` method, or in a form that cannot overflow; `+`, `-` and `*` on a number that is not a constant do not pass (`clippy::arithmetic_side_effects`, REAS-SEC-003). Use `checked_` and return an error or `None` when a wrong number would be read later. Use `saturating_` only when a comment can say why the bound of the type gives the right answer. A counter of a run report goes up with `application::count`.
+* A slice, a vector or a text is read with `get`, `first`, a slice pattern or an iterator; `v[i]`, `v[a..b]` and `&text[a..b]` do not pass outside test code (`clippy::indexing_slicing`, `clippy::string_slice`). `clippy.toml` leaves an index free in test code. The index of a capture group, `caps[1]`, is not covered: use it only for a group that takes part in every match of the pattern.
 * To suppress a lint, write `#[expect(lint, reason = "...")]`. `#[allow]` does not pass. When the suppressed finding goes away, the compiler reports the attribute, and you remove it.
 * `clippy.toml` leaves `unwrap` and `expect` free inside a test function and a test module. A helper function in `tests/` is outside both; `tests/database.rs` has one attribute for the file.
 

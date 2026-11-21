@@ -452,8 +452,8 @@ pub fn ask_reason(
     mut output: impl std::io::Write,
 ) -> std::io::Result<Option<AddReason>> {
     writeln!(output, "Why are you adding {}?", terminal_text(item))?;
-    for (n, reason) in AddReason::ALL.iter().enumerate() {
-        writeln!(output, "  {}  {}", n + 1, reason.phrase())?;
+    for (number, reason) in (1_usize..).zip(AddReason::ALL) {
+        writeln!(output, "  {number}  {}", reason.phrase())?;
     }
     loop {
         write!(output, "1-{}> ", AddReason::ALL.len())?;
@@ -502,7 +502,7 @@ fn truncate(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         text.to_owned()
     } else {
-        let cut: String = text.chars().take(width - 1).collect();
+        let cut: String = text.chars().take(width.saturating_sub(1)).collect();
         format!("{cut}\u{2026}")
     }
 }
@@ -772,5 +772,19 @@ mod tests {
         assert_eq!(reason, Some(AddReason::RepeatFavorite));
         assert_eq!(shown.matches("1-5> ").count(), 4);
         assert_eq!(ask("because\n").0, None);
+    }
+
+    #[test]
+    fn a_text_is_cut_to_a_width_and_the_cut_is_marked() {
+        assert_eq!(truncate("milk", 5), "milk");
+        assert_eq!(truncate("milk", 4), "milk");
+        assert_eq!(truncate("milk", 3), "mi\u{2026}");
+        assert_eq!(truncate("milk", 1), "\u{2026}");
+        assert_eq!(truncate("", 0), "");
+    }
+
+    #[test]
+    fn a_width_of_zero_gives_the_mark_alone_and_does_not_stop_the_table() {
+        assert_eq!(truncate("milk", 0), "\u{2026}");
     }
 }

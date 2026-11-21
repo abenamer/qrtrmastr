@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use thiserror::Error;
 
+use super::count;
 use super::ports::{
     InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore, StoreError,
 };
@@ -62,28 +63,30 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
         let mut stream = self.source.messages();
         while let Some(raw) = stream.recv().await {
             let raw = raw?;
-            report.read += 1;
+            count(&mut report.read);
             match self.reader.prepare(&raw) {
-                Ok(Prepared::OtherSender { .. }) => report.other_sender += 1,
+                Ok(Prepared::OtherSender { .. }) => count(&mut report.other_sender),
                 Ok(Prepared::Message(message)) => {
                     if known.contains(message.key.as_str()) {
-                        report.already_known += 1;
+                        count(&mut report.already_known);
                         continue;
                     }
                     match self.store.insert(&message).await? {
                         InsertOutcome::Inserted(_) => {
-                            report.inserted += 1;
-                            *report
-                                .inserted_by_platform
-                                .entry(message.platform)
-                                .or_default() += 1;
+                            count(&mut report.inserted);
+                            count(
+                                report
+                                    .inserted_by_platform
+                                    .entry(message.platform)
+                                    .or_default(),
+                            );
                         }
-                        InsertOutcome::AlreadyKnown => report.already_known += 1,
+                        InsertOutcome::AlreadyKnown => count(&mut report.already_known),
                     }
                 }
                 Err(MailError::RedactionFailed { key, kind, context }) => {
                     report.redaction_failures.push(format!("{key}: {kind}"));
-                    *report.refused_by_cause.entry(context).or_default() += 1;
+                    count(report.refused_by_cause.entry(context).or_default());
                 }
                 Err(error) => report.malformed.push(error.to_string()),
             }

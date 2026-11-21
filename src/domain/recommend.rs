@@ -62,9 +62,10 @@ pub fn merge_variants(purchases: &[Purchase], variants: &[Variant<'_>]) -> Vec<P
         else {
             continue;
         };
-        let comparable = group.iter().all(|v| {
-            v.pack.map(|p| p.dimension) == group[0].pack.map(|p| p.dimension) && v.pack.is_some()
-        });
+        let first_dimension = group.first().and_then(|v| v.pack).map(|p| p.dimension);
+        let comparable = group
+            .iter()
+            .all(|v| v.pack.map(|p| p.dimension) == first_dimension && v.pack.is_some());
         for variant in group {
             let amount = match variant.pack {
                 Some(pack) if comparable => pack.amount,
@@ -144,37 +145,63 @@ pub struct Recommendation {
     pub status: Status,
 }
 
-/// The median of integer days; the mean of the two middle values when the count is even.
-pub fn median_days(values: &mut [i64]) -> Option<i64> {
-    if values.is_empty() {
-        return None;
-    }
-    values.sort_unstable();
-    let mid = values.len() / 2;
-    Some(if values.len() % 2 == 1 {
-        values[mid]
-    } else {
-        (values[mid - 1] + values[mid]) / 2
-    })
+/// The middle of a sorted list: one value when the count is odd, the two values around the
+/// middle when it is even, the lower one first.
+enum Middle<T> {
+    One(T),
+    Two(T, T),
 }
 
-fn median_quantity(values: &mut [Quantity]) -> Option<Quantity> {
-    if values.is_empty() {
-        return None;
-    }
-    values.sort();
-    let mid = values.len() / 2;
-    if values.len() % 2 == 1 {
-        Some(values[mid])
+/// Finds the middle of a sorted list; `None` for an empty list.
+///
+/// The three medians of this module take their positions from here, so the position is
+/// computed in one place and read with `get` (REAS-SEC-003).
+fn middle<T: Copy>(sorted: &[T]) -> Option<Middle<T>> {
+    let upper = sorted.len() / 2;
+    if sorted.len() % 2 == 1 {
+        sorted.get(upper).copied().map(Middle::One)
     } else {
-        let sum = values[mid - 1].as_decimal() + values[mid].as_decimal();
-        Quantity::new((sum / Decimal::TWO).round_dp(3)).ok()
+        let lower = upper.checked_sub(1)?;
+        Some(Middle::Two(*sorted.get(lower)?, *sorted.get(upper)?))
+    }
+}
+
+/// The median of integer days; the mean of the two middle values when the count is even.
+///
+/// `None` for an empty list, and for two middle values whose sum is outside an `i64`. Days
+/// between two dates never reach that, so a caller reads `None` as "no gap is known".
+pub fn median_days(values: &mut [i64]) -> Option<i64> {
+    values.sort_unstable();
+    match middle(values)? {
+        Middle::One(value) => Some(value),
+        Middle::Two(lower, upper) => Some(lower.checked_add(upper)? / 2),
+    }
+}
+
+/// The median of quantities; the mean of the two middle values when the count is even,
+/// rounded to three decimals. The mean is the lower value plus half the difference, so no
+/// step of it can pass the range of the type. For every quantity that the database holds it
+/// is the same number as half the sum; at the top of the range of a decimal it is the more
+/// exact of the two, because the sum loses a digit there.
+fn median_quantity(values: &mut [Quantity]) -> Option<Quantity> {
+    values.sort();
+    match middle(values)? {
+        Middle::One(value) => Some(value),
+        Middle::Two(lower, upper) => {
+            let half = upper
+                .as_decimal()
+                .checked_sub(lower.as_decimal())?
+                .checked_div(Decimal::TWO)?;
+            let mean = lower.as_decimal().checked_add(half)?;
+            Quantity::new(mean.round_dp(3)).ok()
+        }
     }
 }
 
 /// Whole days from `from` to `to`; negative when `to` is the earlier day.
 pub fn days_between(from: Date, to: Date) -> i64 {
-    i64::from((to - from).get_days())
+    // A civil date has no time zone, so each day between two dates is 24 hours.
+    to.duration_since(from).as_hours() / 24
 }
 
 /// The usual gap between orders: the median of the gaps between distinct delivery dates.
@@ -239,22 +266,24 @@ pub fn evaluate(
         let status = match (times_bought, usual_gap_days) {
             (1, _) | (_, None) => Status::BoughtOnce,
             (n, Some(gap)) if n < thresholds.min_purchases => {
-                if days_since > gap * i64::from(thresholds.lapsed_after_gaps) {
+                if days_since > lapsed_after(gap, thresholds) {
                     Status::Lapsed
                 } else {
                     Status::Tentative
                 }
             }
             (_, Some(gap)) => {
-                if days_since > gap * i64::from(thresholds.lapsed_after_gaps) {
+                // The numbers are days between dates and two settings. A saturating step gives
+                // the same comparison as an exact one, also for a setting at the bound of its type.
+                if days_since > lapsed_after(gap, thresholds) {
                     Status::Lapsed
                 } else if days_since > gap {
                     Status::Overdue {
-                        days_overdue: days_since - gap,
+                        days_overdue: days_since.saturating_sub(gap),
                     }
-                } else if days_since + cadence > gap {
+                } else if days_since.saturating_add(cadence) > gap {
                     Status::DueSoon {
-                        days_until_due: gap - days_since,
+                        days_until_due: gap.saturating_sub(days_since),
                     }
                 } else {
                     Status::NotDue
@@ -276,13 +305,18 @@ pub fn evaluate(
     out
 }
 
+/// The days after which a product with this usual gap counts as lapsed.
+fn lapsed_after(gap: i64, thresholds: Thresholds) -> i64 {
+    gap.saturating_mul(i64::from(thresholds.lapsed_after_gaps))
+}
+
 /// Orders recommendations for a list: overdue first by days overdue, then due soon by how soon,
 /// then the rest by recency.
 pub fn rank(recommendations: &mut [Recommendation]) {
     recommendations.sort_by(|a, b| {
         fn key(s: Status) -> (u8, i64) {
             match s {
-                Status::Overdue { days_overdue } => (0, -days_overdue),
+                Status::Overdue { days_overdue } => (0, days_overdue.saturating_neg()),
                 Status::DueSoon { days_until_due } => (1, days_until_due),
                 Status::Tentative => (2, 0),
                 Status::NotDue => (3, 0),
@@ -328,7 +362,7 @@ impl HabitRecommendation {
     /// An essential is in at least a quarter of the latest orders; the other habitual
     /// products are extras (ADR 0011).
     pub fn is_essential(&self) -> bool {
-        self.in_recent * ESSENTIAL_ONE_IN >= self.recent_orders
+        self.in_recent.saturating_mul(ESSENTIAL_ONE_IN) >= self.recent_orders
     }
 }
 
@@ -422,13 +456,9 @@ fn stocked_until(history: &[&Purchase]) -> Option<Date> {
     let (last_day, last_units) = by_day.iter().next_back().map(|(d, u)| (*d, *u))?;
     let mut earlier: Vec<Decimal> = by_day.values().rev().skip(1).copied().collect();
     earlier.sort();
-    let mid = earlier.len() / 2;
-    let usual = if earlier.len() % 2 == 1 {
-        earlier[mid]
-    } else {
-        earlier[mid - 1]
-            .checked_add(earlier[mid])?
-            .checked_div(Decimal::TWO)?
+    let usual = match middle(&earlier)? {
+        Middle::One(units) => units,
+        Middle::Two(lower, upper) => lower.checked_add(upper)?.checked_div(Decimal::TWO)?,
     };
     if usual <= Decimal::ZERO {
         return None;
@@ -560,7 +590,7 @@ pub fn simple(purchases: &[Purchase]) -> Vec<SimpleRecommendation> {
                 history.iter().map(|p| &p.order_number).collect();
             let in_last = orders_with_product.contains(&last_order);
             let count = orders_with_product.len();
-            (!in_last && count * 2 >= orders_total && orders_total >= 2).then(|| {
+            (!in_last && count.saturating_mul(2) >= orders_total && orders_total >= 2).then(|| {
                 let mut quantities: Vec<Quantity> = history.iter().map(|p| p.quantity).collect();
                 #[expect(
                     clippy::expect_used,
@@ -926,5 +956,117 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].product.get(), 3);
         assert_eq!((r[0].orders_with_product, r[0].orders_total), (2, 3));
+    }
+
+    #[test]
+    fn a_median_reads_the_middle_of_a_list_of_any_length() {
+        assert_eq!(median_days(&mut []), None);
+        assert_eq!(median_days(&mut [5]), Some(5));
+        assert_eq!(median_days(&mut [9, 1, 5]), Some(5));
+        assert_eq!(median_days(&mut [21, 7, 14, 7]), Some(10));
+        // The mean of two negative numbers rounds toward zero, as the division always did.
+        assert_eq!(median_days(&mut [-7, -14]), Some(-10));
+        assert_eq!(median_days(&mut [-1, -2]), Some(-1));
+        assert_eq!(median_days(&mut [i64::MAX, i64::MIN]), Some(0));
+
+        let q = |text: &str| Quantity::parse(text).expect("qty");
+        assert_eq!(median_quantity(&mut []), None);
+        assert_eq!(median_quantity(&mut [q("2")]), Some(q("2")));
+        assert_eq!(median_quantity(&mut [q("3"), q("2")]), Some(q("2.5")));
+        assert_eq!(median_quantity(&mut [q("4"), q("1"), q("2")]), Some(q("2")));
+        // The mean of two amounts of three decimals can have four: it rounds to the even digit.
+        assert_eq!(
+            median_quantity(&mut [q("0.001"), q("0.002")]),
+            Some(q("0.002"))
+        );
+        assert_eq!(
+            median_quantity(&mut [q("0.002"), q("0.003")]),
+            Some(q("0.002"))
+        );
+    }
+
+    #[test]
+    fn the_days_between_two_dates_are_the_same_as_their_difference() {
+        assert_eq!(days_between(d(2026, 3, 1), d(2026, 3, 1)), 0);
+        assert_eq!(days_between(d(2026, 2, 28), d(2026, 3, 1)), 1);
+        assert_eq!(days_between(d(2024, 2, 28), d(2024, 3, 1)), 2);
+        assert_eq!(days_between(d(2026, 3, 1), d(2026, 2, 22)), -7);
+        // The widest span that the date type holds, in both directions.
+        assert_eq!(days_between(d(-9999, 1, 1), d(9999, 12, 31)), 7_304_483);
+        assert_eq!(days_between(d(9999, 12, 31), d(-9999, 1, 1)), -7_304_483);
+        // The reference is the subtraction of the date library, which the function used before.
+        let dates = [
+            d(-9999, 1, 1),
+            d(1, 1, 1),
+            d(1999, 12, 31),
+            d(2024, 2, 29),
+            d(2026, 3, 8),
+            d(2026, 11, 1),
+            d(9999, 12, 31),
+        ];
+        for from in dates {
+            for to in dates {
+                assert_eq!(
+                    days_between(from, to),
+                    i64::from((to - from).get_days()),
+                    "{from} {to}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_sum_outside_the_range_of_the_type_gives_no_median_or_the_mean_and_no_panic() {
+        assert_eq!(median_days(&mut [i64::MAX, i64::MAX]), None);
+        assert_eq!(median_days(&mut [i64::MIN, i64::MIN, -1, 0]), None);
+        // The sum of these two quantities is outside the range of a decimal. The mean is not.
+        let q = |text: &str| Quantity::parse(text).expect("qty");
+        let large = q("79228162514264337593543950335");
+        let below = q("79228162514264337593543950333");
+        assert_eq!(
+            median_quantity(&mut [large, below]),
+            Some(q("79228162514264337593543950334"))
+        );
+        assert_eq!(median_quantity(&mut [large, large]), Some(large));
+    }
+
+    #[test]
+    fn a_setting_at_the_bound_of_its_type_changes_a_status_and_does_not_stop_the_rule() {
+        let p = vec![
+            buy(1, "10000000001", d(2026, 1, 1), "1"),
+            buy(1, "10000000002", d(2026, 1, 8), "1"),
+            buy(1, "10000000003", d(2026, 1, 15), "1"),
+        ];
+        let never_lapsed = Thresholds {
+            lapsed_after_gaps: u32::MAX,
+            ..Thresholds::default()
+        };
+        // The usual gap is 7 days and the last purchase was 3 days ago.
+        let soon = evaluate(&p, d(2026, 1, 18), i64::MAX, never_lapsed);
+        assert_eq!(soon[0].status, Status::DueSoon { days_until_due: 4 });
+        let not_due = evaluate(&p, d(2026, 1, 18), i64::MIN, never_lapsed);
+        assert_eq!(not_due[0].status, Status::NotDue);
+        // The last day that the date type holds.
+        let late = evaluate(&p, d(9999, 12, 31), 7, never_lapsed);
+        assert_eq!(
+            late[0].status,
+            Status::Overdue {
+                days_overdue: 2_912_428 - 7
+            }
+        );
+        let mut ranked = late;
+        ranked.push(Recommendation {
+            status: Status::Overdue {
+                days_overdue: i64::MIN,
+            },
+            ..ranked[0].clone()
+        });
+        rank(&mut ranked);
+        assert_eq!(
+            ranked[0].status,
+            Status::Overdue {
+                days_overdue: 2_912_428 - 7
+            }
+        );
     }
 }

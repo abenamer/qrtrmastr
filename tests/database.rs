@@ -328,7 +328,10 @@ async fn a_stale_version_changes_no_row(pool: PgPool) {
     let stale = ParseFinish {
         message: message.id,
         expected_state: ParseState::Fetched,
-        expected_version: message.version + 1,
+        expected_version: message
+            .version
+            .checked_add(1)
+            .expect("a version above the stored one"),
         next_state: ParseState::Failed,
         attempt: AttemptRecord {
             parser: ParserTag {

@@ -550,7 +550,8 @@ impl GmailApi {
                     // The use case stopped; there is nobody to read for.
                     return Ok(());
                 }
-                sent += 1;
+                // `sent` is below `max_messages` here: the loop stops when the two are equal.
+                sent = sent.saturating_add(1);
             }
             match page.next_page_token {
                 Some(token) if !page.messages.is_empty() => page_token = Some(token),

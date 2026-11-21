@@ -2,3 +2,6 @@
 # there. The levels themselves are in `Cargo.toml` under `[lints.clippy]`.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# REAS-SEC-003 is about a length or an index from outside data. A test reads a fixture that it
+# wrote itself, and an index that is out of range there fails the test, which is the right result.
+allow-indexing-slicing-in-tests = true

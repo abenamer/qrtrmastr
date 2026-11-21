@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 
 use regex::{Regex, RegexBuilder};
 
-use crate::domain::pattern::fixed;
+use crate::domain::pattern::{SIZE_LIMIT, fixed};
 use scraper::{Html, Node, Selector};
 use serde::Deserialize;
 use thiserror::Error;
@@ -56,9 +56,11 @@ pub struct RedactionTerms {
 pub enum RedactionError {
     #[error("{kind} term #{position} is too short to redact safely; use at least three characters")]
     TermTooShort { kind: &'static str, position: usize },
-    #[error("{kind} term #{position} cannot be used as a pattern")]
+    #[error(
+        "{kind} term #{position} cannot be used as a pattern; a term of several hundred characters is too long"
+    )]
     BadTerm { kind: &'static str, position: usize },
-    #[error("phone #{0} needs at least seven digits")]
+    #[error("phone #{0} needs at least seven digits, and not several hundred")]
     BadPhone(usize),
     #[error("card_last4 #{0} is not exactly four digits")]
     BadLast4(usize),
@@ -244,9 +246,23 @@ fn replace_bounded(regex: &Regex, text: &str, replacement: &str) -> String {
         .into_owned()
 }
 
+/// Compiles a pattern that was built from a configured term, without regard to case.
+///
+/// `None` when the pattern is not valid or compiles to more than [`SIZE_LIMIT`]
+/// (REAS-SEC-003). A term of a name, an address or a mail address is far below that; a term
+/// of several hundred characters is not one of these, and the caller refuses it by position.
 fn case_insensitive(pattern: &str) -> Option<Regex> {
     RegexBuilder::new(pattern)
         .case_insensitive(true)
+        .size_limit(SIZE_LIMIT)
+        .build()
+        .ok()
+}
+
+/// Compiles a pattern that was built from configured digits, with the same limit.
+fn from_digits(pattern: &str) -> Option<Regex> {
+    RegexBuilder::new(pattern)
+        .size_limit(SIZE_LIMIT)
         .build()
         .ok()
 }
@@ -263,8 +279,7 @@ impl Redactor {
             ("email", &terms.emails),
             ("address", &terms.address_lines),
         ] {
-            for (index, term) in list.iter().enumerate() {
-                let position = index + 1;
+            for (position, term) in (1_usize..).zip(list) {
                 let length = term.trim().chars().count();
                 if length < 3 {
                     return Err(RedactionError::TermTooShort { kind, position });
@@ -306,10 +321,10 @@ impl Redactor {
         literals.sort_by_key(|l| std::cmp::Reverse(l.length));
 
         let mut phones = Vec::new();
-        for (index, phone) in terms.phones.iter().enumerate() {
+        for (position, phone) in (1_usize..).zip(&terms.phones) {
             let all_digits: String = phone.chars().filter(char::is_ascii_digit).collect();
             if all_digits.len() < 7 {
-                return Err(RedactionError::BadPhone(index + 1));
+                return Err(RedactionError::BadPhone(position));
             }
             // A leading country code 1 is optional in the text; the national digits are required.
             let national = match all_digits.strip_prefix('1') {
@@ -321,20 +336,20 @@ impl Redactor {
                 .map(|d| d.to_string())
                 .collect::<Vec<_>>()
                 .join(r"[^0-9]{0,3}");
-            let regex = Regex::new(&format!(r"(?:\+?1[^0-9]{{0,3}})?\(?{spaced}([^0-9]|$)"))
-                .map_err(|_| RedactionError::BadPhone(index + 1))?;
+            let regex = from_digits(&format!(r"(?:\+?1[^0-9]{{0,3}})?\(?{spaced}([^0-9]|$)"))
+                .ok_or(RedactionError::BadPhone(position))?;
             phones.push(regex);
         }
         let mut last4 = Vec::new();
-        for (index, four) in terms.card_last4.iter().enumerate() {
+        for (position, four) in (1_usize..).zip(&terms.card_last4) {
             let digits: String = four.chars().filter(char::is_ascii_digit).collect();
             if digits.len() != 4 {
-                return Err(RedactionError::BadLast4(index + 1));
+                return Err(RedactionError::BadLast4(position));
             }
-            let regex = Regex::new(&format!(
+            let regex = from_digits(&format!(
                 r"(?i)(ending\s+(in|with)|[xX*\u{{2022}}]{{2,}}|{CARD_BRAND})\s*{digits}([^0-9]|$)"
             ))
-            .map_err(|_| RedactionError::BadLast4(index + 1))?;
+            .ok_or(RedactionError::BadLast4(position))?;
             last4.push(regex);
         }
         Ok(Self {
@@ -945,5 +960,71 @@ mod tests {
         assert_eq!(percent_decode("%%41"), "%A");
         // Bytes that are not UTF-8 after decoding become the replacement character.
         assert_eq!(percent_decode("%ff"), "\u{fffd}");
+    }
+
+    #[test]
+    fn a_term_of_a_hundred_characters_is_accepted() {
+        // Longer than a name, a mail address or an address line.
+        let long: String = "Ab9".chars().cycle().take(100).collect();
+        let mut t = terms();
+        t.names.push(long.clone());
+        let redactor = Redactor::new(t).expect("a long term");
+        let out = redactor
+            .redact_text(&format!("for {long} today"))
+            .expect("redacted");
+        assert!(!out.contains(&long), "{out}");
+    }
+
+    #[test]
+    fn a_term_whose_pattern_passes_the_size_limit_is_refused_by_its_position() {
+        // A thousand letters and digits: the pattern of the sequence pass passes the limit.
+        let huge: String = "Ab9".chars().cycle().take(1000).collect();
+        let mut t = terms();
+        t.names.push(huge);
+        let refused = Redactor::new(t).err();
+        assert_eq!(
+            refused,
+            Some(RedactionError::BadTerm {
+                kind: "name",
+                position: 3
+            })
+        );
+        // The message names the position and never the term.
+        let message = refused.expect("an error").to_string();
+        assert!(
+            message.starts_with("name term #3 cannot be used"),
+            "{message}"
+        );
+        assert!(!message.contains("Ab9"));
+
+        let mut t = terms();
+        t.phones.push("5".repeat(5000));
+        assert_eq!(Redactor::new(t).err(), Some(RedactionError::BadPhone(2)));
+    }
+
+    #[test]
+    fn every_group_that_the_code_indexes_takes_part_in_every_match() {
+        // The replacements read `caps[1]` and `caps[3]` of a term's pattern and `caps[1]` of
+        // a phone's pattern; no lint sees an index of a capture group. The term here holds
+        // every character that is special in a pattern, so it shows that a term adds no group.
+        let mut t = terms();
+        t.names.push("(a|b)? [c]{2} (?P<x>d)* \\1 $^".to_owned());
+        let redactor = Redactor::new(t).expect("terms");
+        for literal in &redactor.literals {
+            for pattern in [&literal.regex, &literal.plain] {
+                assert_eq!(pattern.captures_len(), 4);
+                assert_eq!(pattern.static_captures_len(), Some(4));
+            }
+        }
+        for phone in &redactor.phones {
+            assert_eq!(phone.captures_len(), 2);
+            assert_eq!(phone.static_captures_len(), Some(2));
+        }
+        // The pattern of the card digits has one group that is not in every match, the
+        // second, and the code reads the third, which is the last.
+        for card in &redactor.last4 {
+            assert_eq!(card.captures_len(), 4);
+            assert_eq!(card.static_captures_len(), None);
+        }
     }
 }

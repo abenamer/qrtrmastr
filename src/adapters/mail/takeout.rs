@@ -86,7 +86,7 @@ impl TakeoutExport {
             }]);
         }
         let mut found = Vec::new();
-        Self::walk(path, 0, &mut found)?;
+        Self::walk(path, MAX_DEPTH, &mut found)?;
         found.sort_by(|a, b| a.path().cmp(b.path()));
         if found.is_empty() {
             return Err(read_error(
@@ -97,15 +97,17 @@ impl TakeoutExport {
         Ok(found)
     }
 
-    fn walk(dir: &Path, depth: usize, found: &mut Vec<Container>) -> Result<(), MailError> {
+    /// Collects the archives and mailboxes of a folder. `levels_left` is how many levels of
+    /// folders below this one are still read; it counts down, so no step of it can overflow.
+    fn walk(dir: &Path, levels_left: usize, found: &mut Vec<Container>) -> Result<(), MailError> {
         for entry in std::fs::read_dir(dir).map_err(|e| read_error(dir, e))? {
             let entry = entry.map_err(|e| read_error(dir, e))?;
             let path = entry.path();
             // `file_type` does not follow a symbolic link, so a link out of the folder is not read.
             let kind = entry.file_type().map_err(|e| read_error(&path, e))?;
             if kind.is_dir() {
-                if depth < MAX_DEPTH {
-                    Self::walk(&path, depth + 1, found)?;
+                if let Some(deeper) = levels_left.checked_sub(1) {
+                    Self::walk(&path, deeper, found)?;
                 }
             } else if kind.is_file() {
                 if has_extension(&path, "zip") {
@@ -145,7 +147,7 @@ impl TakeoutExport {
         let mut archive = zip::ZipArchive::new(BufReader::new(file)).map_err(|e| {
             MailError::Read(format!("{}: not a readable archive: {e}", path.display()))
         })?;
-        let mut mailboxes = 0;
+        let mut mailboxes: usize = 0;
         for index in 0..archive.len() {
             let entry = archive
                 .by_index(index)
@@ -157,7 +159,7 @@ impl TakeoutExport {
             if !entry.is_file() || !has_extension(Path::new(&name), "mbox") {
                 continue;
             }
-            mailboxes += 1;
+            mailboxes = mailboxes.saturating_add(1);
             // The entry is named by its index: its name comes from inside the archive.
             tracing::info!(archive = ?path, entry = index, "reading a mailbox");
             let reader = BufReader::with_capacity(READ_BUFFER, entry);
@@ -175,7 +177,8 @@ impl TakeoutExport {
         path: &Path,
         tx: &mpsc::Sender<Result<RawMail, MailError>>,
     ) -> Result<(), MailError> {
-        let mut mailboxes = 0;
+        // Only zero or not zero is read from this count, so it saturates.
+        let mut mailboxes: usize = 0;
         for container in Self::containers(path)? {
             match container {
                 Container::Archive(archive) => {
@@ -187,7 +190,7 @@ impl TakeoutExport {
                                 mailboxes = count,
                                 "archive done"
                             );
-                            mailboxes += count;
+                            mailboxes = mailboxes.saturating_add(count);
                         }
                         Err(ReceiverGone) => return Ok(()),
                     }
@@ -198,7 +201,7 @@ impl TakeoutExport {
                         READ_BUFFER,
                         File::open(&file).map_err(|e| read_error(&file, e))?,
                     );
-                    mailboxes += 1;
+                    mailboxes = mailboxes.saturating_add(1);
                     if Self::send_mailbox(reader, &file, tx)?.is_err() {
                         return Ok(());
                     }
@@ -452,5 +455,24 @@ mod tests {
             good, 1,
             "the mailbox before the broken archive is delivered"
         );
+    }
+
+    #[tokio::test]
+    async fn a_mailbox_six_folders_down_is_read_and_one_seven_folders_down_is_not() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let six = dir.path().join("1/2/3/4/5/6");
+        let seven = six.join("z");
+        std::fs::create_dir_all(&seven).expect("dirs");
+        std::fs::write(six.join("a.mbox"), ONE).expect("write");
+        std::fs::write(seven.join("b.mbox"), TWO_AND_THREE).expect("write");
+        let from_the_top = subjects(&TakeoutExport::new(dir.path()))
+            .await
+            .expect("read");
+        assert_eq!(from_the_top, ["one"]);
+        // From one folder down, the second file is six folders down and is read too.
+        let from_one_down = subjects(&TakeoutExport::new(dir.path().join("1")))
+            .await
+            .expect("read");
+        assert_eq!(from_one_down, ["one", "two", "three"]);
     }
 }

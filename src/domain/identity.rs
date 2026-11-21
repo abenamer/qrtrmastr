@@ -91,7 +91,10 @@ pub fn normalize(raw_name: &str) -> Normalized {
     let (name_part, size_text) = match SIZE_SUFFIX.captures(&raw) {
         Some(caps) => {
             let size = caps["size"].trim().to_owned();
-            let name = raw[..caps.get(0).map_or(raw.len(), |m| m.start())].to_owned();
+            // The name is the text before the match. A match starts between two characters,
+            // so `get` finds that text; the whole name stands in if it ever does not.
+            let start = caps.get(0).map_or(raw.len(), |m| m.start());
+            let name = raw.get(..start).unwrap_or(&raw).to_owned();
             (name, (!size.is_empty()).then_some(size))
         }
         None => (raw.clone(), None),
@@ -187,5 +190,21 @@ mod tests {
                 proptest::prop_assert!(!n.name_norm.is_empty(), "{:?}", raw);
             }
         });
+    }
+
+    #[test]
+    fn every_group_that_the_code_indexes_takes_part_in_every_match() {
+        // `caps["size"]` stops the program when the group took no part in the match, and no
+        // lint sees it. The engine can say that each group of these patterns is in every match.
+        for (name, pattern) in [
+            ("SIZE_SUFFIX", &*SIZE_SUFFIX),
+            ("QUANTITY_UNIT", &*QUANTITY_UNIT),
+        ] {
+            assert_eq!(
+                pattern.static_captures_len(),
+                Some(pattern.captures_len()),
+                "{name}"
+            );
+        }
     }
 }

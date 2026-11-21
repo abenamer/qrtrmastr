@@ -34,6 +34,8 @@ pub enum ParseError {
     NoTotal,
     #[error("row {row}: {reason}")]
     Row { row: usize, reason: String },
+    #[error("more item lines than a line number can count")]
+    TooManyLines,
 }
 
 /// One layout. `supports` is cheap and never fails; `parse` is the full read.

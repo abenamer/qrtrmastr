@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 
+use super::count;
 use super::ports::{
     AliasRequest, AttemptRecord, Catalog, GroceryStore, OrderWrite, ParseAttempt, ParseFinish,
     ParserTag, PendingMessage, RawMessageStore, ReceiptParsing, StoreError,
@@ -54,7 +55,7 @@ where
         for message in &pending {
             match self.handle(message, &mut report).await {
                 Ok(()) => {}
-                Err(StoreError::Conflict { .. }) => report.conflicts += 1,
+                Err(StoreError::Conflict { .. }) => count(&mut report.conflicts),
                 Err(other) => return Err(other),
             }
         }
@@ -69,7 +70,7 @@ where
         match message.kind {
             MessageKind::Placed | MessageKind::Updated | MessageKind::Unknown => {
                 // No parser for these kinds yet; they stay fetched for a later milestone.
-                report.left_for_later += 1;
+                count(&mut report.left_for_later);
                 return Ok(());
             }
             MessageKind::Receipt => {}
@@ -78,7 +79,7 @@ where
         // A receipt without a DKIM pass is parsed all the same: the mailbox is the maintainer's
         // own, and the order is tagged non-verified instead (ADR 0008).
         let Some(html) = message.body_html.as_deref() else {
-            report.failed += 1;
+            count(&mut report.failed);
             return self
                 .finish(
                     message,
@@ -92,7 +93,7 @@ where
 
         match self.parsers.parse(html) {
             ParseAttempt::Unsupported => {
-                report.unsupported += 1;
+                count(&mut report.unsupported);
                 self.finish(
                     message,
                     REFUSED,
@@ -103,7 +104,7 @@ where
                 .await
             }
             ParseAttempt::Failed { parser, error } => {
-                report.failed += 1;
+                count(&mut report.failed);
                 self.finish(message, parser, ParseOutcome::Failed, Some(error), None)
                     .await
             }
@@ -139,13 +140,13 @@ where
                 }
                 let reconciled = reconciliation.reconciled();
                 let outcome = if reconciled {
-                    report.parsed += 1;
+                    count(&mut report.parsed);
                     ParseOutcome::Ok
                 } else {
-                    report.partial += 1;
+                    count(&mut report.partial);
                     ParseOutcome::Partial
                 };
-                report.anomalies += receipt.anomalies.len();
+                report.anomalies = report.anomalies.saturating_add(receipt.anomalies.len());
 
                 let alias_ids = self.resolve_aliases(&receipt).await?;
                 let order = OrderWrite {
