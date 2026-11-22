@@ -6,6 +6,7 @@
 use libfuzzer_sys::fuzz_target;
 use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::ports::{ParseAttempt, ReceiptParsing};
+use qrtrmastr::domain::identity::normalize;
 use qrtrmastr::domain::money::MoneyError;
 use qrtrmastr::domain::receipt::reconcile;
 
@@ -31,6 +32,20 @@ fuzz_target!(|data: &[u8]| {
                 // The quantity that is billed and the kind of sale are read without a stop.
                 let _ = line.billed_qty();
                 let _ = line.sold_by();
+                // Property: the name of a line is a key that the store of aliases holds:
+                // not longer than the limit, and without a NUL character. A line that the
+                // store refuses stops every later run of the parse step.
+                assert!(normalize(&line.raw_name).fits_an_alias(), "line {expected}");
+                for text in [
+                    Some(line.raw_name.as_str()),
+                    line.department.as_deref(),
+                    line.product_url_path.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    assert!(!text.contains('\0'), "line {expected}");
+                }
             }
             // Property: the checks of the domain give a result for any receipt that the
             // parser gives, or the typed error of a sum outside the range: no sum stops the

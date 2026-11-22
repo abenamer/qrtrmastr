@@ -46,7 +46,8 @@ impl MailReader for PlatformMail {
             reason: "not an RFC 5322 message".to_owned(),
         })?;
         // A Message-ID that carries a configured term (some senders embed the recipient) is not
-        // stored or printed; the hash stands in for it.
+        // stored or printed; the hash stands in for it. The hash also stands in for a header
+        // that is no key: empty, longer than the limit of a key, or with a NUL character.
         let key = parsed
             .message_id
             .as_deref()
@@ -97,6 +98,22 @@ impl MailReader for PlatformMail {
             .map(|text| self.redactor.redact_text(text))
             .transpose()
             .map_err(|e| redaction("text body", e))?;
+
+        // PostgreSQL holds no NUL character in a text. A mail with one in a part that would be
+        // stored is refused here, as one message; without this the insert fails, and the
+        // import stops at this message on each run.
+        for (part, text) in [
+            ("subject", Some(subject.as_str())),
+            ("HTML body", body_html.as_deref()),
+            ("text body", body_text.as_deref()),
+        ] {
+            if text.is_some_and(|text| text.contains('\0')) {
+                return Err(MailError::Malformed {
+                    key: key.to_string(),
+                    reason: format!("a NUL character in the {part}"),
+                });
+            }
+        }
 
         Ok(Prepared::Message(NewRawMessage {
             platform,
@@ -201,6 +218,123 @@ mod tests {
             panic!("expected a message");
         };
         assert_eq!(m.key.kind(), KeyKind::Sha256, "{:?}", m.key);
+    }
+
+    /// A mail of the grocer with the given header lines after the subject, and the given body.
+    fn mail_with(subject: &str, message_id: &str, body: &str) -> RawMail {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"From: FreshDirect <service@freshdirect.com>\r\nSubject: ");
+        bytes.extend_from_slice(subject.as_bytes());
+        bytes.extend_from_slice(b"\r\nDate: Tue, 3 Mar 2026 06:15:00 -0500\r\nMessage-ID: <");
+        bytes.extend_from_slice(message_id.as_bytes());
+        bytes.extend_from_slice(b">\r\nContent-Type: text/html; charset=utf-8\r\n\r\n");
+        bytes.extend_from_slice(body.as_bytes());
+        RawMail { bytes }
+    }
+
+    #[test]
+    fn a_mail_with_a_nul_character_in_a_stored_part_is_refused_as_one_message() {
+        // The store holds no NUL character in a text. Before 2026-11-21 such a mail failed at
+        // the insert, and the import stopped at it on each run.
+        let reader = reader();
+        for (what, mail) in [
+            (
+                "HTML body",
+                mail_with("Your receipt", "nul-1@mail.example", "<p>Order\0 1</p>"),
+            ),
+            (
+                "HTML body",
+                mail_with("Your receipt", "nul-2@mail.example", "<p>Order&#0; 1</p>"),
+            ),
+            (
+                "HTML body",
+                mail_with(
+                    "Your receipt",
+                    "nul-3@mail.example",
+                    "<p title=\"a\0b\">Order</p>",
+                ),
+            ),
+        ] {
+            match reader.prepare(&mail) {
+                // The page reader gives another character for a NUL in the HTML, as a browser
+                // does; the text form of the same body keeps it. So the part that the
+                // reason names is the text body for these mails.
+                Err(MailError::Malformed { key, reason }) => {
+                    assert_eq!(reason, "a NUL character in the text body", "{what}");
+                    assert!(!key.contains('\0'));
+                }
+                Ok(Prepared::Message(message)) => {
+                    // The library that reads the page may give another character for the NUL,
+                    // as a browser does. What matters is that nothing with a NUL is stored.
+                    for text in [
+                        Some(message.subject.as_str()),
+                        message.body_html.as_deref(),
+                        message.body_text.as_deref(),
+                        Some(message.key.as_str()),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        assert!(!text.contains('\0'), "{what}: a NUL would be stored");
+                    }
+                }
+                other => panic!("{what}: {other:?}"),
+            }
+        }
+        // The control: the same mail without the character is a message.
+        assert!(matches!(
+            reader.prepare(&mail_with(
+                "Your receipt",
+                "nul-0@mail.example",
+                "<p>Order 1</p>"
+            )),
+            Ok(Prepared::Message(_))
+        ));
+    }
+
+    #[test]
+    fn a_message_id_that_is_no_key_is_replaced_by_the_hash() {
+        // A header longer than the limit of a key, and one with a NUL character. Before
+        // 2026-11-21 the first was stored as the key when the unique index of the keys could
+        // hold it, and stopped the import when it could not.
+        let reader = reader();
+        let long = "a".repeat(crate::domain::ids::MESSAGE_ID_MAX_BYTES);
+        for message_id in [format!("{long}b"), "nul\0-5@mail.example".to_owned()] {
+            let mail = mail_with("Your receipt", &message_id, "<p>Order 1</p>");
+            let Ok(Prepared::Message(message)) = reader.prepare(&mail) else {
+                panic!("a mail with such a header is a message");
+            };
+            assert_eq!(message.key.kind(), KeyKind::Sha256);
+            assert_eq!(message.key.as_str(), hex::encode(message.source_sha256));
+        }
+        // The control: a header at the limit is the key.
+        let mail = mail_with("Your receipt", &long, "<p>Order 1</p>");
+        let Ok(Prepared::Message(message)) = reader.prepare(&mail) else {
+            panic!("a message");
+        };
+        assert_eq!(message.key.kind(), KeyKind::MessageId);
+        assert_eq!(message.key.as_str(), long);
+    }
+
+    #[test]
+    fn a_nul_character_in_the_subject_or_the_message_id_never_reaches_the_store() {
+        let reader = reader();
+        for mail in [
+            mail_with("Your\0 receipt", "nul-4@mail.example", "<p>Order 1</p>"),
+            mail_with("Your receipt", "nul\0-5@mail.example", "<p>Order 1</p>"),
+        ] {
+            match reader.prepare(&mail) {
+                Err(MailError::Malformed { key, reason }) => {
+                    assert!(!key.contains('\0'), "the key of the error holds a NUL");
+                    assert!(reason.starts_with("a NUL character in the "), "{reason}");
+                }
+                Ok(Prepared::Message(message)) => {
+                    assert!(!message.subject.contains('\0'));
+                    assert!(!message.key.as_str().contains('\0'));
+                }
+                other => panic!("{other:?}"),
+            }
+        }
     }
 
     #[test]

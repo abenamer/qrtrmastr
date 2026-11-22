@@ -139,6 +139,11 @@ def seeds() -> dict[str, bytes]:
         "mime/key-with-a-phone-in-a-longer-number": mail("<p>x</p>", message_id="r21255501991@mail.example"),
         "mime/key-with-a-percent-sign-before-a-phone": mail("<p>x</p>", message_id="x%2125550199@mail.example"),
         "mime/key-with-a-term-in-brackets": mail("<p>x</p>", message_id="a<pat.example@example.com>b@mail.example"),
+        # Three mails that the store refused before 2026-11-21: a key above its limit, and a
+        # NUL character in the header and in the body.
+        "mime/key-longer-than-its-limit": mail("<p>x</p>", message_id="k" * 999 + "@mail.example"),
+        "mime/key-with-a-nul-character": mail("<p>x</p>", message_id="r5\x00@mail.example"),
+        "mime/body-with-a-nul-character": mail("<p>Order\x00 12345678905 &#0;</p>", message_id="r6@mail.example"),
         # The classifier: a subject, an address, and headers of results, one in a line.
         "classify/freshdirect-receipt": (
             f"{RECEIPT_SUBJECT}\nservice@freshdirect.com\n"
@@ -169,6 +174,8 @@ def seeds() -> dict[str, bytes]:
         # The receipt parser: the two synthetic receipts.
         "receipt/basic-2026": basic.encode("utf-8"),
         "receipt/two-stores-2024": two_stores.encode("utf-8"),
+        # A product name above the limit of an alias key: a row that the parser does not read.
+        "receipt/name-longer-than-its-limit": basic.replace("Beefsteak Tomatoes, Large", "tomato " * 150).encode("utf-8"),
         # The JSON of the Gmail adapter: a page of the list, the last page, a message.
         "gmail_json/list-page": b'{"messages":[{"id":"18c2a9f0e1","threadId":"18c2a9f0e1"},{"id":"18c2a9f0e2","threadId":"t"}],"nextPageToken":"0123","resultSizeEstimate":2}',
         "gmail_json/list-last-page": b'{"resultSizeEstimate":0}',

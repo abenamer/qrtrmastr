@@ -10,7 +10,7 @@ use libfuzzer_sys::fuzz_target;
 use qrtrmastr::adapters::mail::mime;
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::application::ports::{MailError, MailReader, Prepared, RawMail};
-use qrtrmastr::domain::ids::MessageKey;
+use qrtrmastr::domain::ids::{MESSAGE_ID_MAX_BYTES, MessageKey};
 use qrtrmastr::domain::states::Platform;
 use qrtrmastr_fuzz::{redactor, term_in, term_left_in};
 use sha2::{Digest, Sha256};
@@ -47,6 +47,21 @@ fuzz_target!(|data: &[u8]| {
                 MessageKey::from_parts(message.key.kind(), message.key.as_str()),
                 Ok(message.key.clone())
             );
+            // Property: no text that is stored holds a NUL character, and the key is not
+            // longer than its limit. The store refuses such a text, and a mail that the
+            // store refuses stops every later import.
+            assert!(message.key.as_str().len() <= MESSAGE_ID_MAX_BYTES);
+            for text in [
+                Some(message.key.as_str()),
+                Some(message.subject.as_str()),
+                message.body_html.as_deref(),
+                message.body_text.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                assert!(!text.contains('\0'), "a NUL character would be stored");
+            }
             // Property: what is stored holds no configured term as it is.
             assert_eq!(term_in(message.key.as_str()), None, "in the key");
             assert_eq!(term_left_in(&message.subject), None, "in the subject");

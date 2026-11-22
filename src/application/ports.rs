@@ -72,8 +72,9 @@ pub enum MailError {
     /// which. It ends the run; no message follows it in the stream.
     #[error("cannot read the mail source: {0}")]
     Read(String),
-    /// One message cannot be used: its bytes are not an RFC 5322 message, or it has no `Date`
-    /// header that reads as a date. The import records it and reads on.
+    /// One message cannot be used: its bytes are not an RFC 5322 message, it has no `Date`
+    /// header that reads as a date, or a part of it that would be stored holds a NUL
+    /// character. The import records it and reads on.
     #[error("message {key} cannot be parsed as mail: {reason}")]
     Malformed {
         /// The message key, written as its kind, a colon and its text. It is the SHA-256 of
@@ -202,7 +203,8 @@ pub trait MailReader {
     /// An error is about this one message. The import records it and reads on.
     ///
     /// - [`MailError::Malformed`] when the bytes are not an RFC 5322 message, or when a mail
-    ///   of a configured sender has no `Date` header that reads as a date.
+    ///   of a configured sender has no `Date` header that reads as a date, or has a NUL
+    ///   character in its subject or in a body after redaction.
     /// - [`MailError::RedactionFailed`] when a redaction term survives in the subject, the
     ///   HTML part or the text part. Nothing of the message is returned.
     fn prepare(&self, raw: &RawMail) -> Result<Prepared, MailError>;
