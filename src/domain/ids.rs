@@ -239,8 +239,10 @@ macro_rules! row_id {
         }
 
         impl fmt::Display for $name {
+            /// The number. A width and an alignment of the caller apply, so that a table
+            /// can put the number in a column.
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}", self.0)
+                fmt::Display::fmt(&self.0, f)
             }
         }
     };
@@ -447,6 +449,15 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_row_id_takes_the_width_of_its_column() {
+        // Before 2026-11-21 the width was lost, and the numbers of the additions in the
+        // table of `qm due` were not in a column.
+        let id = AdditionId::new(7).expect("id");
+        assert_eq!(format!("{id}"), "7");
+        assert_eq!(format!("{id:>4}"), "   7");
     }
 
     #[test]

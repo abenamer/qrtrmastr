@@ -1,0 +1,17 @@
+---
+source: src/adapters/cli/wire.rs
+expression: render_habit(&empty_habit_report())
+---
+as of 0001-01-01, 0 orders
+
+ESSENTIALS: in at least a quarter of your latest orders
+none
+
+EXTRAS: the next most often in your latest orders
+none
+
+REMEMBER THIS? bought before, not in your latest orders (--seed 0)
+none
+
+YOUR ADDITIONS: qm add ITEM, qm drop NUMBER
+none

@@ -176,7 +176,8 @@ rust() {
   compile
   run cargo clippy --workspace --all-targets --locked -- -D warnings
   planted
-  run cargo test --workspace --locked --lib --bins
+  # The tests of the import use case are a target of their own and need no database.
+  run cargo test --workspace --locked --lib --bins --test import
   run cargo test --workspace --locked --doc
   run env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --no-deps --document-private-items
 }

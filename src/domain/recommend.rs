@@ -979,6 +979,132 @@ mod tests {
     }
 
     #[test]
+    fn the_gap_rule_changes_its_answer_one_day_after_each_threshold() {
+        // Bought on four Thursdays: a usual gap of 7 days. The orders are 7 days apart too.
+        let weekly: Vec<Purchase> = (0..4i64)
+            .map(|n| {
+                buy(
+                    1,
+                    &format!("1000000000{n}"),
+                    d(2026, 1, 1) + jiff::Span::new().days(n * 7),
+                    "1",
+                )
+            })
+            .collect();
+        let last = d(2026, 1, 22);
+        let status = |days: i64| {
+            let r = evaluate(
+                &weekly,
+                last + jiff::Span::new().days(days),
+                7,
+                Thresholds::default(),
+            );
+            assert_eq!(r[0].days_since, days);
+            r[0].status
+        };
+        // Not due while the next order comes on the day of the gap or before it: 0 + 7 is not
+        // more than 7. One day later the next order would pass the gap.
+        assert_eq!(status(0), Status::NotDue);
+        assert_eq!(status(1), Status::DueSoon { days_until_due: 6 });
+        // On the day of the gap the item is due and not overdue; overdue from the day after.
+        assert_eq!(status(7), Status::DueSoon { days_until_due: 0 });
+        assert_eq!(status(8), Status::Overdue { days_overdue: 1 });
+        // Lapsed after three usual gaps, 21 days, and not on the 21st day.
+        assert_eq!(status(21), Status::Overdue { days_overdue: 14 });
+        assert_eq!(status(22), Status::Lapsed);
+
+        // Bought twice, 14 days apart: tentative, and lapsed after three gaps of 14 days.
+        let twice = vec![
+            buy(2, "10000000001", d(2026, 1, 1), "1"),
+            buy(2, "10000000002", d(2026, 1, 15), "1"),
+        ];
+        let status = |days: i64| {
+            evaluate(
+                &twice,
+                d(2026, 1, 15) + jiff::Span::new().days(days),
+                7,
+                Thresholds::default(),
+            )[0]
+            .status
+        };
+        assert_eq!(status(41), Status::Tentative);
+        assert_eq!(status(42), Status::Tentative);
+        assert_eq!(status(43), Status::Lapsed);
+    }
+
+    #[test]
+    fn a_stock_needs_three_purchase_days_and_three_usual_amounts() {
+        // Two units on two days, 14 days apart, then six units 14 days later: the last
+        // purchase is three usual amounts, so it lasts three usual gaps, 42 days.
+        let history = |last_units: &str| {
+            vec![
+                buy(1, "10000000001", d(2026, 1, 1), "2"),
+                buy(1, "10000000002", d(2026, 1, 15), "2"),
+                buy(1, "10000000003", d(2026, 1, 29), last_units),
+            ]
+        };
+        let until = |purchases: &[Purchase]| {
+            let refs: Vec<&Purchase> = purchases.iter().collect();
+            stocked_until(&refs)
+        };
+        assert_eq!(until(&history("6")), Some(d(2026, 3, 12)));
+        // One unit less than three usual amounts is no stock.
+        assert_eq!(until(&history("5")), None);
+        assert_eq!(until(&history("5.999")), None);
+        // Two purchase days give no usual amount, whatever the last amount is.
+        assert_eq!(until(&history("6")[1..]), None);
+
+        // The habit rule shows the stock until the day before it runs out, and not on that day.
+        let stocked = |as_of: Date| habit(&history("6"), as_of)[0].stocked_until;
+        assert_eq!(stocked(d(2026, 3, 11)), Some(d(2026, 3, 12)));
+        assert_eq!(stocked(d(2026, 3, 12)), None);
+        assert_eq!(stocked(d(2026, 3, 13)), None);
+    }
+
+    #[test]
+    fn the_shuffle_of_the_reminders_is_one_step_of_splitmix64() {
+        // The values come from the definition of the step, computed apart from this code. A
+        // change of the step would change which products `qm due` reminds of on a given day.
+        let product = |id: i64| ProductId::new(id).expect("id");
+        assert_eq!(mix(0, product(1)), 0x910a_2dec_8902_5cc1);
+        assert_eq!(mix(1, product(10)), 0x50f5_647d_2380_309d);
+        assert_eq!(mix(12345, product(7)), 0xf91b_e0a7_daab_07fa);
+    }
+
+    #[test]
+    fn ranking_goes_by_the_status_before_the_days_since_the_last_purchase() {
+        // Each item was bought longer ago than the one that ranks before it, so an order by
+        // the days alone would be the reverse of the expected one.
+        let item = |id: i64, days_since: i64, status: Status| Recommendation {
+            product: ProductId::new(id).expect("id"),
+            times_bought: 3,
+            usual_gap_days: Some(7),
+            last_bought: d(2026, 1, 1),
+            days_since,
+            typical_quantity: Quantity::parse("1").expect("q"),
+            last_price: Money::ZERO,
+            status,
+        };
+        let mut r = vec![
+            item(6, 60, Status::BoughtOnce),
+            item(5, 50, Status::Lapsed),
+            item(4, 40, Status::NotDue),
+            item(3, 30, Status::Tentative),
+            item(2, 20, Status::DueSoon { days_until_due: 1 }),
+            item(1, 10, Status::Overdue { days_overdue: 1 }),
+            // Among the overdue the larger number of days overdue is first, and among the
+            // due soon the smaller number of days until due.
+            item(7, 5, Status::Overdue { days_overdue: 9 }),
+            item(8, 25, Status::DueSoon { days_until_due: 0 }),
+            // The same status: the one bought longer ago is first.
+            item(9, 45, Status::NotDue),
+        ];
+        rank(&mut r);
+        let order: Vec<i64> = r.iter().map(|x| x.product.get()).collect();
+        assert_eq!(order, vec![7, 1, 8, 2, 3, 9, 4, 5, 6]);
+    }
+
+    #[test]
     fn ranking_puts_the_most_overdue_first() {
         let mut r = vec![
             Recommendation {

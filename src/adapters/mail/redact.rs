@@ -936,6 +936,54 @@ mod tests {
     }
 
     #[test]
+    fn the_smallest_block_with_a_heading_is_removed_and_the_blocks_around_it_stay() {
+        // The outer block carries the heading too, through its child. Only the inner one
+        // goes: a receipt is one large table, and its items are beside the address.
+        let r = redactor();
+        let out = r
+            .redact_html(
+                "<div><p>Milk 2 $5.79</p><div><p>Eggs 1 $4.29</p>\
+                 <p>Delivery Address: somewhere</p></div><p>Bread 1 $3.49</p></div>",
+            )
+            .expect("redacts");
+        assert!(out.contains("Milk 2 $5.79"), "{out}");
+        assert!(out.contains("Eggs 1 $4.29"), "{out}");
+        assert!(out.contains("Bread 1 $3.49"), "{out}");
+        assert!(!out.contains("somewhere"), "{out}");
+        assert!(!out.contains("Delivery Address"), "{out}");
+        // A block with the heading in its own text goes whole, also when a block inside it
+        // has no heading.
+        let out = r
+            .redact_html("<p>Milk</p><div>Delivery Address: somewhere <span>else</span></div>")
+            .expect("redacts");
+        assert!(out.contains("Milk"), "{out}");
+        assert!(!out.contains("somewhere") && !out.contains("else"), "{out}");
+    }
+
+    #[test]
+    fn a_form_that_the_passes_leave_is_refused_by_a_check_of_the_assertion_alone() {
+        // The letters of a name with a tag inside the first word: no pass replaces this form.
+        // The markup still holds the tag, so the pattern of the pass does not match; the two
+        // checks that are the assertion's own read the text without its tags.
+        let r = redactor();
+        assert_eq!(
+            r.redact_html("<p>P<b>a</b>t Example</p>"),
+            Err(RedactionError::Survived {
+                kind: "name",
+                check: CHECK_SEQUENCE
+            })
+        );
+        // The control: the same words without the name are a result.
+        assert!(r.redact_html("<p>P<b>e</b>t Example</p>").is_ok());
+        // The view of the assertion: tags gone, spacing and case made one.
+        assert_eq!(
+            text_view("<p>Pat <b>EXAMPLE</b>&nbsp;x</p>"),
+            text_view("pat example x")
+        );
+        assert_ne!(text_view("<p>Pat</p>"), text_view("<p>Pet</p>"));
+    }
+
+    #[test]
     fn the_assertion_is_independent_of_the_passes() {
         let r = redactor();
         assert_eq!(

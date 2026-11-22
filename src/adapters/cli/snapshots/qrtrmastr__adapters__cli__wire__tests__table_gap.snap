@@ -1,0 +1,12 @@
+---
+source: src/adapters/cli/wire.rs
+expression: render_due(&due_report())
+---
+as of 2026-03-03, 510 orders, usual gap between orders 7 days
+product                                          bought      gap        last  since   qty  status
+Bananas "ripe" & <green>                             12        -  2026-02-10    21d   1.5  bought once
+Organic Whole Milk (1/2 gallon)                      12      14d  2026-02-10    -4d   1.5  tentative
+Bananas "ripe" & <green>                             12      14d  2026-02-10    21d   1.5  lapsed
+Organic Whole Milk (1/2 gallon)                      12      14d  2026-02-10    21d   1.5  overdue by 3d
+Bananas "ripe" & <green>                             12      14d  2026-02-10    21d   1.5  due in 0d
+Organic Whole Milk (1/2 gallon)                      12      14d  2026-02-10    21d   1.5  not due

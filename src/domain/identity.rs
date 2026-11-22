@@ -129,6 +129,36 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    #[test]
+    fn each_way_to_write_a_unit_gives_one_unit() {
+        for (written, normalized) in [
+            ("1.5 Liters", "1.5 l"),
+            ("2 litres", "2 l"),
+            ("1L", "1 l"),
+            ("250 grams", "250 g"),
+            ("500g", "500 g"),
+            ("1 Gram", "1 g"),
+            ("750 Milliliters", "750 ml"),
+            ("2 kilograms", "2 kg"),
+            ("8 Fluid Ounces", "8 fl oz"),
+            ("3 pounds", "3 lb"),
+            ("6 pk", "6 pk"),
+            ("6 Pack", "6 pk"),
+            ("12 count", "12 ct"),
+            ("2 pieces", "2 pc"),
+            ("1 dozen", "1 doz"),
+            ("3 quarts", "3 qt"),
+            ("2 pints", "2 pt"),
+            ("1 gallon", "1 gal"),
+            ("8 ounces", "8 oz"),
+            ("2 pcs", "2 pc"),
+            ("1 doz", "1 doz"),
+            ("4 each", "4 ea"),
+        ] {
+            assert_eq!(normalize_size(written), normalized, "{written}");
+        }
+    }
+
     #[rstest]
     #[case(
         "Lactaid 100% Lactose-Free Whole Milk, Carton - (1/2 gallon)",

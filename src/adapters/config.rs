@@ -390,6 +390,42 @@ mod tests {
         );
     }
 
+    fn settings(text: &str) -> Settings {
+        Settings {
+            database_url: SecretString::from("postgres://unused".to_owned()),
+            db_max_connections: 1,
+            config_path: PathBuf::from("/config/config.toml"),
+            file: toml::from_str(text).expect("parses"),
+            gmail: None,
+            state_dir: None,
+        }
+    }
+
+    #[test]
+    fn the_terms_of_the_file_are_the_terms_that_a_command_gets() {
+        let with = settings("[redaction]\nnames = [\"Pat Example\"]\nphones = [\"2125550199\"]\n");
+        let terms = with.redaction_terms().expect("the section is there");
+        assert_eq!(terms.names, vec!["Pat Example".to_owned()]);
+        assert_eq!(terms.phones, vec!["2125550199".to_owned()]);
+        assert!(terms.emails.is_empty());
+        // Without the section a command that redacts gets an error with the path, and no
+        // empty set of terms.
+        let without = settings("[recommend]\nmin_purchases = 4\n");
+        assert!(matches!(
+            without.redaction_terms(),
+            Err(ConfigError::NoRedactionTerms(path)) if path.as_os_str() == "/config/config.toml"
+        ));
+        // The two numbers of the gap rule come from the file, not from the defaults.
+        let file = settings("[recommend]\nmin_purchases = 4\nlapsed_after_gaps = 5\n").file;
+        assert_eq!(
+            file.recommend.thresholds(),
+            Thresholds {
+                min_purchases: 4,
+                lapsed_after_gaps: 5
+            }
+        );
+    }
+
     #[test]
     fn the_missing_redaction_error_shows_the_section_to_add_and_where() {
         let text = ConfigError::NoRedactionTerms(PathBuf::from("/config/config.toml")).to_string();

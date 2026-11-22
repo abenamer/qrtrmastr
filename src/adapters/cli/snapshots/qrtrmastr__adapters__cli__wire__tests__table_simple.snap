@@ -1,0 +1,8 @@
+---
+source: src/adapters/cli/wire.rs
+expression: render_simple(&simple_report())
+---
+12 orders; items in at least half of them and missing from the last:
+product                                            orders   qty
+Organic Whole Milk (1/2 gallon)                      9/12     2
+Bananas "ripe" & <green>                             6/12 0.125

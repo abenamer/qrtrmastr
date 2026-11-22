@@ -124,6 +124,17 @@ Other rules:
 * A new reader of outside bytes gets a target in the same change: a file in `fuzz/fuzz_targets/`, a `[[bin]]` entry in `fuzz/Cargo.toml`, a seed in `scripts/fuzz_seeds.py`, and its name in `FUZZ_TARGETS` of `scripts/check.sh` and in the test of the script.
 * Use the made-up person of `fuzz/src/lib.rs` in a target. Never a real term, and never a real mail as an input.
 
+## Develop: mutation testing
+
+`cargo mutants` changes the program in one small place at a time, for example `>` to `>=`, and runs the tests on each change (REAS-TEST-001). A change that no test notices is a mutant that was missed: a rule that no test holds, or a change that makes no difference. It is not a group of `scripts/check.sh` and no job of CI runs it: a run over the whole program with one job was not made; by the rate of the partial runs it takes about an hour.
+
+1. Once: `cargo install cargo-mutants --version 27.1.0 --locked`. `qm` itself does not need it.
+2. With `DATABASE_URL` set, so that the integration tests run too: `cargo mutants --jobs 1`. The tool works on copies of the tree and writes its result to `mutants.out/`, which git ignores. Use one job with a database: the test library gives the database of a test a name that it makes from the path of the test, the same name in each copy of the tree, and drops and makes that database when the test starts. Two jobs on one server therefore take the database of each other, a test fails, and a mutant counts as caught that no test caught. The run of 2026-11-21 used four jobs first; 69 of its catches had such a failure in their log, the 59 with no other failure and one more were run again with one job, and 20 of them were missed.
+3. Before a review, for the lines of a change only: write the change to a file outside the repository, `git diff main > /tmp/change.diff`, then `cargo mutants --in-diff /tmp/change.diff`.
+4. Read `mutants.out/missed.txt`. For each line, add the test that holds the rule, or say in the log why no test can: the mutant changes nothing, or the code runs only in the composition root.
+
+The log entry of step 10, of 2026-11-21, has that run and what was done with each mutant that it missed ([the log](/log.md)).
+
 ## Develop: the checks
 
 `scripts/check.sh` is the one list of the checks (REAS-DOC-006). CI and the Stop hook call its groups. To add a check, add it to a group of the script.

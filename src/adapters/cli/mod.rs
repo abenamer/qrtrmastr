@@ -404,7 +404,7 @@ pub fn render_due(report: &DueReport) -> String {
             truncate(&label(&row.product), 48),
             r.times_bought,
             r.usual_gap_days.map_or("-".to_owned(), |g| format!("{g}d")),
-            r.last_bought,
+            r.last_bought.to_string(),
             format!("{}d", r.days_since),
             r.typical_quantity,
             status_text(r.status)
@@ -429,7 +429,7 @@ fn habit_table(out: &mut String, rows: &[crate::application::recommend::HabitRow
             truncate(&label(&row.product), 56),
             format!("{}/{}", r.in_recent, r.recent_orders),
             format!("{}/{}", r.in_long, r.long_orders),
-            r.last_bought,
+            r.last_bought.to_string(),
             r.typical_quantity
         ));
     }
@@ -463,7 +463,7 @@ pub fn render_habit(report: &HabitReport) -> String {
             "{:<56} {:>8} {:>11}\n",
             truncate(&label(&row.product), 56),
             row.reminder.orders_with_product,
-            row.reminder.last_bought
+            row.reminder.last_bought.to_string()
         ));
     }
     out.push_str("\nYOUR ADDITIONS: qm add ITEM, qm drop NUMBER\n");
@@ -472,11 +472,11 @@ pub fn render_habit(report: &HabitReport) -> String {
     }
     for addition in &report.additions {
         out.push_str(&format!(
-            "{:>4}  {:<50} {:<16} {:>11}\n",
+            "{:>4}  {:<50} {:<24} {:>11}\n",
             addition.id,
             truncate(&terminal_text(addition.item.as_str()), 50),
             addition.reason.phrase(),
-            addition.added_on
+            addition.added_on.to_string()
         ));
     }
     if !report.stocked.is_empty() {
@@ -799,6 +799,83 @@ mod tests {
             "a\\u{1b}[2J\nb\\u{d}c\n\\u{202e}d"
         );
         assert_eq!(terminal_lines(""), "");
+    }
+
+    #[test]
+    fn the_last_line_of_the_import_report_names_conflicts_only_when_there_are_some() {
+        let parse = |conflicts| ParseReport {
+            pending: 9,
+            left_for_later: 5,
+            parsed: 1,
+            partial: 2,
+            failed: 3,
+            unsupported: 4,
+            anomalies: 6,
+            conflicts,
+        };
+        let last_line = |conflicts| {
+            render_import(&ImportReport::default(), &parse(conflicts))
+                .lines()
+                .last()
+                .expect("a line")
+                .to_owned()
+        };
+        let counts = "freshdirect receipts parsed 1, partial 2, failed 3, unsupported 4, left for later 5, anomalies 6";
+        assert_eq!(last_line(0), counts);
+        assert_eq!(last_line(1), format!("{counts}, conflicts 1"));
+        assert_eq!(last_line(2), format!("{counts}, conflicts 2"));
+    }
+
+    #[test]
+    fn the_table_of_the_simple_rule_has_a_row_for_each_product_or_says_none() {
+        use crate::application::recommend::SimpleRow;
+        use crate::domain::ids::ProductId;
+        use crate::domain::money::{Money, Quantity};
+        use crate::domain::recommend::SimpleRecommendation;
+
+        let none = render_simple(&SimpleReport {
+            orders: 12,
+            rows: Vec::new(),
+        });
+        assert_eq!(
+            none,
+            "12 orders; items in at least half of them and missing from the last:\nnone\n"
+        );
+        let product = ProductId::new(7).expect("id");
+        let one = render_simple(&SimpleReport {
+            orders: 12,
+            rows: vec![SimpleRow {
+                product: crate::application::ports::ProductLabel {
+                    id: product,
+                    display_name: "Whole Milk".to_owned(),
+                    size_text: Some("1/2 gallon".to_owned()),
+                    sold_by: crate::domain::states::SoldBy::Each,
+                    department: Some("Dairy".to_owned()),
+                    latest_raw_name: "Whole Milk - (1/2 gallon)".to_owned(),
+                },
+                recommendation: SimpleRecommendation {
+                    product,
+                    orders_with_product: 9,
+                    orders_total: 12,
+                    typical_quantity: Quantity::parse("2").expect("a quantity"),
+                    last_price: Money::from_cents(579),
+                },
+            }],
+        });
+        let lines: Vec<&str> = one.lines().collect();
+        assert_eq!(lines.len(), 3, "{one}");
+        assert_eq!(
+            lines[0],
+            "12 orders; items in at least half of them and missing from the last:"
+        );
+        assert_eq!(
+            lines[1],
+            format!("{:<48} {:>8} {:>5}", "product", "orders", "qty")
+        );
+        assert_eq!(
+            lines[2],
+            format!("{:<48} {:>8} {:>5}", "Whole Milk (1/2 gallon)", "9/12", "2")
+        );
     }
 
     #[test]

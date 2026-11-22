@@ -109,6 +109,8 @@ mod tests {
     #[case("8oz", PackDimension::Weight, "8")]
     #[case("0.5 lb, Thin", PackDimension::Weight, "8")]
     #[case("64fl oz", PackDimension::Volume, "64")]
+    #[case("375ml", PackDimension::Volume, "12.680250")]
+    #[case("1 pint", PackDimension::Volume, "16")]
     #[case("1/2 gallon", PackDimension::Volume, "64")]
     #[case("1.5L", PackDimension::Volume, "50.721")]
     #[case("1 quart", PackDimension::Volume, "32")]
