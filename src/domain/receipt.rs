@@ -5,7 +5,7 @@
 use jiff::civil::Date;
 
 use super::ids::OrderNumber;
-use super::money::{Money, Quantity};
+use super::money::{Money, MoneyError, Quantity};
 use super::states::SoldBy;
 
 /// One cent: the tolerance for every reconciliation check, because the receipt rounds each
@@ -115,8 +115,8 @@ pub struct LineItem {
     /// quantity of a line without a weight.
     pub qty_second: Quantity,
     /// The weight cell. `None` when the cell is empty, and also when it does not read as a
-    /// positive number of at most three decimal places and one of the units `lb`, `lbs`, `oz`,
-    /// `kg` and `g`. The billed quantity is then the second number of the quantity cell.
+    /// positive number below 10,000,000 of at most three decimal places and one of the units
+    /// `lb`, `lbs`, `oz`, `kg` and `g`. The billed quantity is then the second number of the quantity cell.
     pub weight: Option<Weight>,
     /// The unit price cell. `None` when the cell is empty or does not read as a price for one
     /// piece or one pound; [`reconcile`] then has nothing to check the line against.
@@ -251,15 +251,56 @@ impl Reconciliation {
     }
 }
 
+/// Whether two amounts are at most the tolerance apart.
+fn within_tolerance(one: Money, other: Money) -> Result<bool, MoneyError> {
+    let gap = one.distance(other)?;
+    Ok(gap.checked_cmp(tolerance())? != std::cmp::Ordering::Greater)
+}
+
 /// Checks the receipt against itself: the lines sum to the subtotal, the subtotal and its
 /// additions sum to the total, and each priced line is unit price times billed quantity. A line
 /// with an options price or a special-price flag is exempt from the last check, because the
 /// receipt does not print enough to recompute it.
-pub fn reconcile(receipt: &Receipt) -> Reconciliation {
-    let line_sum = receipt.lines.iter().fold(Money::ZERO, |sum, line| {
-        sum.saturating_add(line.final_price)
+///
+/// # Errors
+///
+/// A receipt whose amounts cannot be added has no reconciliation; the caller records it as
+/// a receipt that could not be read.
+///
+/// - [`MoneyError::Overflow`] when a sum, a product or a gap of the amounts is outside the
+///   range of an amount, 99,999,999.99.
+/// - [`MoneyError::CurrencyMismatch`] when an amount of the receipt is not in the currency of
+///   its subtotal, or the receipt is not in US dollars, the currency of the tolerance. No
+///   parser gives such a receipt today.
+pub fn reconcile(receipt: &Receipt) -> Result<Reconciliation, MoneyError> {
+    // Every amount of the receipt is in the currency of its subtotal, also the amounts that
+    // no check below reads: the options price of a line, and the unit price of a line that
+    // is exempt.
+    let zero = Money::zero(receipt.totals.subtotal.currency());
+    let of_the_lines = receipt.lines.iter().flat_map(|line| {
+        [
+            Some(line.final_price),
+            line.unit_price.map(|unit| unit.amount),
+            line.options_price,
+        ]
     });
-    let subtotal_matches = line_sum.abs_diff(receipt.totals.subtotal) <= tolerance();
+    let of_the_totals = [
+        Some(receipt.totals.total),
+        receipt.totals.tax,
+        receipt.totals.bottle_deposit,
+        receipt.totals.delivery_fee,
+        receipt.totals.service_fee,
+        receipt.totals.tip,
+    ];
+    for amount in of_the_lines.chain(of_the_totals).flatten() {
+        zero.checked_add(amount)?;
+    }
+
+    let line_sum = receipt
+        .lines
+        .iter()
+        .try_fold(zero, |sum, line| sum.checked_add(line.final_price))?;
+    let subtotal_matches = within_tolerance(line_sum, receipt.totals.subtotal)?;
 
     let additions = [
         receipt.totals.tax,
@@ -271,30 +312,33 @@ pub fn reconcile(receipt: &Receipt) -> Reconciliation {
     let expected_total = additions
         .iter()
         .flatten()
-        .fold(receipt.totals.subtotal, |sum, add| sum.saturating_add(*add));
-    let total_matches = expected_total.abs_diff(receipt.totals.total) <= tolerance();
+        .try_fold(receipt.totals.subtotal, |sum, add| sum.checked_add(*add))?;
+    let total_matches = within_tolerance(expected_total, receipt.totals.total)?;
 
-    let line_issues = receipt
-        .lines
-        .iter()
-        .filter(|line| line.options_price.is_none() && !line.flags.special)
-        .filter_map(|line| {
-            let unit = line.unit_price?;
-            let expected = unit.amount.times(line.billed_qty()).ok()?;
-            (expected.abs_diff(line.final_price) > tolerance()).then_some(LineIssue {
+    let mut line_issues = Vec::new();
+    for line in &receipt.lines {
+        let Some(unit) = line.unit_price else {
+            continue;
+        };
+        if line.options_price.is_some() || line.flags.special {
+            continue;
+        }
+        let expected = unit.amount.times(line.billed_qty())?;
+        if !within_tolerance(expected, line.final_price)? {
+            line_issues.push(LineIssue {
                 line_no: line.line_no,
                 expected,
                 printed: line.final_price,
-            })
-        })
-        .collect();
+            });
+        }
+    }
 
-    Reconciliation {
+    Ok(Reconciliation {
         line_sum,
         subtotal_matches,
         total_matches,
         line_issues,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -304,9 +348,9 @@ mod tests {
     fn line(
         no: u32,
         qty: &str,
-        unit: Option<(i64, PricePer)>,
+        unit: Option<(i32, PricePer)>,
         weight: Option<&str>,
-        final_cents: i64,
+        final_cents: i32,
     ) -> LineItem {
         LineItem {
             line_no: no,
@@ -329,7 +373,7 @@ mod tests {
         }
     }
 
-    fn receipt(lines: Vec<LineItem>, subtotal: i64, total: i64) -> Receipt {
+    fn receipt(lines: Vec<LineItem>, subtotal: i32, total: i32) -> Receipt {
         Receipt {
             order_number: OrderNumber::parse("12345678901").expect("order number"),
             delivery_date: jiff::civil::date(2026, 3, 3),
@@ -356,7 +400,7 @@ mod tests {
             line(2, "2", Some((299, PricePer::Pound)), Some("1.06"), 317),
             line(3, "2", Some((400, PricePer::Each)), None, 800),
         ];
-        let r = reconcile(&receipt(lines, 2854, 2854 + 100 + 599 + 500));
+        let r = reconcile(&receipt(lines, 2854, 2854 + 100 + 599 + 500)).expect("sums");
         assert_eq!(r.line_sum, Money::from_cents(2854));
         assert!(r.subtotal_matches);
         assert!(r.total_matches);
@@ -367,7 +411,7 @@ mod tests {
     #[test]
     fn a_wrong_line_price_and_a_wrong_subtotal_are_both_reported() {
         let lines = vec![line(1, "3", Some((579, PricePer::Each)), None, 1700)];
-        let r = reconcile(&receipt(lines, 1737, 1737 + 100 + 599 + 500));
+        let r = reconcile(&receipt(lines, 1737, 1737 + 100 + 599 + 500)).expect("sums");
         assert!(!r.subtotal_matches, "{r:?}");
         assert!(r.total_matches);
         assert_eq!(
@@ -385,7 +429,7 @@ mod tests {
     fn a_special_price_line_is_exempt_from_the_unit_check() {
         let mut special = line(1, "2", Some((400, PricePer::Each)), None, 600);
         special.flags.special = true;
-        let r = reconcile(&receipt(vec![special], 600, 600 + 100 + 599 + 500));
+        let r = reconcile(&receipt(vec![special], 600, 600 + 100 + 599 + 500)).expect("sums");
         assert!(r.line_issues.is_empty());
         assert!(r.reconciled());
     }
@@ -397,8 +441,16 @@ mod tests {
             line(2, "1", Some((333, PricePer::Each)), None, 333),
             line(3, "1", Some((333, PricePer::Each)), None, 333),
         ];
-        assert!(reconcile(&receipt(lines.clone(), 1000, 1000 + 1199)).subtotal_matches);
-        assert!(!reconcile(&receipt(lines, 1001, 1001 + 1199)).subtotal_matches);
+        assert!(
+            reconcile(&receipt(lines.clone(), 1000, 1000 + 1199))
+                .expect("sums")
+                .subtotal_matches
+        );
+        assert!(
+            !reconcile(&receipt(lines, 1001, 1001 + 1199))
+                .expect("sums")
+                .subtotal_matches
+        );
     }
 
     #[test]
@@ -418,5 +470,140 @@ mod tests {
             .as_letters(),
             vec!["T", "D"]
         );
+    }
+
+    #[test]
+    fn a_gap_of_one_cent_is_within_the_tolerance_and_two_cents_are_not() {
+        let lines = vec![line(1, "1", None, None, 1000)];
+        // Below, at and above the tolerance, on each side of the subtotal and of the total.
+        for (subtotal, matches) in [
+            (998, false),
+            (999, true),
+            (1000, true),
+            (1001, true),
+            (1002, false),
+        ] {
+            let r = reconcile(&receipt(lines.clone(), subtotal, subtotal + 1199)).expect("sums");
+            assert_eq!(r.subtotal_matches, matches, "subtotal {subtotal}");
+            assert!(r.total_matches, "subtotal {subtotal}");
+        }
+        for (total, matches) in [
+            (2197, false),
+            (2198, true),
+            (2199, true),
+            (2200, true),
+            (2201, false),
+        ] {
+            let r = reconcile(&receipt(lines.clone(), 1000, total)).expect("sums");
+            assert_eq!(r.total_matches, matches, "total {total}");
+        }
+        // A line: 2.99 a pound times 1.06 pounds is 3.17.
+        for (printed, issue) in [
+            (315, true),
+            (316, false),
+            (317, false),
+            (318, false),
+            (319, true),
+        ] {
+            let priced = vec![line(
+                1,
+                "1",
+                Some((299, PricePer::Pound)),
+                Some("1.06"),
+                printed,
+            )];
+            let r = reconcile(&receipt(priced, printed, printed + 1199)).expect("sums");
+            assert_eq!(!r.line_issues.is_empty(), issue, "printed {printed}");
+        }
+    }
+
+    #[test]
+    fn amounts_that_cannot_be_added_give_an_error_and_no_reconciliation() {
+        let most = Money::parse("$99,999,999.99").expect("the largest amount");
+        // Two lines whose sum is outside the range of an amount. Before 2026-11-21 such a sum
+        // was an amount, and the receipt was stored as one that does not reconcile.
+        let mut two = vec![line(1, "1", None, None, 1), line(2, "1", None, None, 1)];
+        for item in &mut two {
+            item.final_price = most;
+        }
+        assert_eq!(
+            reconcile(&receipt(two, 1000, 2199)),
+            Err(MoneyError::Overflow)
+        );
+        // A subtotal at the end of the range and additions that pass it.
+        let mut far = receipt(vec![line(1, "1", None, None, 1000)], 1000, 2199);
+        far.totals.subtotal = most;
+        assert_eq!(reconcile(&far), Err(MoneyError::Overflow));
+        // A unit price whose product with the quantity is outside the range.
+        let mut priced = vec![line(1, "2", Some((1, PricePer::Each)), None, 1000)];
+        if let Some(unit) = priced.first_mut().and_then(|item| item.unit_price.as_mut()) {
+            unit.amount = most;
+        }
+        assert_eq!(
+            reconcile(&receipt(priced, 1000, 2199)),
+            Err(MoneyError::Overflow)
+        );
+        // The control: one line of the largest amount, alone, is a receipt with its sums.
+        let mut one = receipt(vec![line(1, "1", None, None, 1)], 1, 1);
+        one.totals.subtotal = most;
+        one.totals.total = most;
+        one.totals.tax = None;
+        one.totals.delivery_fee = None;
+        one.totals.tip = None;
+        if let Some(item) = one.lines.first_mut() {
+            item.final_price = most;
+        }
+        assert!(reconcile(&one).expect("sums").reconciled());
+    }
+
+    #[test]
+    fn a_receipt_in_two_currencies_gives_an_error_and_no_reconciliation() {
+        use crate::domain::money::Currency;
+        use rust_decimal::Decimal;
+
+        let euro = Currency::parse("EUR").expect("a code");
+        let euros = |cents: i64| Money::new(Decimal::new(cents, 2), euro).expect("an amount");
+        let mismatch = |left, right| Err(MoneyError::CurrencyMismatch { left, right });
+        // A line in euros on a receipt in dollars.
+        let mut mixed = receipt(vec![line(1, "1", None, None, 1000)], 1000, 2199);
+        if let Some(item) = mixed.lines.first_mut() {
+            item.final_price = euros(1000);
+        }
+        assert_eq!(reconcile(&mixed), mismatch(Currency::USD, euro));
+        // A tip in euros.
+        let mut tipped = receipt(vec![line(1, "1", None, None, 1000)], 1000, 2199);
+        tipped.totals.tip = Some(euros(500));
+        assert_eq!(reconcile(&tipped), mismatch(Currency::USD, euro));
+        // An options price in euros, and the unit price of a line with the special-price
+        // flag: no check of the sums reads them, and the currency check does.
+        let mut option = receipt(vec![line(1, "1", None, None, 1000)], 1000, 2199);
+        if let Some(item) = option.lines.first_mut() {
+            item.options_price = Some(euros(100));
+        }
+        assert_eq!(reconcile(&option), mismatch(Currency::USD, euro));
+        let mut exempt = receipt(
+            vec![line(1, "1", Some((1000, PricePer::Each)), None, 1000)],
+            1000,
+            2199,
+        );
+        if let Some(item) = exempt.lines.first_mut() {
+            item.flags.special = true;
+            if let Some(unit) = item.unit_price.as_mut() {
+                unit.amount = euros(1000);
+            }
+        }
+        assert_eq!(reconcile(&exempt), mismatch(Currency::USD, euro));
+        // A receipt that is in euros throughout has its sums, and then meets the tolerance,
+        // which is one cent of a dollar.
+        let mut whole = receipt(vec![line(1, "1", None, None, 1000)], 1000, 2199);
+        whole.totals.subtotal = euros(1000);
+        whole.totals.total = euros(1000);
+        whole.totals.tax = None;
+        whole.totals.delivery_fee = None;
+        whole.totals.tip = None;
+        if let Some(item) = whole.lines.first_mut() {
+            item.final_price = euros(1000);
+        }
+        assert_eq!(reconcile(&whole), mismatch(euro, Currency::USD));
     }
 }

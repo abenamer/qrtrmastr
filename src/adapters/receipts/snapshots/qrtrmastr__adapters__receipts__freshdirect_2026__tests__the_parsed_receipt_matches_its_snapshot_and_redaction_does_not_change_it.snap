@@ -30,14 +30,14 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        5.79,
+                        5.79 USD,
                     ),
                     per: Each,
                 },
             ),
             options_price: None,
             final_price: Money(
-                17.37,
+                17.37 USD,
             ),
             flags: Flags {
                 taxable: false,
@@ -64,14 +64,14 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        6.49,
+                        6.49 USD,
                     ),
                     per: Each,
                 },
             ),
             options_price: None,
             final_price: Money(
-                6.49,
+                6.49 USD,
             ),
             flags: Flags {
                 taxable: false,
@@ -105,14 +105,14 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        2.99,
+                        2.99 USD,
                     ),
                     per: Pound,
                 },
             ),
             options_price: None,
             final_price: Money(
-                3.17,
+                3.17 USD,
             ),
             flags: Flags {
                 taxable: false,
@@ -139,14 +139,14 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        4.00,
+                        4.00 USD,
                     ),
                     per: Each,
                 },
             ),
             options_price: None,
             final_price: Money(
-                8.00,
+                8.00 USD,
             ),
             flags: Flags {
                 taxable: false,
@@ -173,14 +173,14 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        4.99,
+                        4.99 USD,
                     ),
                     per: Each,
                 },
             ),
             options_price: None,
             final_price: Money(
-                4.99,
+                4.99 USD,
             ),
             flags: Flags {
                 taxable: true,
@@ -214,18 +214,18 @@ Receipt {
             unit_price: Some(
                 UnitPrice {
                     amount: Money(
-                        12.99,
+                        12.99 USD,
                     ),
                     per: Pound,
                 },
             ),
             options_price: Some(
                 Money(
-                    1.00,
+                    1.00 USD,
                 ),
             ),
             final_price: Money(
-                7.75,
+                7.75 USD,
             ),
             flags: Flags {
                 taxable: false,
@@ -245,35 +245,35 @@ Receipt {
     ],
     totals: Totals {
         subtotal: Money(
-            47.77,
+            47.77 USD,
         ),
         tax: Some(
             Money(
-                0.44,
+                0.44 USD,
             ),
         ),
         bottle_deposit: Some(
             Money(
-                0.30,
+                0.30 USD,
             ),
         ),
         delivery_fee: Some(
             Money(
-                5.99,
+                5.99 USD,
             ),
         ),
         service_fee: Some(
             Money(
-                2.00,
+                2.00 USD,
             ),
         ),
         tip: Some(
             Money(
-                6.00,
+                6.00 USD,
             ),
         ),
         total: Money(
-            62.50,
+            62.50 USD,
         ),
     },
 }

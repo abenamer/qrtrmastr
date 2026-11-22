@@ -30,8 +30,8 @@ pub struct ParseReport {
     pub parsed: usize,
     /// How many receipts gave an order that does not reconcile: outcome `partial`.
     pub partial: usize,
-    /// How many receipts have no stored HTML body, or have a layout that a parser recognized
-    /// and could not read: outcome `failed`.
+    /// How many receipts have no stored HTML body, have a layout that a parser recognized and
+    /// could not read, or have amounts that cannot be added: outcome `failed`.
     pub failed: usize,
     /// How many receipts have a layout that no parser recognizes: outcome `unsupported`.
     pub unsupported: usize,
@@ -142,7 +142,25 @@ where
             }
             ParseAttempt::Parsed { parser, receipt } => {
                 let mut receipt = *receipt;
-                let reconciliation = reconcile(&receipt);
+                // A receipt whose amounts cannot be added was not read: it is a failed
+                // attempt, like a receipt without a total, and no order is stored.
+                let reconciliation = match reconcile(&receipt) {
+                    Ok(reconciliation) => reconciliation,
+                    Err(error) => {
+                        count(&mut report.failed);
+                        return self
+                            .finish(
+                                message,
+                                parser,
+                                ParseOutcome::Failed,
+                                Some(format!(
+                                    "the amounts of the receipt cannot be checked: {error}"
+                                )),
+                                None,
+                            )
+                            .await;
+                    }
+                };
                 for issue in &reconciliation.line_issues {
                     receipt.anomalies.push(Anomaly {
                         row_index: 0,

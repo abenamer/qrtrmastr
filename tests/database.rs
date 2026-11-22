@@ -240,6 +240,139 @@ async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPo
     assert_eq!(count(&pool, "select count(*) from raw_messages").await, 2);
 }
 
+/// The synthetic receipt with the final prices of its first two lines replaced by `price`.
+fn receipt_mail_with_two_prices(order: &str, message_id: &str, price: &str) -> RawMail {
+    let mail = receipt_mail(order, "Tuesday, March 3, 2026", message_id);
+    let text = String::from_utf8(mail.bytes).expect("the mail is text");
+    let changed = text
+        .replace("<td>$17.37</td>", &format!("<td>{price}</td>"))
+        .replace("<td>$6.49</td>", &format!("<td>{price}</td>"));
+    assert_eq!(changed.matches(price).count(), 2, "two prices are replaced");
+    RawMail {
+        bytes: changed.into_bytes(),
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_receipt_whose_amounts_cannot_be_added_is_a_failed_attempt_and_no_order(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // Two line prices at the end of the range of an amount: each is an amount, and their sum
+    // is none.
+    let mails = Mails(vec![
+        receipt_mail_with_two_prices("12345678901", "big", "$99,999,999.99"),
+        // The control: a receipt beside it is parsed and stored.
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "small"),
+    ]);
+    let imported = ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    assert_eq!(imported.inserted, 2);
+
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!(
+        (parsed.pending, parsed.parsed, parsed.partial, parsed.failed),
+        (2, 1, 0, 1)
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from grocery_orders where order_number = '12345678902'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(count(&pool, "select count(*) from grocery_orders").await, 1);
+    let (outcome, error): (String, Option<String>) = sqlx::query_as(
+        "select a.outcome, a.error from parse_attempts a \
+         join raw_messages m on m.id = a.raw_message_id \
+         where m.message_key = 'big@mail.example'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the attempt of the first receipt");
+    assert_eq!(outcome, "failed");
+    assert_eq!(
+        error.as_deref(),
+        Some(
+            "the amounts of the receipt cannot be checked: an amount of money is outside the range of 99,999,999.99"
+        )
+    );
+    // The message left the queue: a second run has nothing to do.
+    let again = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!(again.pending, 0);
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_price_that_no_column_holds_does_not_stop_the_messages_after_it(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // One cent more than a `numeric(10,2)` column holds. Before 2026-11-21 such a price was
+    // an amount, the insert of its line failed in the database, and each run of the parse
+    // step stopped at this message with that error: no later message was parsed.
+    let mails = Mails(vec![
+        receipt_mail_with_two_prices("12345678901", "too-big", "$100,000,000.00"),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
+    ]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("the run goes on after the receipt with the price");
+    assert_eq!(
+        (parsed.pending, parsed.parsed, parsed.partial, parsed.failed),
+        (2, 1, 1, 0)
+    );
+    // The message after it has its order, and nothing waits.
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from grocery_orders where order_number = '12345678902'"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where parse_state = 'fetched'"
+        )
+        .await,
+        0
+    );
+    // No stored price is the price that is no amount.
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from grocery_order_lines where final_price >= 99999999.99"
+        )
+        .await,
+        0
+    );
+    let outcome: (String, Option<String>, i32) = sqlx::query_as(
+        "select a.outcome, a.error, a.anomaly_count from parse_attempts a \
+         join raw_messages m on m.id = a.raw_message_id \
+         where m.message_key = 'too-big@mail.example'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the attempt of the first receipt");
+    // Its two rows with the price are rows that the parser cannot read, and the lines that
+    // are left do not sum to the subtotal: an order that does not reconcile, with anomalies.
+    assert_eq!(outcome, ("partial".to_owned(), None, 4));
+}
+
 #[sqlx::test(migrations = false)]
 async fn a_stored_key_that_does_not_fit_its_kind_is_an_invalid_row(pool: PgPool) {
     let store = PostgresStore::from_pool(pool.clone());

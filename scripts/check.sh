@@ -94,7 +94,7 @@ DEPENDENCY_FLOOR=30
 # lint lowered to `deny` could be expected away in the code. A lint that is added to the
 # manifest is added here and gets its violation in examples/lint_canary.rs, in the same
 # change. The list does not get shorter: LINT_FLOOR is its length.
-LINT_FLOOR=17
+LINT_FLOOR=18
 FLAG_DECLARATION='unexpected_cfgs = { level = "warn", check-cfg = ["cfg(lint_canary)"] }'
 LINT_LEVELS=(
   unsafe_code=forbid
@@ -114,6 +114,7 @@ LINT_LEVELS=(
   clippy::string_slice=error
   clippy::missing_errors_doc=error
   clippy::missing_panics_doc=error
+  clippy::float_arithmetic=error
 )
 
 # Prints the command as a shell reads it, so that a quoted argument stays one argument.

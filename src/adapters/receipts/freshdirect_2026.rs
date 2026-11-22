@@ -192,29 +192,38 @@ struct FooterSums {
     total: Option<Money>,
 }
 
-fn add(sum: &mut Option<Money>, amount: Money) {
-    *sum = Some(sum.map_or(amount, |so_far| so_far.saturating_add(amount)));
+/// Adds a row to the rows of the same label before it: a receipt of two stores prints the
+/// subtotal and the tax of each.
+fn add(sum: &mut Option<Money>, amount: Money) -> Result<(), ParseError> {
+    *sum = Some(match *sum {
+        Some(so_far) => so_far
+            .checked_add(amount)
+            .map_err(|_| ParseError::TotalsOutOfRange)?,
+        None => amount,
+    });
+    Ok(())
 }
 
 impl FooterSums {
-    fn apply(&mut self, label: &str, amount: Money) {
+    fn apply(&mut self, label: &str, amount: Money) -> Result<(), ParseError> {
         match label {
-            "subtotal" | "sub-total" => add(&mut self.subtotal, amount),
+            "subtotal" | "sub-total" => add(&mut self.subtotal, amount)?,
             "total tax" => self.total_tax = Some(amount),
-            "tax" | "sales tax" => add(&mut self.tax, amount),
+            "tax" | "sales tax" => add(&mut self.tax, amount)?,
             "state bottle deposit" | "bottle deposit" | "deposit" => {
                 if self.total_tax.is_some() {
                     self.bottle_deposit = Some(amount);
                 } else {
-                    add(&mut self.bottle_deposit, amount);
+                    add(&mut self.bottle_deposit, amount)?;
                 }
             }
             "delivery fee" | "delivery" => self.delivery_fee = Some(amount),
-            "service fee" | "fuel surcharge" => add(&mut self.service_fee, amount),
+            "service fee" | "fuel surcharge" => add(&mut self.service_fee, amount)?,
             "tip" | "driver tip" => self.tip = Some(amount),
             "order total" | "total" => self.total = Some(amount),
             _ => {}
         }
+        Ok(())
     }
 }
 
@@ -414,7 +423,7 @@ impl ReceiptParser for FreshDirect2026 {
                         .ok_or(ParseError::TooManyLines)?;
                     lines.push(*item);
                 }
-                Classified::Footer(label, amount) => footers.apply(&label, amount),
+                Classified::Footer(label, amount) => footers.apply(&label, amount)?,
                 Classified::Unknown(reason) => anomalies.push(Anomaly {
                     row_index: index,
                     cells: row.cells.clone(),
@@ -431,7 +440,7 @@ impl ReceiptParser for FreshDirect2026 {
             for tr in own_rows(table) {
                 let row = read_row(tr);
                 if let Classified::Footer(label, amount) = classify(&row, 0, None) {
-                    footers.apply(&label, amount);
+                    footers.apply(&label, amount)?;
                 }
             }
         }
@@ -524,7 +533,7 @@ mod tests {
         assert_eq!(receipt.totals.subtotal, Money::from_cents(4777));
         assert_eq!(receipt.totals.total, Money::from_cents(6250));
         assert_eq!(receipt.totals.tip, Some(Money::from_cents(600)));
-        let r = reconcile(&receipt);
+        let r = reconcile(&receipt).expect("the amounts of the receipt add up");
         assert!(r.reconciled(), "{r:?}");
     }
 
@@ -628,7 +637,7 @@ mod tests {
         assert_eq!(receipt.totals.tip, Some(Money::from_cents(1000)));
         assert_eq!(receipt.totals.total, Money::from_cents(4734));
         assert!(receipt.anomalies.is_empty(), "{:?}", receipt.anomalies);
-        let r = reconcile(&receipt);
+        let r = reconcile(&receipt).expect("the amounts of the receipt add up");
         assert!(r.reconciled(), "{r:?}");
     }
 
@@ -657,7 +666,7 @@ mod tests {
                         for anomaly in &receipt.anomalies {
                             *reasons.entry(anomaly.reason.clone()).or_default() += 1;
                         }
-                        let r = reconcile(&receipt);
+                        let r = reconcile(&receipt).expect("the amounts of the receipt add up");
                         if r.reconciled() {
                             "ok".to_owned()
                         } else {
@@ -740,6 +749,35 @@ mod tests {
             classify(&row(&["", "2/2", "Milk", "", "", "", "$2.00"]), 1, None),
             Classified::Unknown(_)
         ));
+    }
+
+    #[test]
+    fn two_totals_rows_of_one_label_are_added_and_a_sum_outside_the_range_is_an_error() {
+        // A receipt of two stores prints a subtotal and a tax for each.
+        let mut sums = FooterSums::default();
+        sums.apply("subtotal", Money::from_cents(1000))
+            .expect("first");
+        sums.apply("subtotal", Money::from_cents(250))
+            .expect("second");
+        sums.apply("tax", Money::from_cents(30)).expect("first");
+        sums.apply("tax", Money::from_cents(12)).expect("second");
+        assert_eq!(sums.subtotal, Some(Money::from_cents(1250)));
+        assert_eq!(sums.tax, Some(Money::from_cents(42)));
+        // A label that is not added keeps the last row.
+        sums.apply("tip", Money::from_cents(500)).expect("first");
+        sums.apply("tip", Money::from_cents(600)).expect("second");
+        assert_eq!(sums.tip, Some(Money::from_cents(600)));
+
+        let most = Money::parse("$99,999,999.99").expect("the largest amount");
+        for label in ["subtotal", "tax", "bottle deposit", "service fee"] {
+            let mut sums = FooterSums::default();
+            sums.apply(label, most).expect("one row is an amount");
+            assert_eq!(
+                sums.apply(label, most),
+                Err(ParseError::TotalsOutOfRange),
+                "{label}"
+            );
+        }
     }
 
     #[test]

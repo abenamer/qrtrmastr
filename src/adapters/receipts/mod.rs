@@ -59,6 +59,10 @@ pub enum ParseError {
     /// The receipt has more item lines than the line number, a `u32`, can count.
     #[error("more item lines than a line number can count")]
     TooManyLines,
+    /// Two rows of the totals with one label have amounts whose sum is outside the range of
+    /// an amount of money. No amount that a receipt prints is near that range.
+    #[error("the amounts of two totals rows cannot be added")]
+    TotalsOutOfRange,
 }
 
 /// One layout. `supports` is cheap and never fails; `parse` is the full read.
@@ -82,7 +86,9 @@ pub trait ReceiptParser {
     /// - [`ParseError::NoItemTable`] or [`ParseError::NoItems`] for the item table and its
     ///   item rows;
     /// - [`ParseError::NoSubtotal`] or [`ParseError::NoTotal`] for the two totals;
-    /// - [`ParseError::TooManyLines`] for more item lines than a line number can count.
+    /// - [`ParseError::TooManyLines`] for more item lines than a line number can count;
+    /// - [`ParseError::TotalsOutOfRange`] for two totals rows of one label whose amounts
+    ///   cannot be added.
     ///
     /// No parser returns [`ParseError::Row`] today.
     fn parse(&self, document: &Html) -> Result<Receipt, ParseError>;

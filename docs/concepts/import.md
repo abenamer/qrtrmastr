@@ -47,7 +47,7 @@ The second half reads every FreshDirect message in state `fetched`, oldest first
 * A placed, updated or unknown message is left for later; no parser reads those kinds yet.
 * A receipt without a DKIM pass is parsed like any other, and its order is tagged `non-verified` in `grocery_orders.sender_check` ([ADR 0008](/decisions/0008-receipts-without-a-dkim-pass-are-parsed-and-tagged.md)). A receipt with no stored HTML body is refused (the mail library makes an HTML body from a text part, so that is a mail with neither part): outcome `failed`, reason recorded, nothing parsed.
 * The parser registry asks each parser whether it recognizes the layout. None: outcome `unsupported`. The most confident one parses; a parse error is outcome `failed` with the error recorded.
-* A parsed receipt is reconciled: the lines must sum to the subtotal, the subtotal and its additions to the total, and each priced line must be unit price times billed quantity, within one cent. A line with an options price or a special-price flag is exempt from the last check. Every mismatch becomes an anomaly, and the order is written with `reconciled = false`. The outcome is `ok` when everything reconciles and `partial` otherwise.
+* A parsed receipt is reconciled: the lines must sum to the subtotal, the subtotal and its additions to the total, and each priced line must be unit price times billed quantity, within one cent. A line with an options price or a special-price flag is exempt from the last check. Every mismatch becomes an anomaly, and the order is written with `reconciled = false`. The outcome is `ok` when everything reconciles and `partial` otherwise. A receipt whose amounts cannot be added at all, because a sum, a product or a gap of them is above 99,999,999.99, has no reconciliation: its outcome is `failed` and no order is written. A number above that is no amount for the parser: a line whose final price is such a number is a row that the parser cannot read, an anomaly; a unit price or an options price of that size is left out of its line; a totals row of that size is no totals row.
 * Each line's name is normalized and resolved to an alias ([Identity](/concepts/identity.md)); an unseen alias creates a product.
 * Everything one attempt changes is written in one transaction: the attempt row, the order with its lines and anomalies, and the message's state. The state change is a conditional update on the state and version the message had when it was read; if it changed meanwhile, nothing is written and the message is counted as a conflict (REAS-STATE-003).
 
@@ -62,7 +62,7 @@ The parser classifies every row of the item table by its content, never by a cla
 | `fetched` | Stored; no parser has run, or none applies yet. |
 | `parsed` | An order exists and reconciles. Anomalies may exist. |
 | `partial` | An order exists and does not reconcile; the anomalies say why. |
-| `failed` | A parser recognized the layout and could not read it, or the message was refused. |
+| `failed` | A parser recognized the layout and could not read it, the amounts of the receipt cannot be added, or the message was refused. |
 | `unsupported` | No parser recognizes the layout. A fixture and a parser version are the way forward. |
 
 A message moves from `fetched` to one of the four outcomes on its first parse, and between outcomes on a reparse. Every attempt is a row of `parse_attempts`.
