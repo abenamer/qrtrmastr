@@ -58,6 +58,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0016](decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md) - The documentation checker follows the checker of REAS and reads Markdown with a parser.
 * [ADR 0017](decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md) - A fuzz target for each reader of outside bytes, with a pinned nightly toolchain and a budget for each stage.
 * [ADR 0018](decisions/0018-records-for-the-dependencies-the-two-sensitive-components-and-the-backup.md) - A baseline for the unsafe code of the dependencies, the records of the build scripts and of the design review, and a backup with a restore drill.
+* [ADR 0019](decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) - A proposal, not yet accepted: each rule that is still partly met, sorted into work with an order and into limits that the maintainer decides.
 
 # Log
 
