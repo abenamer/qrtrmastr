@@ -212,10 +212,10 @@ pub fn median_days(values: &mut [i64]) -> Option<i64> {
 }
 
 /// The median of quantities; the mean of the two middle values when the count is even,
-/// rounded to three decimals. The mean is the lower value plus half the difference, so no
-/// step of it can pass the range of the type. For every quantity that the database holds it
-/// is the same number as half the sum; at the top of the range of a decimal it is the more
-/// exact of the two, because the sum loses a digit there.
+/// rounded to three decimals. The mean is the lower value plus half the difference, which is
+/// the same number as half the sum for every quantity. A quantity is below 10,000,000, so no
+/// step of this can pass the range of the decimal type; the checked steps are there because
+/// the lint for arithmetic asks for them.
 fn median_quantity(values: &mut [Quantity]) -> Option<Quantity> {
     values.sort();
     match middle(values)? {
@@ -1098,14 +1098,13 @@ mod tests {
     fn a_sum_outside_the_range_of_the_type_gives_no_median_or_the_mean_and_no_panic() {
         assert_eq!(median_days(&mut [i64::MAX, i64::MAX]), None);
         assert_eq!(median_days(&mut [i64::MIN, i64::MIN, -1, 0]), None);
-        // The sum of these two quantities is outside the range of a decimal. The mean is not.
+        // The two largest quantities: their sum is no quantity, and their mean is one. Until
+        // 2026-11-21 this test used numbers at the bound of the decimal type, which are no
+        // quantities now.
         let q = |text: &str| Quantity::parse(text).expect("qty");
-        let large = q("79228162514264337593543950335");
-        let below = q("79228162514264337593543950333");
-        assert_eq!(
-            median_quantity(&mut [large, below]),
-            Some(q("79228162514264337593543950334"))
-        );
+        let large = q("9999999.999");
+        let below = q("9999999.997");
+        assert_eq!(median_quantity(&mut [large, below]), Some(q("9999999.998")));
         assert_eq!(median_quantity(&mut [large, large]), Some(large));
     }
 

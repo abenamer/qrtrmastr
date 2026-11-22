@@ -78,6 +78,7 @@ indexing_slicing = "deny"                      # REAS-SEC-003
 string_slice = "deny"                          # REAS-SEC-003: a cut of a text by position
 missing_errors_doc = "deny"                    # REAS-RUST-009
 missing_panics_doc = "deny"                    # REAS-RUST-009
+float_arithmetic = "deny"                      # REAS-RUST-008: no arithmetic on a float
 
 [profile.release]
 opt-level = 3

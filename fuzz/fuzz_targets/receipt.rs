@@ -6,6 +6,7 @@
 use libfuzzer_sys::fuzz_target;
 use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::ports::{ParseAttempt, ReceiptParsing};
+use qrtrmastr::domain::money::MoneyError;
 use qrtrmastr::domain::receipt::reconcile;
 
 thread_local! {
@@ -32,9 +33,16 @@ fuzz_target!(|data: &[u8]| {
                 let _ = line.sold_by();
             }
             // Property: the checks of the domain give a result for any receipt that the
-            // parser gives: no sum of it stops the program.
-            let reconciliation = reconcile(&receipt);
-            let _ = reconciliation.reconciled();
+            // parser gives, or the typed error of a sum outside the range: no sum stops the
+            // program. A parser gives amounts in one currency, so two currencies are a
+            // defect.
+            match reconcile(&receipt) {
+                Ok(reconciliation) => {
+                    let _ = reconciliation.reconciled();
+                }
+                Err(MoneyError::Overflow) => {}
+                Err(error) => panic!("the amounts of a parsed receipt: {error}"),
+            }
         }
     }
 });

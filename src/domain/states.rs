@@ -115,7 +115,8 @@ text_enum!(
         /// The last attempt stored an order that did not reconcile.
         Partial => "partial",
         /// The last attempt stored no order: the message has no stored HTML body, or the
-        /// parser that recognized the layout could not read the receipt.
+        /// parser that recognized the layout could not read the receipt, or the amounts of the
+        /// receipt cannot be added.
         Failed => "failed",
         /// The last attempt stored no order: no parser recognized the layout.
         Unsupported => "unsupported",
@@ -130,7 +131,8 @@ text_enum!(
         /// The parser read the receipt, and at least one check of the amounts did not hold.
         Partial => "partial",
         /// No receipt was read: the message has no stored HTML body, or the parser that
-        /// recognized the layout returned an error.
+        /// recognized the layout returned an error, or the amounts of the receipt that it read
+        /// cannot be added.
         Failed => "failed",
         /// No receipt was read: no parser recognized the layout.
         Unsupported => "unsupported",

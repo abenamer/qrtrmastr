@@ -133,7 +133,7 @@ Other rules:
 | `toolchain` | `rust-toolchain.toml`, `rustc` and, in CI, the toolchain that the workflow installed name one version | `rust` |
 | `rust` | The `toolchain` group, `cargo fmt --check`, the `layers` group, `cargo check`, `cargo clippy` with warnings denied, the `planted` group, the unit tests, the doc tests, `cargo doc` with warnings denied | `rust` |
 | `layers` | A search of `src/domain` and `src/application` for a dependency that the script does not list for the layer, a serde or SQLx attribute, a module of the standard library for files, the network, the environment or the process and, in the domain, a read of the clock | `rust`, as a part of the `rust` group |
-| `planted` | Clippy on `examples/lint_canary.rs` with its flag: each of the 17 lints of `Cargo.toml` fires on its planted violation at its level | `rust`, as a part of the `rust` group |
+| `planted` | Clippy on `examples/lint_canary.rs` with its flag: each of the 18 lints of `Cargo.toml` fires on its planted violation at its level | `rust`, as a part of the `rust` group |
 | `compile` | `cargo check` only | none; the Stop hook |
 | `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
 | `database` | `cargo test` for every test target, with the integration tests; needs `DATABASE_URL` | `rust` |

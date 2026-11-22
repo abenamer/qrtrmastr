@@ -114,6 +114,11 @@ mod planted {
         &text[1..]
     }
 
+    // clippy::float_arithmetic
+    pub fn price_as_a_float(dollars: f64) -> f64 {
+        dollars * 1.0825
+    }
+
     // unsafe_code, clippy::undocumented_unsafe_blocks, clippy::multiple_unsafe_ops_per_block
     pub fn unsafe_block(values: &[u8]) -> u8 {
         unsafe {
@@ -160,6 +165,7 @@ fn main() {
             usize::from(planted::added(1, 2)),
             usize::from(planted::indexed(&values)),
             planted::cut("ab").len(),
+            usize::from(planted::price_as_a_float(1.0) > 1.0),
             usize::from(planted::unsafe_block(&values)),
             usize::from(fallible(1).unwrap_or(0)),
             usize::from(panicking(1)),
