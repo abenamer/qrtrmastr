@@ -933,6 +933,104 @@ mod tests {
     }
 
     #[test]
+    fn the_pasted_address_is_refused_when_one_of_its_three_parts_is_another() {
+        // The scheme, the host and the port are each checked: an address that differs in one
+        // of them only is not the redirect.
+        let sign_in = SignIn::begin().expect("random");
+        let state = &sign_in.state;
+        for start in [
+            "https://127.0.0.1:8765",
+            "http://localhost:8765",
+            "http://127.0.0.2:8765",
+            "http://127.0.0.1:8766",
+            "http://127.0.0.1",
+        ] {
+            let result = sign_in.code_from_redirect(&format!("{start}/?state={state}&code=x"));
+            assert!(
+                matches!(
+                    result,
+                    Err(GmailError::Redirect(
+                        "it does not start with http://127.0.0.1:8765"
+                    ))
+                ),
+                "{start}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_call_gets_a_fixed_text_for_its_kind_and_never_the_text_of_the_client() {
+        let reason = |error: ureq::Error| {
+            let GmailError::Transport { what, reason } = transport("the message list", &error)
+            else {
+                panic!("a failed call is a transport error");
+            };
+            assert_eq!(what, "the message list");
+            reason
+        };
+        assert_eq!(
+            reason(ureq::Error::RedirectFailed),
+            "a redirect, which is not followed"
+        );
+        assert_eq!(
+            reason(ureq::Error::TooManyRedirects),
+            "a redirect, which is not followed"
+        );
+        assert_eq!(
+            reason(ureq::Error::HostNotFound),
+            "the host name cannot be resolved; is the network up?"
+        );
+        assert_eq!(
+            reason(ureq::Error::Timeout(ureq::Timeout::Global)),
+            "the call timed out"
+        );
+        assert_eq!(
+            reason(ureq::Error::Io(std::io::Error::other(
+                "https://secret.example/?token=1"
+            ))),
+            "the connection failed"
+        );
+        assert_eq!(reason(ureq::Error::ConnectionFailed), "the request failed");
+    }
+
+    #[test]
+    fn the_size_limits_of_an_answer_are_one_and_sixty_four_mebibytes() {
+        // Written here a second time: a limit that changes fails this test.
+        assert_eq!(SMALL_RESPONSE, 1_048_576);
+        assert_eq!(MESSAGE_RESPONSE, 67_108_864);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_page_without_a_message_ends_the_list_whatever_token_it_has() {
+        // A page that names a next page and holds no message would be asked for again and
+        // again. The second answer is there so that a reader that asks for it ends too.
+        let (endpoints, seen) = serve(|request| {
+            let t = &request.target;
+            let json = if t.starts_with("/gmail/v1/users/me/messages?") && !t.contains("pageToken")
+            {
+                r#"{"nextPageToken":"p2","resultSizeEstimate":0}"#.to_owned()
+            } else if t.starts_with("/gmail/v1/users/me/messages?") {
+                r#"{"messages":[{"id":"18z"}]}"#.to_owned()
+            } else {
+                format!(
+                    r#"{{"raw":"{}"}}"#,
+                    URL_SAFE_NO_PAD.encode("Subject: never\r\n\r\n")
+                )
+            };
+            (200, json)
+        });
+        let source = GmailApi::new(
+            agent(false),
+            &endpoints,
+            SecretString::from("access-1"),
+            search_query(&["service@freshdirect.com".to_owned()], None),
+            10,
+        );
+        assert!(collect(&source).await.is_empty());
+        assert_eq!(seen.lock().expect("log").len(), 1);
+    }
+
+    #[test]
     fn the_search_names_the_senders_and_the_moment_and_nothing_else() {
         let senders = [
             "service@freshdirect.com".to_owned(),
@@ -947,6 +1045,27 @@ mod tests {
             search_query(&senders[..1], None),
             "from:(service@freshdirect.com)"
         );
+    }
+
+    #[test]
+    fn a_token_file_that_is_there_and_cannot_be_read_is_not_a_missing_token() {
+        // A directory in the place of the file: the answer names the kind of the error of
+        // the file system, and does not tell the user to sign in again.
+        let dir = tempfile::tempdir().expect("dir");
+        let file = TokenFile::in_dir(dir.path());
+        std::fs::create_dir(dir.path().join(TOKEN_FILE_NAME)).expect("a directory");
+        let result = file.load();
+        assert!(
+            matches!(result, Err(GmailError::TokenFile { .. })),
+            "{:?}",
+            result.map(|_| ())
+        );
+        // The control: with nothing there, the token is missing.
+        let empty = tempfile::tempdir().expect("dir");
+        assert!(matches!(
+            TokenFile::in_dir(empty.path()).load(),
+            Err(GmailError::NoToken(_))
+        ));
     }
 
     #[test]

@@ -1,0 +1,27 @@
+---
+source: src/adapters/cli/wire.rs
+expression: render_habit(&habit_report())
+---
+as of 2026-03-03, 510 orders
+
+ESSENTIALS: in at least a quarter of your latest orders
+product                                                    recent   longer        last   qty
+Organic Whole Milk (1/2 gallon)                             17/20    41/50  2026-02-24  1.56
+Bananas "ripe" & <green>                                    17/20    41/50  2026-02-24  1.56
+
+EXTRAS: the next most often in your latest orders
+product                                                    recent   longer        last   qty
+Bananas "ripe" & <green>                                    17/20    41/50  2026-02-24  1.56
+
+REMEMBER THIS? bought before, not in your latest orders (--seed 18446744073709551615)
+product                                                    orders        last
+Organic Whole Milk (1/2 gallon)                                 4  2025-12-31
+
+YOUR ADDITIONS: qm add ITEM, qm drop NUMBER
+   1  miso paste                                         ran out, need to replace  2026-03-01
+   2  miso paste                                         almost running out        2026-03-01
+   3  miso paste                                         making a recipe           2026-03-01
+   4  miso paste                                         new food to try           2026-03-01
+   5  miso paste                                         repeat favorite           2026-03-01
+
+stocked, left out: Organic Whole Milk (1/2 gallon) bought 2026-02-24, expected to last until 2026-04-15

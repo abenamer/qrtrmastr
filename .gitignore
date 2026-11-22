@@ -35,3 +35,6 @@ gmail-token.json*
 /fuzz/corpus/
 /fuzz/artifacts/
 /fuzz/coverage/
+# The result of a run of cargo mutants (docs/runbooks/develop.md).
+/mutants.out/
+/mutants.out.old/

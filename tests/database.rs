@@ -90,16 +90,20 @@ async fn a_message_with_an_unknown_kind_is_refused_by_the_check_constraint(pool:
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::redact::{RedactionTerms, Redactor};
 use qrtrmastr::adapters::receipts::registry::Registry;
+use qrtrmastr::application::fixture::ExportFixture;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
-    AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage,
-    ParseAttempt, ParseFinish, ParserTag, RawMail, RawMessageStore, ReceiptParsing, StoreError,
+    AliasId, AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage,
+    OrderWrite, ParseAttempt, ParseFinish, ParserTag, PendingMessage, RawMail, RawMessageStore,
+    ReceiptParsing, StoreError,
 };
 use qrtrmastr::application::recommend::{Due, DueOptions};
 use qrtrmastr::domain::ids::{IdError, MessageKey};
 use qrtrmastr::domain::recommend::{Status, Thresholds};
-use qrtrmastr::domain::states::{KeyKind, MessageKind, ParseOutcome, ParseState, Platform};
+use qrtrmastr::domain::states::{
+    KeyKind, MessageKind, ParseOutcome, ParseState, Platform, SenderCheck,
+};
 use std::collections::HashSet;
 
 const FIXTURE: &str = include_str!("fixtures/synthetic/input/freshdirect/2026/receipt-basic.html");
@@ -186,6 +190,23 @@ async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPo
         store.known_keys().await.expect("the keys"),
         HashSet::from([from_header.clone(), from_bytes.clone()])
     );
+
+    // The use case of `qm fixture add` gives the same body, and none for a key that is not
+    // stored.
+    let export = ExportFixture::new(store.clone());
+    let exported = export
+        .run(&from_header)
+        .await
+        .expect("the lookup")
+        .expect("the imported message");
+    assert_eq!(exported.key, from_header);
+    assert!(
+        exported
+            .body_html
+            .is_some_and(|html| html.contains("12345678901"))
+    );
+    let absent = MessageKey::from_message_id("<absent@mail.example>").expect("a key");
+    assert!(export.run(&absent).await.expect("the lookup").is_none());
 
     let body = store
         .body_by_key(&from_header)
@@ -886,6 +907,251 @@ async fn the_gap_rule_reads_the_stored_purchases(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn the_simple_rule_names_the_product_that_the_last_order_lacks(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // Three orders. The last one has another kind of tomato in the place of the usual one,
+    // so the usual one is in two of three orders and not in the last.
+    let last = receipt_mail("12345678903", "Tuesday, March 17, 2026", "r3");
+    let text = String::from_utf8(last.bytes).expect("the mail is text");
+    assert!(text.contains("Beefsteak Tomatoes, Large"));
+    let mails = Mails(vec![
+        receipt_mail("12345678901", "Tuesday, March 3, 2026", "r1"),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "r2"),
+        RawMail {
+            bytes: text
+                .replace("Beefsteak Tomatoes, Large", "Plum Tomatoes")
+                .into_bytes(),
+        },
+    ]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!((parsed.pending, parsed.parsed), (3, 3));
+    // The unit of a unit price is stored as one of two texts.
+    let units: Vec<(String,)> = sqlx::query_as(
+        "select distinct unit_price_per from grocery_order_lines \
+         where unit_price_per is not null order by 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("the units");
+    assert_eq!(units, vec![("ea".to_owned(),), ("lb".to_owned(),)]);
+
+    let simple = Due::new(store, Thresholds::default())
+        .run_simple()
+        .await
+        .expect("simple");
+    assert_eq!(simple.orders, 3);
+    assert_eq!(simple.rows.len(), 1, "{:?}", simple.rows);
+    let row = &simple.rows[0];
+    // The label is the one of the product of the row, among the labels of all products.
+    assert_eq!(row.product.display_name, "Beefsteak Tomatoes, Large");
+    assert_eq!(row.product.id, row.recommendation.product);
+    assert_eq!(
+        (
+            row.recommendation.orders_with_product,
+            row.recommendation.orders_total
+        ),
+        (2, 3)
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_muted_product_is_in_no_report_and_each_row_has_the_label_of_its_product(pool: PgPool) {
+    use qrtrmastr::application::recommend::HabitOptions;
+
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // Three orders; the last has another tomato, so the simple rule has one row.
+    let last = receipt_mail("12345678903", "Tuesday, March 17, 2026", "r3");
+    let text = String::from_utf8(last.bytes).expect("the mail is text");
+    let mails = Mails(vec![
+        receipt_mail("12345678901", "Tuesday, March 3, 2026", "r1"),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "r2"),
+        RawMail {
+            bytes: text
+                .replace("Beefsteak Tomatoes, Large", "Plum Tomatoes")
+                .into_bytes(),
+        },
+    ]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+
+    let due = Due::new(store, Thresholds::default());
+    let as_of = jiff::civil::date(2026, 3, 27);
+    let options = HabitOptions {
+        extras: 20,
+        remember: 5,
+        seed: 1,
+    };
+    // The names of the rows of each report. Each row carries the label of its own product.
+    let gap_names = || async {
+        let report = due.run(as_of, DueOptions::default()).await.expect("due");
+        for row in &report.rows {
+            assert_eq!(row.product.id, row.recommendation.product);
+        }
+        let mut names: Vec<String> = report
+            .rows
+            .iter()
+            .map(|row| row.product.display_name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    let habit_names = || async {
+        let report = due.run_habit(options, as_of).await.expect("habit");
+        let rows: Vec<_> = report
+            .essentials
+            .iter()
+            .chain(&report.extras)
+            .chain(&report.stocked)
+            .collect();
+        for row in &rows {
+            assert_eq!(row.product.id, row.recommendation.product);
+        }
+        let mut names: Vec<String> = rows
+            .iter()
+            .map(|row| row.product.display_name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    let simple_names = || async {
+        let report = due.run_simple().await.expect("simple");
+        report
+            .rows
+            .iter()
+            .map(|row| row.product.display_name.clone())
+            .collect::<Vec<String>>()
+    };
+
+    let gap_before = gap_names().await;
+    let habit_before = habit_names().await;
+    // The habit rule lists seven products: the six of the receipt and the other tomato. The
+    // gap rule leaves out the two tomatoes, which were bought twice and once.
+    assert_eq!(habit_before.len(), 7, "{habit_before:?}");
+    assert_eq!(gap_before.len(), 5, "{gap_before:?}");
+    assert!(gap_before.iter().any(|name| name.starts_with("Lactaid")));
+    assert!(
+        habit_before
+            .iter()
+            .any(|name| name == "Beefsteak Tomatoes, Large")
+    );
+    assert_eq!(simple_names().await, ["Beefsteak Tomatoes, Large"]);
+
+    // Mute the milk and the tomato. A row that is there and not muted changes nothing.
+    let muted = sqlx::query(
+        "insert into product_preferences (product_id, muted) \
+         select id, display_name not like 'Plum%' from products \
+         where display_name like 'Lactaid%' or display_name like '%Tomatoes%'",
+    )
+    .execute(&pool)
+    .await
+    .expect("the preferences");
+    assert_eq!(muted.rows_affected(), 3);
+
+    let is_muted =
+        |name: &String| name.starts_with("Lactaid") || name == "Beefsteak Tomatoes, Large";
+    let gap_after: Vec<String> = gap_before
+        .iter()
+        .filter(|name| !is_muted(name))
+        .cloned()
+        .collect();
+    let habit_after: Vec<String> = habit_before
+        .iter()
+        .filter(|name| !is_muted(name))
+        .cloned()
+        .collect();
+    assert_eq!((gap_after.len(), habit_after.len()), (4, 5));
+    assert_eq!(gap_names().await, gap_after);
+    assert_eq!(habit_names().await, habit_after);
+    assert!(simple_names().await.is_empty());
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_muted_product_is_not_among_the_reminders(pool: PgPool) {
+    use qrtrmastr::application::recommend::HabitOptions;
+
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // 24 weekly orders. The first three have a tomato that the 21 after them do not have: it
+    // was bought three times and is in none of the latest 20, so it is a reminder.
+    let first_day = jiff::civil::date(2025, 10, 7);
+    let mails: Vec<RawMail> = (0..24i64)
+        .map(|week| {
+            let day = first_day
+                .checked_add(jiff::Span::new().weeks(week))
+                .expect("a day");
+            let mail = receipt_mail(
+                &format!("123456789{week:02}"),
+                &day.strftime("%A, %B %-d, %Y").to_string(),
+                &format!("week-{week}"),
+            );
+            let text = String::from_utf8(mail.bytes).expect("the mail is text");
+            let name = if week < 3 {
+                "Plum Tomatoes"
+            } else {
+                "Beefsteak Tomatoes, Large"
+            };
+            RawMail {
+                bytes: text.replace("Beefsteak Tomatoes, Large", name).into_bytes(),
+            }
+        })
+        .collect();
+    ImportMail::new(Mails(mails), reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!((parsed.pending, parsed.parsed), (24, 24), "{parsed:?}");
+
+    let due = Due::new(store, Thresholds::default());
+    let options = HabitOptions {
+        extras: 20,
+        remember: 5,
+        seed: 1,
+    };
+    let reminders = || async {
+        let report = due
+            .run_habit(options, jiff::civil::date(2026, 3, 20))
+            .await
+            .expect("habit");
+        for row in &report.remember {
+            assert_eq!(row.product.id, row.reminder.product);
+        }
+        report
+            .remember
+            .iter()
+            .map(|row| row.product.display_name.clone())
+            .collect::<Vec<String>>()
+    };
+    assert_eq!(reminders().await, ["Plum Tomatoes"]);
+    sqlx::query(
+        "insert into product_preferences (product_id, muted) \
+         select id, true from products where display_name = 'Plum Tomatoes'",
+    )
+    .execute(&pool)
+    .await
+    .expect("the preference");
+    assert!(reminders().await.is_empty());
+}
+
+#[sqlx::test(migrations = false)]
 async fn a_stale_version_changes_no_row(pool: PgPool) {
     let store = PostgresStore::from_pool(pool.clone());
     Migrate::new(store.clone()).run().await.expect("migrations");
@@ -938,6 +1204,199 @@ async fn a_stale_version_changes_no_row(pool: PgPool) {
         )
         .await,
         1
+    );
+}
+
+/// The record of an attempt that failed, for a message as a writer read it.
+fn failed_attempt(message: &PendingMessage, error: &str) -> ParseFinish<'static> {
+    ParseFinish {
+        message: message.id,
+        expected_state: ParseState::Fetched,
+        expected_version: message.version,
+        next_state: ParseState::Failed,
+        attempt: AttemptRecord {
+            parser: ParserTag {
+                name: "test",
+                version: 1,
+            },
+            outcome: ParseOutcome::Failed,
+            error: Some(error.to_owned()),
+            anomaly_count: 0,
+        },
+        order: None,
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn of_two_writers_that_read_one_message_exactly_one_changes_it(pool: PgPool) {
+    // REAS-STATE-003: the expected version is a fencing token. Two writers read the same row
+    // and write at the same time, each on its own connection; one changes the row and the
+    // other gets a conflict and leaves nothing.
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let mails = Mails(
+        (1..=8)
+            .map(|n| {
+                receipt_mail(
+                    &format!("1234567890{n}"),
+                    "Tuesday, March 3, 2026",
+                    &format!("race-{n}"),
+                )
+            })
+            .collect(),
+    );
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    // Each writer reads the messages for itself, before the other one writes.
+    let read_by_a = store.pending(Platform::Freshdirect).await.expect("pending");
+    let read_by_b = store.pending(Platform::Freshdirect).await.expect("pending");
+    assert_eq!((read_by_a.len(), read_by_b.len()), (8, 8));
+
+    let mut winners = Vec::new();
+    for (for_a, for_b) in read_by_a.iter().zip(&read_by_b) {
+        assert_eq!((for_a.id, for_a.version), (for_b.id, for_b.version));
+        let write_a = failed_attempt(for_a, "writer a");
+        let write_b = failed_attempt(for_b, "writer b");
+        let (a, b) = tokio::join!(store.finish_parse(&write_a), store.finish_parse(&write_b));
+        let (winner, loser) = match (&a, &b) {
+            (Ok(()), Err(error)) => ("writer a", error),
+            (Err(error), Ok(())) => ("writer b", error),
+            other => panic!("not exactly one writer changed the message: {other:?}"),
+        };
+        assert!(
+            matches!(loser, StoreError::Conflict { version, .. } if *version == for_a.version),
+            "{loser:?}"
+        );
+        // The row of the attempt of the writer that lost is rolled back: one attempt, the
+        // winner's, and one step of the version.
+        let attempts: Vec<(Option<String>,)> =
+            sqlx::query_as("select error from parse_attempts where raw_message_id = $1")
+                .bind(for_a.id.get())
+                .fetch_all(&pool)
+                .await
+                .expect("the attempts");
+        assert_eq!(attempts, vec![(Some(winner.to_owned()),)]);
+        winners.push(winner);
+        let state: (String, i32) =
+            sqlx::query_as("select parse_state, version from raw_messages where id = $1")
+                .bind(for_a.id.get())
+                .fetch_one(&pool)
+                .await
+                .expect("the message");
+        assert_eq!(
+            state,
+            (
+                "failed".to_owned(),
+                for_a.version.checked_add(1).expect("a version")
+            )
+        );
+    }
+    assert_eq!(winners.len(), 8, "{winners:?}");
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 8);
+    // The state is part of the token too: a writer that expects another state than the row
+    // has, with the version that the row has, changes nothing.
+    let now: (i32,) = sqlx::query_as("select version from raw_messages where id = $1")
+        .bind(read_by_a[0].id.get())
+        .fetch_one(&pool)
+        .await
+        .expect("the version");
+    let mut other_state = failed_attempt(&read_by_a[0], "the right version, another state");
+    other_state.expected_version = now.0;
+    let result = store.finish_parse(&other_state).await;
+    assert!(
+        matches!(result, Err(StoreError::Conflict { .. })),
+        "{result:?}"
+    );
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 8);
+    // A writer that comes later with what it read before is refused too.
+    let late = failed_attempt(&read_by_a[0], "a late writer");
+    let result = store.finish_parse(&late).await;
+    assert!(
+        matches!(result, Err(StoreError::Conflict { .. })),
+        "{result:?}"
+    );
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 8);
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_write_that_fails_late_in_the_transaction_leaves_nothing_of_it(pool: PgPool) {
+    // REAS-DATA-002: the attempt, the order, its lines and the state of the message are one
+    // transaction. Here the version is right and the order is written; the first line then
+    // names an alias that does not exist, which the database refuses.
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let mails = Mails(vec![receipt_mail(
+        "12345678901",
+        "Tuesday, March 3, 2026",
+        "r1",
+    )]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    let pending = store.pending(Platform::Freshdirect).await.expect("pending");
+    let message = &pending[0];
+    let ParseAttempt::Parsed { parser, receipt } = Registry::default().parse(FIXTURE) else {
+        panic!("the synthetic receipt parses");
+    };
+    let no_such_alias = AliasId::new(999_999).expect("a positive id");
+    let finish = ParseFinish {
+        message: message.id,
+        expected_state: ParseState::Fetched,
+        expected_version: message.version,
+        next_state: ParseState::Parsed,
+        attempt: AttemptRecord {
+            parser,
+            outcome: ParseOutcome::Ok,
+            error: None,
+            anomaly_count: 0,
+        },
+        order: Some(OrderWrite {
+            receipt: &receipt,
+            reconciled: true,
+            sender_check: SenderCheck::Verified,
+            alias_ids: vec![no_such_alias; receipt.lines.len()],
+        }),
+    };
+    let result = store.finish_parse(&finish).await;
+    assert!(
+        matches!(
+            result,
+            Err(StoreError::Database {
+                operation: "insert order line",
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    // The two writes before the one that failed are gone, and the message is as it was.
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 0);
+    assert_eq!(count(&pool, "select count(*) from grocery_orders").await, 0);
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_order_lines").await,
+        0
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where parse_state = 'fetched' and version = 0"
+        )
+        .await,
+        1
+    );
+    // The control: the same message, still at the version that was read, is parsed by the
+    // use case, which makes the aliases first. The failed write left nothing in its way.
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!((parsed.pending, parsed.parsed), (1, 1));
+    assert_eq!(count(&pool, "select count(*) from grocery_orders").await, 1);
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_order_lines").await,
+        i64::try_from(receipt.lines.len()).expect("a count")
     );
 }
 

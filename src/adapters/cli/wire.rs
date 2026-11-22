@@ -643,6 +643,19 @@ mod tests {
     }
 
     #[test]
+    fn the_tables_for_the_terminal_of_the_sample_reports_are_their_snapshots() {
+        // The text that `qm due`, `qm due --gap` and `qm due --simple` print for the sample
+        // reports, which hold each status and each kind of row. A snapshot is the reference:
+        // read a change of it as a change of what the user sees.
+        use super::super::{render_due, render_habit, render_simple};
+        insta::assert_snapshot!("table_habit", render_habit(&habit_report()));
+        insta::assert_snapshot!("table_habit_empty", render_habit(&empty_habit_report()));
+        insta::assert_snapshot!("table_gap", render_due(&due_report()));
+        insta::assert_snapshot!("table_gap_empty", render_due(&empty_due_report()));
+        insta::assert_snapshot!("table_simple", render_simple(&simple_report()));
+    }
+
+    #[test]
     fn the_habit_report_is_the_json_it_was_before_the_wire_types() {
         let report = habit_report();
         let json = json_text(&HabitReportJson::from(&report)).expect("json");

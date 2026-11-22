@@ -403,8 +403,10 @@ impl Quantity {
 }
 
 impl fmt::Display for Quantity {
+    /// The number. A width and an alignment of the caller apply, so that a table can put the
+    /// number under its column title.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        fmt::Display::fmt(&self.0, f)
     }
 }
 
@@ -595,6 +597,20 @@ mod tests {
     }
 
     #[test]
+    fn a_quantity_takes_the_width_of_its_column() {
+        // Before 2026-11-21 the width was lost, and the quantity column of the tables of
+        // `qm due` was not under its title.
+        let two = Quantity::parse("2").expect("a quantity");
+        assert_eq!(format!("{two}"), "2");
+        assert_eq!(format!("{two:>5}"), "    2");
+        assert_eq!(format!("{two:<5}|"), "2    |");
+        assert_eq!(
+            format!("{:>7}", Quantity::parse("1.56").expect("a quantity")),
+            "   1.56"
+        );
+    }
+
+    #[test]
     fn zero_has_no_sign_however_it_was_written() {
         for text in ["-0", "-$0.00", "($0.00)", "0", "$0.00"] {
             let zero = Money::parse(text).expect("zero");
@@ -667,6 +683,8 @@ mod tests {
 
     #[test]
     fn a_currency_code_is_three_capital_letters() {
+        // The debug form is the code in a wrapper, as the snapshot of a parsed receipt has it.
+        assert_eq!(format!("{:?}", Currency::USD), "Currency(USD)");
         assert_eq!(Currency::parse("USD"), Ok(Currency::USD));
         assert_eq!(
             Currency::parse("EUR").map(|c| c.to_string()),

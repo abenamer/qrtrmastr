@@ -345,6 +345,15 @@ pub fn reconcile(receipt: &Receipt) -> Result<Reconciliation, MoneyError> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_unit_price_is_stored_as_ea_or_lb_and_says_how_the_product_is_sold() {
+        // The two texts are the values of `grocery_order_lines.unit_price_per`.
+        assert_eq!(PricePer::Each.as_str(), "ea");
+        assert_eq!(PricePer::Pound.as_str(), "lb");
+        assert_eq!(PricePer::Each.sold_by(), SoldBy::Each);
+        assert_eq!(PricePer::Pound.sold_by(), SoldBy::Weight);
+    }
+
     fn line(
         no: u32,
         qty: &str,

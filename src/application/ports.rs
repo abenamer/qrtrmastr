@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use crate::domain::identity::Normalized;
 pub use crate::domain::ids::AliasId;
-use crate::domain::ids::{AdditionId, MessageKey, OrderNumber, ProductId, RawMessageId};
+use crate::domain::ids::{AdditionId, MessageKey, ProductId, RawMessageId};
 use crate::domain::list::{Addition, ItemText};
 use crate::domain::receipt::Receipt;
 use crate::domain::recommend::Purchase;
@@ -556,14 +556,4 @@ pub enum ParseAttempt {
         /// and the rows that no parser rule classified.
         receipt: Box<Receipt>,
     },
-}
-
-impl ParseAttempt {
-    /// The order number of the parsed receipt; `None` when no receipt was parsed.
-    pub fn order_number(&self) -> Option<&OrderNumber> {
-        match self {
-            ParseAttempt::Parsed { receipt, .. } => Some(&receipt.order_number),
-            ParseAttempt::Unsupported | ParseAttempt::Failed { .. } => None,
-        }
-    }
 }

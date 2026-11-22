@@ -756,6 +756,70 @@ mod tests {
     }
 
     #[test]
+    fn the_row_of_column_titles_needs_both_price_titles() {
+        let titles = ["Quantity", "Product", "Unit Price", "Final Price"];
+        assert!(matches!(
+            classify(&row(&titles), 1, None),
+            Classified::Header
+        ));
+        // One of the two titles alone is no row of titles, and neither is a row without them.
+        for cells in [
+            ["Quantity", "Product", "Unit Price", "x"],
+            ["Quantity", "Product", "x", "Final Price"],
+            ["Quantity", "Product", "x", "y"],
+        ] {
+            assert!(
+                !matches!(classify(&row(&cells), 1, None), Classified::Header),
+                "{cells:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_link_of_a_row_is_its_path_and_a_link_to_the_start_page_is_none() {
+        let path_of = |href: &str| {
+            let html =
+                format!("<table><tr><td>1/1</td><td><a href=\"{href}\">Milk</a></td></tr></table>");
+            let document = Html::parse_document(&html);
+            let tr = document.select(&sel("tr")).next().expect("a row");
+            read_row(tr).link_path
+        };
+        assert_eq!(
+            path_of("https://www.freshdirect.example/product/milk?x=1#top"),
+            Some("/product/milk".to_owned())
+        );
+        assert_eq!(path_of("/p"), Some("/p".to_owned()));
+        // A path of one character is the start page, which names no product.
+        assert_eq!(path_of("https://www.freshdirect.example/"), None);
+        assert_eq!(path_of("/"), None);
+        assert_eq!(path_of("https://www.freshdirect.example"), None);
+    }
+
+    #[test]
+    fn the_confidence_is_lower_without_item_rows_and_none_without_an_order_number() {
+        let confidence = |body: &str| {
+            FreshDirect2026.supports(&Html::parse_document(&format!(
+                "<html><body>{body}</body></html>"
+            )))
+        };
+        let item = "<table><tr><td>1/1</td><td>Milk</td></tr></table>";
+        assert_eq!(
+            confidence(&format!("<p>FreshDirect order 12345678901</p>{item}")),
+            Some(Confidence(90))
+        );
+        assert_eq!(
+            confidence(&format!("<p>Order 12345678901</p>{item}")),
+            Some(Confidence(60))
+        );
+        assert_eq!(
+            confidence("<p>FreshDirect order 12345678901</p>"),
+            Some(Confidence(30))
+        );
+        assert_eq!(confidence("<p>Order 12345678901</p>"), None);
+        assert_eq!(confidence(&format!("<p>FreshDirect</p>{item}")), None);
+    }
+
+    #[test]
     fn a_row_with_fewer_cells_than_a_rule_reads_matches_no_rule() {
         // No cell, and only empty cells.
         assert!(matches!(classify(&row(&[]), 1, None), Classified::Blank));
