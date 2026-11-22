@@ -41,7 +41,7 @@ expect() {
 lists() { scripts/check.sh lists "$ci" "$hook" "$scan" "$fuzzing"; }
 
 # Usage.
-expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|rules|hooks|targets|fuzz|lists|all}" \
+expect 2 "usage: scripts/check.sh {rust|layers|planted|toolchain|compile|database|sqlx|deny|audit|docs|privacy|rules|hooks|targets|unsafe|fuzz|lists|all}" \
   scripts/check.sh no-such-group
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh database
 expect 2 "needs DATABASE_URL" env -u DATABASE_URL scripts/check.sh sqlx
@@ -49,7 +49,7 @@ expect 1 "QM_CANARY_TERMS names a file that cannot be read" env QM_CANARY_TERMS=
 # Each group that the head of the script describes is a group that it runs, and the reverse.
 described=$(sed -n 's|^#   scripts/check\.sh \([a-z]*\) .*|\1|p' scripts/check.sh | tr '\n' ' ')
 cases=$((cases + 1))
-if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets fuzz lists all " ]; then
+if [ "$described" != "rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets unsafe fuzz lists all " ]; then
   echo "FAIL: the head of scripts/check.sh describes: $described" >&2
   failed=1
 fi
@@ -99,7 +99,7 @@ printf '%s\n' '      # cargo test runs through scripts/check.sh' >> "$ci"
 expect 0 "PASS: lists" lists
 
 # A group that the workflow no longer calls: the line removed, made a comment, or made a text.
-for group in toolchain rust sqlx database audit docs privacy hooks lists; do
+for group in toolchain rust sqlx database unsafe audit docs privacy hooks lists; do
   fresh
   grep -v "run: scripts/check\.sh $group\$" .github/workflows/ci.yml > "$ci"
   expect 1 "does not run scripts/check.sh $group in one step" lists
@@ -740,11 +740,280 @@ fresh_rules
 rm "$settings"
 expect 1 "fewer than the floor" rules
 
+# The unsafe group (REAS-NATIVE-002). The script that compares a report of the counter with
+# the baseline, on reports that this test writes: each line is NAME:VERSION:USED:UNUSED:FORBIDS.
+count=scripts/unsafe_count.py
+report() {
+  local file=$1
+  shift
+  python3 - "$file" "$@" << 'PYTHON'
+import json, sys
+kinds = ("functions", "exprs", "item_impls", "item_traits", "methods")
+def group(n):
+    return {kind: {"safe": 1, "unsafe_": int(n) if kind == "exprs" else 0} for kind in kinds}
+packages = []
+for line in sys.argv[2:]:
+    name, version, used, unused, forbids = line.split(":")
+    packages.append({"package": {"id": {"name": name, "version": version}},
+                     "unsafety": {"used": group(used), "unused": group(unused), "forbids_unsafe": forbids == "yes"}})
+json.dump({"packages": packages, "packages_without_metrics": [], "used_but_not_scanned_files": []}, open(sys.argv[1], "w"))
+PYTHON
+}
+base="$work/unsafe-baseline.tsv"
+now="$work/report.json"
+compare() { python3 "$count" --check "$base" "$now" --root own --floor 3; }
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+expect 0 "wrote $base: 3 packages counted, 1 with unsafe items in the files that the build uses, 10 such items; own has none" \
+  python3 "$count" --write "$base" "$now" --root own --floor 3
+expect 0 "PASS: the unsafe count is the baseline: 3 packages counted" compare
+# The baseline is the text that the script writes: a line for each package, in the order of the names.
+cases=$((cases + 1))
+if [ "$(grep -v '^#' "$base")" != "$(printf 'own\t0.1.0\t0\t4\tno\nplain\t2.0.0\t0\t0\tyes\nreader\t1.0.0\t10\t2\tno')" ]; then
+  echo "FAIL: the baseline is not the three lines of the report" >&2
+  failed=1
+fi
+# A growth: one more item in a file of the build, one more in another file, a package that no
+# longer forbids unsafe code, a new package with unsafe items, a new version with more.
+for grown in "reader:1.0.0:11:2:no plain:2.0.0:0:0:yes" "reader:1.0.0:10:3:no plain:2.0.0:0:0:yes" \
+  "reader:1.0.0:10:2:no plain:2.0.0:0:0:no" "reader:1.0.0:10:2:no plain:2.0.0:0:0:yes new:0.1.0:1:0:no" \
+  "reader:1.0.0:10:2:no plain:2.0.0:0:0:yes new:0.1.0:0:1:no" "reader:1.0.1:11:2:no plain:2.0.0:0:0:yes"; do
+  # shellcheck disable=SC2086
+  report "$now" own:0.1.0:0:4:no $grown
+  expect 1 "ERROR: more unsafe code than the baseline:" compare
+  expect 1 "FAIL: the unsafe surface grew. A growth needs a reason in docs/log.md and a review" compare
+done
+# An item of each of the five kinds counts, in a file of the build and in another file.
+for kind in functions exprs item_impls item_traits methods; do
+  for files in used unused; do
+    report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+    python3 - "$now" "$kind" "$files" << 'PYTHON'
+import json, sys
+report = json.load(open(sys.argv[1]))
+report["packages"][1]["unsafety"][sys.argv[3]][sys.argv[2]]["unsafe_"] += 1
+json.dump(report, open(sys.argv[1], "w"))
+PYTHON
+    expect 1 "ERROR: more unsafe code than the baseline: reader 1.0.0" compare
+  done
+done
+# Not a growth, and not the baseline: fewer items, a package that is gone, a new package
+# without unsafe items, a package that forbids unsafe code now.
+for other in "reader:1.0.0:9:2:no plain:2.0.0:0:0:yes" "reader:1.0.0:10:2:no" \
+  "reader:1.0.0:10:2:no plain:2.0.0:0:0:yes new:0.1.0:0:0:yes" "reader:1.0.0:10:2:yes plain:2.0.0:0:0:yes"; do
+  # The filler keeps each report at the floor; it is in the baseline of these cases.
+  report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes filler:1.0.0:0:0:no
+  python3 "$count" --write "$base" "$now" --root own --floor 3 > /dev/null
+  # shellcheck disable=SC2086
+  report "$now" own:0.1.0:0:4:no $other filler:1.0.0:0:0:no
+  expect 1 "ERROR: not the baseline:" compare
+  expect 1 "FAIL: the baseline is not the current count; write it again" compare
+  report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+  python3 "$count" --write "$base" "$now" --root own --floor 3 > /dev/null
+done
+# The package of the program: with an unsafe item in a file of its build, absent, and twice.
+report "$now" own:0.1.0:1:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+expect 1 "FAIL: own has 1 unsafe items in the files of its build; the package forbids unsafe code" compare
+report "$now" other:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+expect 1 "FAIL: the report names the package own 0 times, not once" compare
+report "$now" own:0.1.0:0:4:no own:0.2.0:0:4:no plain:2.0.0:0:0:yes
+expect 1 "FAIL: the report names the package own 2 times, not once" compare
+# A report that is no count: fewer packages than the floor, the same package twice, a package
+# without a count, no JSON, an empty file, JSON of another shape, and no file.
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no
+expect 1 "FAIL: the report counts 2 packages; the floor is 3" compare
+expect 1 "the floor is 3" python3 "$count" --write "$work/never.tsv" "$now" --root own --floor 3
+cases=$((cases + 1))
+if [ -e "$work/never.tsv" ]; then
+  echo "FAIL: a report below the floor wrote a baseline" >&2
+  failed=1
+fi
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no reader:1.0.0:10:2:no
+expect 1 "FAIL: the report names reader 1.0.0 twice" compare
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+sed -i 's/"packages_without_metrics": \[\]/"packages_without_metrics": [{"name": "lost"}]/' "$now"
+expect 1 "FAIL: the counter has no count for 1 packages" compare
+for text in 'not json' '' '{"packages": [{"package": {}}]}' '[]' '{"packages": [{"package": {"id": {"name": "own", "version": "1"}}, "unsafety": {"used": {}, "unused": {}, "forbids_unsafe": false}}]}'; do
+  printf '%s' "$text" > "$now"
+  expect 1 "FAIL: the report is not the JSON of the counter" compare
+done
+rm "$now"
+expect 1 "FAIL: " compare
+# A count that is no whole number from 0 up, an answer that is no yes or no, and a report
+# without its list of packages that have no count. The counter writes none of these; a report
+# that holds one is not the counter's.
+for value in '"10"' '10.9' 'true' '-3' 'null'; do
+  report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+  sed -i "0,/\"unsafe_\": 10/s//\"unsafe_\": $value/" "$now"
+  expect 1 "FAIL: a count of the report is not a whole number from 0 up" compare
+done
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+sed -i '0,/"forbids_unsafe": true/s//"forbids_unsafe": "false"/' "$now"
+expect 1 "FAIL: the report does not say yes or no for a package that forbids unsafe code" compare
+for without in '' '"packages_without_metrics": null, ' '"packages_without_metrics": {}, '; do
+  report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+  sed -i "s/\"packages_without_metrics\": \[\], /$without/" "$now"
+  expect 1 "FAIL: the report is not the JSON of the counter" compare
+done
+# A baseline that is not there, and one with a line that the script does not write.
+report "$now" own:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+mv "$base" "$work/kept.tsv"
+expect 1 "is not there; \`scripts/check.sh unsafe write\` writes it" compare
+# Each line names a package that the baseline does not have, so that the form of the line is
+# what fails: spaces for tabs, four cells, six cells, a word or a sign or a leading zero for a
+# count, and another word than yes or no.
+for line in 'zeta 1.0.0 10 2 no' "$(printf 'zeta\t1.0.0\t10\t2')" "$(printf 'zeta\t1.0.0\t10\t2\tno\tmore')" \
+  "$(printf 'zeta\t1.0.0\tten\t2\tno')" "$(printf 'zeta\t1.0.0\t10\ttwo\tno')" "$(printf 'zeta\t1.0.0\t-1\t2\tno')" \
+  "$(printf 'zeta\t1.0.0\t010\t2\tno')" "$(printf 'zeta\t1.0.0\t10\t2\tmaybe')"; do
+  cp "$work/kept.tsv" "$base"
+  printf '%s\n' "$line" >> "$base"
+  expect 1 "of the baseline is not a line that this script writes" compare
+done
+cp "$work/kept.tsv" "$base"
+printf 'own\t0.1.0\t0\t4\tno\n' >> "$base"
+expect 1 "FAIL: the baseline names own 0.1.0 twice" compare
+# A baseline with the right lines in another text: without its header, in another order, with
+# an empty line, with a comment more, and with the line ends of another system.
+grep -v '^#' "$work/kept.tsv" > "$base"
+expect 1 "FAIL: the baseline is not the text that this script writes" compare
+{ grep '^#' "$work/kept.tsv"; grep -v '^#' "$work/kept.tsv" | sort -r; } > "$base"
+expect 1 "FAIL: the baseline is not the text that this script writes" compare
+{ cat "$work/kept.tsv"; echo; } > "$base"
+expect 1 "FAIL: the baseline is not the text that this script writes" compare
+{ cat "$work/kept.tsv"; echo '# a note'; } > "$base"
+expect 1 "FAIL: the baseline is not the text that this script writes" compare
+sed 's/$/\r/' "$work/kept.tsv" > "$base"
+expect 1 "of the baseline is not a line that this script writes" compare
+cp "$work/kept.tsv" "$base"
+expect 0 "PASS: the unsafe count is the baseline" compare
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base"
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --compare "$base" "$now"
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --root own --floor many
+# The floor and the name of the package of the program have no default, and a floor of zero
+# is no floor. An option that is given twice is refused.
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --root own --floor 0
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --root own
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --floor 3
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --root own --floor 3 --floor 1
+expect 2 "usage: scripts/unsafe_count.py" python3 "$count" --check "$base" "$now" --root own --floor 3 --root reader
+# A report without the package of the program writes no baseline.
+expect 1 "names the package absent 0 times" python3 "$count" --write "$work/never.tsv" "$now" --root absent --floor 3
+cases=$((cases + 1))
+if [ -e "$work/never.tsv" ]; then
+  echo "FAIL: a report without the package of the program wrote a baseline" >&2
+  failed=1
+fi
+
+# The group itself, with a stand-in for cargo, so that this test needs no counter: the job
+# that runs it in CI installs none. The stand-in gives the version and the report that the
+# test names.
+mkdir "$work/geiger"
+cat > "$work/geiger/cargo" << 'STANDIN'
+#!/bin/sh
+case "$*" in
+  "geiger --version")
+    [ -z "$QM_GEIGER_VERSION" ] || echo "cargo-geiger $QM_GEIGER_VERSION"
+    [ -z "$QM_GEIGER_SECOND_LINE" ] || echo "$QM_GEIGER_SECOND_LINE"
+    exit 0 ;;
+  "geiger --locked --output-format Json")
+    echo "the log of the build" >&2
+    printf '%s\n' "$CARGO_TARGET_DIR" > "$QM_GEIGER_REPORT.target"
+    cat "$QM_GEIGER_REPORT"
+    exit "${QM_GEIGER_STATUS:-0}" ;;
+esac
+echo "the stand-in was asked for: $*" >&2
+exit 64
+STANDIN
+chmod +x "$work/geiger/cargo"
+pinned_counter=$(sed -n 's/^GEIGER_VERSION=//p' scripts/check.sh)
+counter() { env PATH="$work/geiger:$PATH" QM_GEIGER_VERSION="$pinned_counter" QM_GEIGER_REPORT="$now" "$@"; }
+# A report with the lines of the committed baseline passes: the baseline is one that the
+# script reads, it names the package of the program, and it is at the floor.
+python3 - unsafe-baseline.tsv "$now" << 'PYTHON'
+import json, sys
+kinds = ("functions", "exprs", "item_impls", "item_traits", "methods")
+def group(n):
+    return {kind: {"safe": 1, "unsafe_": int(n) if kind == "exprs" else 0} for kind in kinds}
+packages = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    if line.startswith("#"):
+        continue
+    name, version, used, unused, forbids = line.rstrip("\n").split("\t")
+    packages.append({"package": {"id": {"name": name, "version": version}},
+                     "unsafety": {"used": group(used), "unused": group(unused), "forbids_unsafe": forbids == "yes"}})
+json.dump({"packages": packages, "packages_without_metrics": [], "used_but_not_scanned_files": []}, open(sys.argv[2], "w"))
+PYTHON
+expect 0 "PASS: unsafe" counter scripts/check.sh unsafe
+expect 0 "qrtrmastr has none" counter scripts/check.sh unsafe
+# The counter works in a build directory of its own, below the one of the developer.
+cases=$((cases + 1))
+if [ "$(cat "$now.target")" != target/unsafe-count ] \
+  || [ "$(counter env CARGO_TARGET_DIR=/somewhere scripts/check.sh unsafe > /dev/null 2>&1; cat "$now.target")" != /somewhere/unsafe-count ]; then
+  echo "FAIL: the unsafe group does not give the counter a build directory of its own" >&2
+  failed=1
+fi
+# The version is the first line that the counter prints, and no later one.
+expect 0 "PASS: unsafe" counter env QM_GEIGER_SECOND_LINE="cargo-geiger 0.12.0" scripts/check.sh unsafe
+expect 2 "found: cargo-geiger 0.12.0" counter env QM_GEIGER_VERSION=0.12.0 QM_GEIGER_SECOND_LINE="cargo-geiger $pinned_counter" scripts/check.sh unsafe
+# The log of the build is not printed when the counter finishes.
+cases=$((cases + 1))
+if counter scripts/check.sh unsafe 2>&1 | grep -q 'the log of the build'; then
+  echo "FAIL: the unsafe group prints the build log of a run that finished" >&2
+  failed=1
+fi
+# One more item in one package of that report.
+sed -i '0,/"unsafe_": 0/s//"unsafe_": 1/' "$now"
+expect 1 "FAIL: the unsafe surface grew" counter scripts/check.sh unsafe
+# A report of three packages is below the floor of the script.
+report "$now" qrtrmastr:0.1.0:0:4:no reader:1.0.0:10:2:no plain:2.0.0:0:0:yes
+expect 1 "packages; the floor is $(sed -n 's/^UNSAFE_FLOOR=//p' scripts/check.sh)" counter scripts/check.sh unsafe
+# A counter that fails, one of another version, and none.
+expect 1 "FAIL: the counter did not finish; this is no count" counter env QM_GEIGER_STATUS=101 scripts/check.sh unsafe
+expect 1 "the log of the build" counter env QM_GEIGER_STATUS=101 scripts/check.sh unsafe
+expect 2 "needs cargo-geiger $pinned_counter (see docs/runbooks/develop.md); found: cargo-geiger 0.12.0" counter env QM_GEIGER_VERSION=0.12.0 scripts/check.sh unsafe
+expect 2 "found: none" counter env QM_GEIGER_VERSION= scripts/check.sh unsafe
+expect 2 "usage: scripts/check.sh unsafe [write]" counter scripts/check.sh unsafe again
+# The pin is written here a second time, and the workflow installs that version: a pin that
+# moves in one place only fails this test or the `lists` group.
+cases=$((cases + 1))
+if [ "$pinned_counter" != 0.13.0 ]; then
+  echo "FAIL: the counter of the unsafe group is not cargo-geiger 0.13.0" >&2
+  failed=1
+fi
+fresh
+sed -i 's/cargo-geiger@0\.13\.0/cargo-geiger@0.12.0/' "$ci"
+expect 1 "does not install cargo-geiger@0.13.0, the version of the unsafe group" lists
+fresh
+sed -i 's/,cargo-geiger@0\.13\.0//' "$ci"
+expect 1 "does not install cargo-geiger@0.13.0" lists
+fresh
+sed -i 's/cargo-geiger@0\.13\.0/cargo-geiger/' "$ci"
+expect 1 "does not install cargo-geiger@0.13.0" lists
+fresh
+sed -i 's/cargo-geiger@0\.13\.0/cargo-geiger@0.13.01/' "$ci"
+expect 1 "does not install cargo-geiger@0.13.0" lists
+# A step of a workflow that runs the counter or the comparison without the script.
+for line in '      - run: cargo geiger --locked' '      - run: python3 scripts/unsafe_count.py --check a b'; do
+  fresh
+  printf '%s\n' "$line" >> "$ci"
+  expect 1 "names a check of its own" lists
+done
+# The `all` group runs the unsafe group when the counter is there.
+cases=$((cases + 1))
+if ! sed -n '/^all() {$/,/^}$/p' scripts/check.sh | grep -qx '    unsafe'; then
+  echo "FAIL: the all group of scripts/check.sh does not run unsafe" >&2
+  failed=1
+fi
+# The floor is written here a second time: a floor that is lowered fails this test.
+cases=$((cases + 1))
+if [ "$(sed -n 's/^UNSAFE_FLOOR=//p' scripts/check.sh)" != 150 ]; then
+  echo "FAIL: the floor of the unsafe group is not 150" >&2
+  failed=1
+fi
+
 if [ "$failed" != 0 ]; then
   echo "FAIL: scripts/check.sh does not do what its test expects" >&2
   exit 1
 fi
-if [ "$cases" -lt 520 ]; then
+if [ "$cases" -lt 630 ]; then
   echo "FAIL: only $cases cases ran" >&2
   exit 1
 fi

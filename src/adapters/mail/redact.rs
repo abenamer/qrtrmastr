@@ -1,10 +1,11 @@
 //! Redaction before storage (docs/concepts/privacy.md). Four passes over a message, then an
-//! assertion that is stronger than the passes: a message that still carries a configured term is
+//! assertion with checks of its own: a message in which it still finds a configured term is
 //! refused, never stored.
 //!
 //! 1. Structural: the smallest HTML block that carries an address, payment or contact heading is
 //!    removed whole, as are images and comments; a link whose address carries a configured term
-//!    loses that attribute, and every link loses its query string and fragment.
+//!    loses that attribute, and each link in an `href`, `src` or `action` attribute loses its
+//!    query string and fragment.
 //! 2. Literal: the serialized HTML is normalized (`&nbsp;` to a space character, invisible
 //!    characters removed), then every configured term, longest first, with any whitespace or
 //!    tags between its words, becomes `[REDACTED:kind]`.
@@ -308,7 +309,7 @@ fn from_digits(pattern: &str) -> Option<Regex> {
 impl Redactor {
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "the terms are personal data: the constructor takes them from the caller, so no copy stays there after the redactor is built"
+        reason = "the terms are personal data: the constructor takes the value that the caller hands over, so the caller keeps none of it; the settings still hold the copy that they read from the file"
     )]
     /// Compiles the terms into patterns. The lists are checked in the order names, email
     /// addresses, address lines, phone numbers, cards, and the first term that cannot be used
@@ -595,9 +596,11 @@ impl Redactor {
         out
     }
 
-    /// The assertion, independent of the passes: over the text a reader would see, with tags
-    /// gone and spacing and case normalized, no term matches with word boundaries, no long term's
-    /// letters and digits appear in sequence, and no phone or card pattern matches.
+    /// The assertion. For each configured term it has one check of the markup with the pattern
+    /// of the pass, and two checks of its own over the text a reader would see, with tags gone
+    /// and spacing and case normalized: the term does not match with word boundaries, and the
+    /// letters and digits of a long term do not appear in sequence. For a phone number and a
+    /// card ending it uses the patterns of the passes, on the markup and on that text.
     fn verify(&self, out: &str) -> Result<(), RedactionError> {
         let view = text_view(out);
         let alnum = alphanumerics(&view);

@@ -59,13 +59,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
-          tool: sqlx-cli@0.9.0
+          tool: sqlx-cli@0.9.0,cargo-geiger@0.13.0
       - name: Format, compile, lint, unit tests, doc tests, documentation build
         run: scripts/check.sh rust
       - name: Migrate an empty database; the checked-query metadata matches the migrations (REAS-DATA-004)
         run: scripts/check.sh sqlx
       - name: Every test target, with the integration tests
         run: scripts/check.sh database
+      - name: The count of unsafe items of each package is the committed baseline (REAS-NATIVE-002)
+        run: scripts/check.sh unsafe
 
   audit:
     runs-on: ubuntu-latest
