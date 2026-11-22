@@ -72,6 +72,11 @@ pub fn kind_from_subject(platform: Platform, subject: &str) -> MessageKind {
 /// sender with its own valid signature would otherwise pass.
 pub fn dkim_passed(results: &[String], sender_domain: &str) -> bool {
     let domain = sender_domain.trim().to_ascii_lowercase();
+    // No domain is no pass. Without this line an empty domain would match a signature whose
+    // domain ends with a dot, and one with no domain at all; the fuzz target found it.
+    if domain.is_empty() {
+        return false;
+    }
     results.iter().any(|result| {
         let lower = result.to_ascii_lowercase();
         let authserv = lower.split(';').next().unwrap_or("").trim();
@@ -182,6 +187,29 @@ mod tests {
         #[case] kind: MessageKind,
     ) {
         assert_eq!(kind_from_subject(platform, subject), kind);
+    }
+
+    #[test]
+    fn no_domain_is_no_pass() {
+        // Found by the fuzz target on 2026-11-21: for an empty domain, a signature whose
+        // domain ends with a dot counted as a pass, and so did one with no domain.
+        for results in [
+            "mx.google.com; dkim=pass header.i=@freshdirect.",
+            "mx.google.com; dkim=pass header.d=",
+            "mx.google.com; dkim=pass header.i=@",
+        ] {
+            for domain in ["", " ", "\t"] {
+                assert!(
+                    !dkim_passed(&[results.to_owned()], domain),
+                    "{results:?} for {domain:?}"
+                );
+            }
+        }
+        // The control: the first signature is a pass for the domain that it names.
+        assert!(dkim_passed(
+            &["mx.google.com; dkim=pass header.i=@freshdirect.".to_owned()],
+            "freshdirect."
+        ));
     }
 
     #[test]

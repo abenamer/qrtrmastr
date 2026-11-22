@@ -97,6 +97,33 @@ The checker has limits:
 * It reads a directory named `target`, `.venv` or `node_modules` below the top of the repository, also when git ignores it. It does not follow a symbolic link to a directory.
 * It reads a footnote as CommonMark does, as a link definition.
 
+## Develop: the fuzz targets
+
+Each reader of bytes that another party wrote has a fuzz target in `fuzz/` ([ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md)). A target calls the reader with bytes that the fuzzer makes, and fails on a stop of the program and on a property that does not hold.
+
+1. Once: `cargo install cargo-fuzz --version 0.13.1 --locked`, and `rustup toolchain install nightly-2026-11-15 --profile minimal`. The script names the toolchain in `FUZZ_TOOLCHAIN`; `qm` itself needs neither.
+2. `scripts/check.sh fuzz` runs each of the seven targets for 30 seconds. `QM_FUZZ_SECONDS=300 scripts/check.sh fuzz` runs each for five minutes.
+
+   Expected result: a line `PASS: 7 fuzz targets ran for 30 seconds each without a failure`.
+3. One target, for as long as you want: `mkdir -p fuzz/corpus/mime`, then `cargo +nightly-2026-11-15 fuzz run mime fuzz/corpus/mime fuzz/seeds/mime -- -max_total_time=600`.
+
+The two commands by hand work with a `cargo-fuzz` that `cargo install` built on your machine. A `cargo-fuzz` that came as a ready-made program can build for another platform than yours; then add `--target` with the `host:` value that `cargo +nightly-2026-11-15 -vV` prints, as the script does.
+
+When a target fails, libFuzzer writes the input to `fuzz/artifacts/<target>/` and the script prints it in base64. The input is made by the fuzzer from the synthetic seeds; it holds no real mail.
+
+1. Run the input again: `cargo +nightly-2026-11-15 fuzz run <target> fuzz/artifacts/<target>/<file>`. The first lines of the output name the property or the place of the stop.
+2. Decide which it is: a defect of the reader, or a property of the target that is not true. Correct that one. Do not make a property weaker to make a defect go away.
+3. For a defect, add a test for the input to the tests of the program, beside the reader, so that `cargo test` holds it without the fuzzer. Do not commit the file of the input.
+
+Other rules:
+
+* `fuzz/seeds/` is written by `python3 scripts/fuzz_seeds.py` from the synthetic receipts. Change the script and run it; `scripts/check.sh targets` fails on a seed that was edited by hand.
+* `fuzz/corpus/` holds the inputs that runs found. Git ignores it, and CI keeps it in a cache.
+* After a change of `Cargo.lock`: `cp Cargo.lock fuzz/Cargo.lock`, then `cargo +nightly-2026-11-15 fuzz build`. Cargo keeps the versions and adds the three packages of the fuzzer. The `targets` group fails until the two lockfiles agree.
+* Dependabot does not read the fuzz package. `libfuzzer-sys` moves by hand, in a change that reads its build script again.
+* A new reader of outside bytes gets a target in the same change: a file in `fuzz/fuzz_targets/`, a `[[bin]]` entry in `fuzz/Cargo.toml`, a seed in `scripts/fuzz_seeds.py`, and its name in `FUZZ_TARGETS` of `scripts/check.sh` and in the test of the script.
+* Use the made-up person of `fuzz/src/lib.rs` in a target. Never a real term, and never a real mail as an input.
+
 ## Develop: the checks
 
 `scripts/check.sh` is the one list of the checks (REAS-DOC-006). CI and the Stop hook call its groups. To add a check, add it to a group of the script.
@@ -111,14 +138,16 @@ The checker has limits:
 | `sqlx` | The migrations on the database of `DATABASE_URL`, then `cargo sqlx prepare --check` | `rust`, on an empty database |
 | `database` | `cargo test` for every test target, with the integration tests; needs `DATABASE_URL` | `rust` |
 | `deny` | `cargo deny check` | `deny`, through a pinned action with its own version of the tool |
-| `audit` | `cargo audit` | `audit` |
+| `audit` | `cargo audit` for the lockfile of the program and for the lockfile of the fuzz package | `audit` |
 | `docs` | The documentation checker and its tests | `docs` |
 | `privacy` | The `rules` group, then the privacy canary over every tracked file: shapes, and your terms when the terms file exists | `privacy`, shapes only |
 | `rules` | The `Read` deny rules of `.claude/settings.json` are the ones that [Privacy](/concepts/privacy.md#what-a-claude-session-may-not-read) lists, and none names a home directory | `privacy`, as a part of the `privacy` group |
 | `hooks` | The tests of the guard hook, of the privacy canary and of the script | `privacy` |
-| `lists` | The gate below | `privacy` |
+| `targets` | The fuzz targets, their manifest, their seeds and the list of the script name the same seven; the seeds are what `scripts/fuzz_seeds.py` writes; the fuzz lockfile holds the versions of the program | `privacy`, as a part of the `lists` group |
+| `fuzz` | The `targets` group, a build of the targets for this machine, then each fuzz target for `QM_FUZZ_SECONDS`, 30 when not set | `fuzz`, in the workflow `fuzz.yml`; not one of the seven required jobs |
+| `lists` | The gate below, and the `targets` group | `privacy` |
 
-`scripts/check.sh all` runs every group except `sqlx`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
+`scripts/check.sh all` runs every group except `sqlx` and `fuzz`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
 
 Two jobs are actions with no command in the script: `secrets` (gitleaks over the history) and `dependency-review` (the dependencies that a pull request changes). A second workflow, `scan.yml`, runs the audit and the deny check once a day on `main`, because an advisory arrives without a change to the code. Its jobs are named `daily-audit` and `daily-deny`; a failed run sends a notification and blocks nothing.
 
@@ -157,6 +186,7 @@ Which job reads a path that a change can touch:
 | Path | Read by |
 | --- | --- |
 | `src/`, `tests/`, `examples/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
+| `fuzz/`, `scripts/fuzz_seeds.py` | `fuzz` builds and runs the targets; `privacy` runs the `targets` group; `audit` reads the lockfile. No job runs Clippy or `cargo deny` on the fuzz package. |
 | `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
 | Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
 | `.claude/hooks/guard-bash.sh`, `scripts/pii_canary.sh` and `scripts/check.sh`, each with its test | `privacy`, the `hooks` group runs the three tests; each job that calls the script runs a part of it |

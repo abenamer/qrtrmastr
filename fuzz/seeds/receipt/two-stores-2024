@@ -1,0 +1,41 @@
+<html><body>
+<!-- Synthetic. The structure follows the receipts of 2017 to 2026: the delivery in a sentence,
+     one table for the items of every store, a subtotal per store, then the fees and one total.
+     Products, prices and the order number are invented. -->
+<table><tr><td>
+<p>Dear Pat,</p>
+<p>We're busy picking and packing your order <b>(#12345678902)</b>, and it's looking delicious.
+It will be delivered between <b>10:30 AM and 11:30 AM on Monday, December 23, 2024</b>.</p>
+<table>
+<tr><td>ORDER 12345678902</td></tr>
+<tr><td></td><td>ORDER TOTAL $47.34 Credit Card MC # xxxx4242</td><td></td><td></td></tr>
+<tr><td>Quantity Ordered/Delivered</td><td></td><td>Final Weight</td><td>Unit Price</td><td>Options Price</td><td>Final Price</td><td></td><td></td><td></td></tr>
+<tr><td>FreshDirect</td></tr>
+<tr><td></td><td>Dairy</td></tr>
+<tr><td>2/2</td><td>Example Farms Half &amp; Half - (1 quart)</td><td></td><td>($4.00/ea)</td><td></td><td>$8.00</td><td></td><td></td><td></td></tr>
+<tr><td></td><td>Vegetables</td></tr>
+<tr><td>2/1.56</td><td>Beefsteak Tomatoes, Large</td><td>1.06 lb</td><td>($3.00/lb)</td><td></td><td>$3.18</td><td></td><td></td><td></td></tr>
+<tr><td></td><td>Household</td></tr>
+<tr><td>1/1</td><td>Example Paper Towels - (6 rolls)</td><td></td><td>($9.00/ea)</td><td></td><td>$9.00</td><td>T</td><td></td><td></td></tr>
+<tr><td></td></tr>
+<tr><td>Subtotal:</td><td>$20.18</td><td></td></tr>
+<tr><td>Tax:</td><td>$0.80</td><td></td></tr>
+<tr><td>State Bottle Deposit:</td><td>$0.00</td><td></td></tr>
+<tr><td>FD Wines</td></tr>
+<tr><td>1/1</td><td>Domaine Exemple Blanc - (750ml)</td><td></td><td>($14.00/ea)</td><td></td><td>$14.00</td><td>T</td><td></td><td></td></tr>
+<tr><td></td></tr>
+<tr><td>Subtotal:</td><td>$14.00</td><td></td></tr>
+<tr><td>Tax:</td><td>$1.24</td><td></td></tr>
+<tr><td>State Bottle Deposit:</td><td>$0.00</td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td>Total Tax:</td><td>$2.16</td><td></td></tr>
+<tr><td>Delivery Fee (waived):</td><td>$0.00</td><td></td></tr>
+<tr><td>Tip :</td><td>$10.00</td><td></td></tr>
+<tr><td>Fuel Surcharge:</td><td>$1.00</td><td>T</td></tr>
+<tr><td>ORDER TOTAL:</td><td>$47.34</td><td></td></tr>
+<tr><td>T = Taxable Item</td></tr>
+<tr><td>S = Special Price</td></tr>
+<tr><td>D = State Bottle Deposit</td></tr>
+</table>
+</td></tr></table>
+</body></html>

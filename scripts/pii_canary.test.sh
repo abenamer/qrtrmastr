@@ -150,18 +150,29 @@ if [ $? != 1 ] || ! printf '%s' "$output" | grep -qF "the canary does not read .
   failed=1
 fi
 
-# The cap on what is left out. Seven files of the kinds that the canary leaves out pass; one
+# The cap on what is left out. Eight files of the kinds that the canary leaves out pass; one
 # more fails, whatever its kind: an exclusion that is added to the canary leaves out more.
 fresh
-for n in 1 2 3 4 5 6 7; do printf 'x\n' > "$repo/image$n.png"; done
+for n in 1 2 3 4 5 6 7 8; do printf 'x\n' > "$repo/image$n.png"; done
 expect 0 "PASS: privacy canary (shape mode)" "$repo"
-printf 'x\n' > "$repo/image8.png"
-expect 1 "the canary leaves out 8 tracked files, more than 7" "$repo"
+printf 'x\n' > "$repo/image9.png"
+expect 1 "the canary leaves out 9 tracked files, more than 8" "$repo"
 cases=$((cases + 1))
-if ! grep -qx 'LEFT_OUT_MAX=7' "$canary"; then
-  echo "FAIL: case $cases: scripts/pii_canary.sh does not hold the line LEFT_OUT_MAX=7" >&2
+if ! grep -qx 'LEFT_OUT_MAX=8' "$canary"; then
+  echo "FAIL: case $cases: scripts/pii_canary.sh does not hold the line LEFT_OUT_MAX=8" >&2
   failed=1
 fi
+
+# A file with a byte that is no text, such as a seed that is an archive, is read as text: a
+# shape in it is a finding with its place, and a reserved form in it passes.
+fresh
+mkdir -p "$repo/fuzz/seeds/takeout"
+printf 'PK\003\004\000\000 a line with %s in it\n' "$mail" > "$repo/fuzz/seeds/takeout/archive"
+expect 1 "fuzz/seeds/takeout/archive:" "$repo"
+fresh
+mkdir -p "$repo/fuzz/seeds/takeout"
+printf 'PK\003\004\000\000 a line with %s in it\n' "pat""@""example.com" > "$repo/fuzz/seeds/takeout/archive"
+expect 0 "PASS: privacy canary (shape mode)" "$repo"
 
 # A tracked file where none may be tracked.
 fresh
@@ -198,7 +209,7 @@ if [ "$failed" != 0 ]; then
   echo "FAIL: scripts/pii_canary.sh does not do what its test expects" >&2
   exit 1
 fi
-if [ "$cases" -lt 165 ]; then
+if [ "$cases" -lt 170 ]; then
   echo "FAIL: only $cases cases ran" >&2
   exit 1
 fi

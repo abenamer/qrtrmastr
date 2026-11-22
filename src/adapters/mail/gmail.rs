@@ -209,11 +209,16 @@ fn error_code(body: &serde_json::Value) -> String {
         .collect()
 }
 
-fn read_json<T: serde::de::DeserializeOwned>(
+/// What an answer that cannot be read is called in an error, whatever the cause.
+const NOT_THE_JSON: &str = "not the expected JSON, or larger than the limit";
+
+/// The body of an answer with a status of success, at most `limit` bytes of it. An answer
+/// with another status becomes the error that names its code.
+fn read_body(
     what: &'static str,
     result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
     limit: u64,
-) -> Result<T, GmailError> {
+) -> Result<Vec<u8>, GmailError> {
     let mut response = result.map_err(|e| transport(what, &e))?;
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
@@ -234,11 +239,23 @@ fn read_json<T: serde::de::DeserializeOwned>(
         .body_mut()
         .with_config()
         .limit(limit)
-        .read_json()
+        .read_to_vec()
         .map_err(|_| GmailError::Answer {
             what,
-            reason: "not the expected JSON, or larger than the limit",
+            reason: NOT_THE_JSON,
         })
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(
+    what: &'static str,
+    result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+    limit: u64,
+) -> Result<T, GmailError> {
+    let body = read_body(what, result, limit)?;
+    serde_json::from_slice(&body).map_err(|_| GmailError::Answer {
+        what,
+        reason: NOT_THE_JSON,
+    })
 }
 
 fn random_token(bytes: usize) -> Result<String, GmailError> {
@@ -564,8 +581,10 @@ struct Page {
 }
 
 #[derive(Deserialize)]
-struct RawMessage {
-    raw: String,
+struct RawMessage<'a> {
+    // Borrowed from the body when the text has no escape, so a large message is not copied.
+    #[serde(borrow)]
+    raw: std::borrow::Cow<'a, str>,
 }
 
 /// Gmail writes the raw message as base64url; padding is accepted either way.
@@ -573,6 +592,69 @@ const RAW_ENCODING: GeneralPurpose = GeneralPurpose::new(
     &base64::alphabet::URL_SAFE,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
+
+/// One page of the message list, as Gmail answered it and after the check of each id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListPage {
+    /// The ids of the messages of this page, in the order of the answer. Each is 1 to 64
+    /// ASCII letters and digits, so it can be a part of a request path.
+    pub ids: Vec<String>,
+    /// The token that asks for the next page; `None` on the last page.
+    pub next_page_token: Option<String>,
+}
+
+/// Reads the body of one answer of the message list. The body is outside data: Gmail wrote
+/// it, and what it holds comes from the mailbox.
+///
+/// # Errors
+///
+/// [`GmailError::Answer`] when the body is not the JSON of a page, or when an id is empty,
+/// longer than 64 characters, or holds a character that is not an ASCII letter or digit.
+pub fn list_page_from_json(body: &[u8]) -> Result<ListPage, GmailError> {
+    let what = "the message list";
+    let page: Page = serde_json::from_slice(body).map_err(|_| GmailError::Answer {
+        what,
+        reason: NOT_THE_JSON,
+    })?;
+    let mut ids = Vec::with_capacity(page.messages.len());
+    for message in page.messages {
+        // The id becomes part of a path; Gmail's ids are hexadecimal.
+        let id_ok = !message.id.is_empty()
+            && message.id.len() <= 64
+            && message.id.bytes().all(|b| b.is_ascii_alphanumeric());
+        if !id_ok {
+            return Err(GmailError::Answer {
+                what,
+                reason: "a message id that is not letters and digits",
+            });
+        }
+        ids.push(message.id);
+    }
+    Ok(ListPage {
+        ids,
+        next_page_token: page.next_page_token,
+    })
+}
+
+/// Reads the body of one answer for a message in raw form and gives the bytes of the mail.
+///
+/// # Errors
+///
+/// [`GmailError::Answer`] when the body is not JSON with a `raw` text, or when that text is
+/// not base64url.
+pub fn raw_message_from_json(body: &[u8]) -> Result<Vec<u8>, GmailError> {
+    let what = "a message";
+    let message: RawMessage<'_> = serde_json::from_slice(body).map_err(|_| GmailError::Answer {
+        what,
+        reason: NOT_THE_JSON,
+    })?;
+    RAW_ENCODING
+        .decode(message.raw.as_bytes())
+        .map_err(|_| GmailError::Answer {
+            what,
+            reason: "the raw message is not base64url",
+        })
+}
 
 impl GmailApi {
     /// A source for one fetch. `access_token` comes from [`access_token`] and `query` from
@@ -596,13 +678,14 @@ impl GmailApi {
         }
     }
 
-    fn get<T: serde::de::DeserializeOwned>(
+    /// The body of one answer of the API, at most `limit` bytes.
+    fn get(
         &self,
         what: &'static str,
         path: &str,
         query: &[(&str, &str)],
         limit: u64,
-    ) -> Result<T, GmailError> {
+    ) -> Result<Vec<u8>, GmailError> {
         let request = self
             .agent
             .get(format!("{}{path}", self.api))
@@ -611,7 +694,7 @@ impl GmailApi {
                 format!("Bearer {}", self.access_token.expose_secret()),
             )
             .query_pairs(query.iter().copied());
-        read_json(what, request.call(), limit)
+        read_body(what, request.call(), limit)
     }
 
     /// Lists the search page by page and sends each message raw, newest first as Gmail lists
@@ -624,13 +707,13 @@ impl GmailApi {
             if let Some(token) = &page_token {
                 query.push(("pageToken", token.as_str()));
             }
-            let page: Page = self.get(
+            let page = list_page_from_json(&self.get(
                 "the message list",
                 "/gmail/v1/users/me/messages",
                 &query,
                 SMALL_RESPONSE,
-            )?;
-            for message in &page.messages {
+            )?)?;
+            for id in &page.ids {
                 if sent == self.max_messages {
                     tracing::warn!(
                         limit = self.max_messages,
@@ -638,29 +721,12 @@ impl GmailApi {
                     );
                     return Ok(());
                 }
-                // The id becomes part of a path; Gmail's ids are hexadecimal.
-                let id_ok = !message.id.is_empty()
-                    && message.id.len() <= 64
-                    && message.id.bytes().all(|b| b.is_ascii_alphanumeric());
-                if !id_ok {
-                    return Err(GmailError::Answer {
-                        what: "the message list",
-                        reason: "a message id that is not letters and digits",
-                    });
-                }
-                let raw: RawMessage = self.get(
+                let bytes = raw_message_from_json(&self.get(
                     "a message",
-                    &format!("/gmail/v1/users/me/messages/{}", message.id),
+                    &format!("/gmail/v1/users/me/messages/{id}"),
                     &[("format", "raw")],
                     MESSAGE_RESPONSE,
-                )?;
-                let bytes =
-                    RAW_ENCODING
-                        .decode(raw.raw.as_bytes())
-                        .map_err(|_| GmailError::Answer {
-                            what: "a message",
-                            reason: "the raw message is not base64url",
-                        })?;
+                )?)?;
                 if tx.blocking_send(Ok(RawMail { bytes })).is_err() {
                     // The use case stopped; there is nobody to read for.
                     return Ok(());
@@ -669,7 +735,7 @@ impl GmailApi {
                 sent = sent.saturating_add(1);
             }
             match page.next_page_token {
-                Some(token) if !page.messages.is_empty() => page_token = Some(token),
+                Some(token) if !page.ids.is_empty() => page_token = Some(token),
                 _ => return Ok(()),
             }
         }
@@ -1016,6 +1082,105 @@ mod tests {
         let seen = seen.lock().expect("log");
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].authorization.as_deref(), Some("Bearer access-1"));
+    }
+
+    #[test]
+    fn a_page_of_the_list_is_read_and_an_id_that_is_no_id_is_refused() {
+        assert_eq!(
+            list_page_from_json(
+                br#"{"messages":[{"id":"18c2a","threadId":"t"},{"id":"Zz09"}],"nextPageToken":"n1"}"#
+            )
+            .expect("a page"),
+            ListPage {
+                ids: vec!["18c2a".to_owned(), "Zz09".to_owned()],
+                next_page_token: Some("n1".to_owned()),
+            }
+        );
+        // The last page has no list and no token.
+        assert_eq!(
+            list_page_from_json(br#"{"resultSizeEstimate":0}"#).expect("a page"),
+            ListPage {
+                ids: Vec::new(),
+                next_page_token: None,
+            }
+        );
+        let too_long = format!(r#"{{"messages":[{{"id":"{}"}}]}}"#, "a".repeat(65));
+        let longest = format!(r#"{{"messages":[{{"id":"{}"}}]}}"#, "a".repeat(64));
+        assert!(list_page_from_json(longest.as_bytes()).is_ok());
+        for body in [
+            r#"{"messages":[{"id":""}]}"#,
+            r#"{"messages":[{"id":"../settings"}]}"#,
+            r#"{"messages":[{"id":"18c2a?x"}]}"#,
+            r#"{"messages":[{"id":"18c 2a"}]}"#,
+            r#"{"messages":[{"id":"18c2\u00e9"}]}"#,
+            too_long.as_str(),
+        ] {
+            let error = list_page_from_json(body.as_bytes()).expect_err(body);
+            assert_eq!(
+                error.to_string(),
+                "Google's answer to the message list cannot be read: a message id that is not letters and digits",
+                "{body}"
+            );
+        }
+        for body in [
+            "",
+            "[]",
+            "null",
+            r#"{"messages":{}}"#,
+            r#"{"messages":[{}]}"#,
+            "{",
+        ] {
+            let error = list_page_from_json(body.as_bytes()).expect_err(body);
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("not the expected JSON, or larger than the limit"),
+                "{body}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_raw_message_is_decoded_with_and_without_padding_and_other_text_is_refused() {
+        for body in [
+            r#"{"raw":"aGk="}"#,
+            r#"{"id":"1","raw":"aGk"}"#,
+            r#"{"raw":"a\u0047k"}"#,
+        ] {
+            assert_eq!(
+                raw_message_from_json(body.as_bytes()).expect(body),
+                b"hi",
+                "{body}"
+            );
+        }
+        // The alphabet is the one for addresses: `-` and `_`, not `+` and `/`.
+        assert_eq!(
+            raw_message_from_json(br#"{"raw":"-_8"}"#).expect("url alphabet"),
+            [0xfb, 0xff]
+        );
+        for body in [
+            r#"{"raw":"+/8"}"#,
+            r#"{"raw":"aG k"}"#,
+            r#"{"raw":"a"}"#,
+            r#"{"raw":"aGl="}"#,
+        ] {
+            let error = raw_message_from_json(body.as_bytes()).expect_err(body);
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("the raw message is not base64url"),
+                "{body}: {error}"
+            );
+        }
+        for body in ["", "{}", r#"{"raw":5}"#, r#"{"raw":null}"#, "[]"] {
+            let error = raw_message_from_json(body.as_bytes()).expect_err(body);
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("not the expected JSON, or larger than the limit"),
+                "{body}: {error}"
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]

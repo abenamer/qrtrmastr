@@ -55,6 +55,9 @@ ACTOR = re.compile(r"^(?:human:[^\s]+|process:[^\s]+|[^\s/]+/[^\s/]+)$")
 # Directories at the top of the repository that hold no document of the project. A directory
 # of the same name further down is read like any other.
 SKIPPED_DIRECTORIES = frozenset({".git", "target", ".venv", "node_modules"})
+# What `cargo fuzz` writes below the fuzz package, which git ignores: its build holds pages of
+# the libraries, and they are not documents of this project.
+SKIPPED_PATHS = ("fuzz/target/", "fuzz/corpus/", "fuzz/artifacts/", "fuzz/coverage/")
 MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 PRINTED_AS_IT_IS = frozenset(" ")
 MARKDOWN = MarkdownIt("commonmark")
@@ -420,7 +423,8 @@ def markdown_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if path.suffix.lower() not in MARKDOWN_SUFFIXES:
             continue
-        if path.relative_to(root).parts[0] in SKIPPED_DIRECTORIES:
+        relative = path.relative_to(root)
+        if relative.parts[0] in SKIPPED_DIRECTORIES or relative.as_posix().startswith(SKIPPED_PATHS):
             continue
         if path.is_symlink() or path.is_file():
             found.append(path)

@@ -29,8 +29,11 @@ use thiserror::Error;
 /// a wallet name. 7: an email address is removed whole when a pass already replaced a term
 /// inside it, in the local part or in the domain; and the terms are replaced before the phone
 /// numbers as well as after, so the optional country code of a phone number does not take the
-/// last digit of an address term.
-pub const REDACTION_VERSION: i32 = 7;
+/// last digit of an address term. 8: a link loses its address also when the address holds a
+/// term between `<` and `>`, the digits of a phone number inside a longer run of digits, or
+/// a term that is there only before the percent pairs are decoded; the same check decides
+/// whether a `Message-ID` is the message key.
+pub const REDACTION_VERSION: i32 = 8;
 
 /// The `[redaction]` section of the configuration file: the redaction terms of the
 /// maintainer, by kind. Every value is personal data. A key that the section leaves out is an
@@ -240,6 +243,8 @@ struct Literal {
 pub struct Redactor {
     literals: Vec<Literal>,
     phones: Vec<Regex>,
+    /// The national digits of each phone number, for the check of a short text.
+    phone_digits: Vec<String>,
     last4: Vec<Regex>,
 }
 
@@ -367,6 +372,7 @@ impl Redactor {
         literals.sort_by_key(|l| std::cmp::Reverse(l.length));
 
         let mut phones = Vec::new();
+        let mut phone_digits = Vec::new();
         for (position, phone) in (1_usize..).zip(&terms.phones) {
             let all_digits: String = phone.chars().filter(char::is_ascii_digit).collect();
             if all_digits.len() < 7 {
@@ -385,6 +391,7 @@ impl Redactor {
             let regex = from_digits(&format!(r"(?:\+?1[^0-9]{{0,3}})?\(?{spaced}([^0-9]|$)"))
                 .ok_or(RedactionError::BadPhone(position))?;
             phones.push(regex);
+            phone_digits.push(national);
         }
         let mut last4 = Vec::new();
         for (position, four) in (1_usize..).zip(&terms.card_last4) {
@@ -401,19 +408,51 @@ impl Redactor {
         Ok(Self {
             literals,
             phones,
+            phone_digits,
             last4,
         })
     }
 
     /// Whether a short text, such as a message key or a link address, carries a configured term
     /// or phone number. Shapes are not checked: a message key always looks like an address.
+    ///
+    /// The check is wider than the passes over a body, because a text that it refuses costs
+    /// nothing: the key becomes the hash of the message, and the link loses its address.
+    ///
+    /// - The text is read as it is and with its percent pairs decoded. A `%` before a term
+    ///   that starts with two hexadecimal digits would otherwise take them away as a pair:
+    ///   `x%2125550199` holds the phone number, and its decoded form does not.
+    /// - Each of the two is read as markup and as plain text. A key is no markup, so a term
+    ///   between `<` and `>` is still in it.
+    /// - The digits of a phone number count also inside a longer run of digits and with
+    ///   other signs between them. A body keeps such a run: there it can be another number.
+    ///
+    /// The fuzz targets and their review found the three cases on 2026-11-21.
     pub fn carries_configured_term(&self, text: &str) -> bool {
         let decoded = percent_decode(text);
-        let view = text_view(&decoded);
-        self.literals.iter().any(|l| {
-            l.plain.is_match(&view)
-                || (!l.alnum.is_empty() && alphanumerics(&view).contains(&l.alnum))
-        }) || self.phones.iter().any(|p| p.is_match(&view))
+        let plain = |reading: &str| {
+            WS.replace_all(normalize_markup(reading).trim(), " ")
+                .to_lowercase()
+        };
+        [
+            text_view(&decoded),
+            plain(&decoded),
+            text_view(text),
+            plain(text),
+        ]
+        .iter()
+        .any(|view| {
+            let letters_and_digits = alphanumerics(view);
+            let digits: String = view.chars().filter(char::is_ascii_digit).collect();
+            self.literals.iter().any(|l| {
+                l.plain.is_match(view)
+                    || (!l.alnum.is_empty() && letters_and_digits.contains(&l.alnum))
+            }) || self.phones.iter().any(|p| p.is_match(view))
+                || self
+                    .phone_digits
+                    .iter()
+                    .any(|phone| digits.contains(phone.as_str()))
+        })
     }
 
     /// Redacts HTML: structure first, then text passes over the normalized serialized result.
@@ -971,6 +1010,56 @@ mod tests {
         assert!(r.carries_configured_term("pat.example@example.com.1234@mail.example"));
         assert!(r.carries_configured_term("/u/Pat%20Example"));
         assert!(!r.carries_configured_term("abc.def@mail.example"));
+    }
+
+    #[test]
+    fn a_phone_number_inside_a_longer_run_of_digits_is_found_in_a_short_text() {
+        let r = redactor();
+        // Found by the fuzz target of the mail reader on 2026-11-21: a `Message-ID` with the
+        // digits of the phone number and one more digit was stored as the message key.
+        assert!(r.carries_configured_term("r21255501991@mail.example"));
+        assert!(r.carries_configured_term("92125550199@mail.example"));
+        assert!(r.carries_configured_term("id-2125550199-7@mail.example"));
+        // The digits with other signs between them, and with the country code.
+        assert!(r.carries_configured_term("u212x555y0199z@mail.example"));
+        assert!(r.carries_configured_term("12125550199000@mail.example"));
+        // The control: nine of the ten digits, and the ten in another order, are no phone.
+        assert!(!r.carries_configured_term("r212555019@mail.example"));
+        assert!(!r.carries_configured_term("r2125550919@mail.example"));
+        // A body is not read this way: there the longer run can be another number.
+        assert_eq!(
+            r.redact_text("order 21255501991").expect("redacts"),
+            "order 21255501991"
+        );
+    }
+
+    #[test]
+    fn a_percent_sign_before_a_term_does_not_hide_it_in_a_short_text() {
+        let r = redactor();
+        // Found by the review of the fuzz targets on 2026-11-21: the check read the decoded
+        // text only, and `%21` is one character there, so two digits of the number were gone.
+        assert!(r.carries_configured_term("x%2125550199@mail.example"));
+        assert!(r.carries_configured_term("x%+2125550199"));
+        assert!(r.carries_configured_term("x%123 Imaginary Street Apt 4B"));
+        // A term that is there only after decoding is still found.
+        assert!(r.carries_configured_term("/u/Pat%20Example"));
+        assert!(r.carries_configured_term("%32125550199"));
+        // The control: a pair before a text that is no term.
+        assert!(!r.carries_configured_term("x%21abc@mail.example"));
+    }
+
+    #[test]
+    fn a_term_between_angle_brackets_is_found_in_a_short_text() {
+        let r = redactor();
+        // Found by the fuzz target of the redactor on 2026-11-21: the check read the text as
+        // markup only, and what stands between `<` and `>` is a tag there.
+        assert!(r.carries_configured_term("a<pat.example@example.com>b@mail.example"));
+        assert!(r.carries_configured_term("x<Pat Example>@mail.example"));
+        assert!(r.carries_configured_term("<p title=\"123 Imaginary Street Apt 4B\">"));
+        // The reading as markup still counts: a tag between the two words of a name.
+        assert!(r.carries_configured_term("Pat<b>Example"));
+        // The control: angle brackets alone change nothing.
+        assert!(!r.carries_configured_term("a<abc.def@mail.example>b@mail.example"));
     }
 
     #[test]

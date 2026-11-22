@@ -1,0 +1,8 @@
+From: FreshDirect <service@freshdirect.com>
+To: pat.example@example.com
+Subject: Your FreshDirect order is in the works! Here's your receipt
+Message-ID: <r4@mail.example>
+Authentication-Results: mx.google.com; dkim=pass header.i=@freshdirect.com
+Content-Type: text/html; charset=utf-8
+
+<p>Order 12345678904</p>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Your FreshDirect order is in the works! Here's your receipt</title>
+</head>
+<body style="font-family: Arial, sans-serif; margin: 0; padding: 0;">
+<!-- SYNTHETIC FIXTURE. Every name, number and place below is invented, in reserved shapes that can
+     never be real, so that the redactor and the privacy canary can be tested without a real
+     receipt. This comment is itself removed by the redactor. -->
+<table width="100%" cellpadding="0" cellspacing="0">
+  <tr>
+    <td align="center">
+      <img src="https://img.freshdirect.example/logo.png?cid=SYNTHETIC-TRACKING-TOKEN" alt="FreshDirect" width="160">
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <p>Hi Pat,</p>
+      <p>Your order is in the works! Here's your receipt.</p>
+      <table cellpadding="4">
+        <tr><td><b>Order #:</b></td><td>12345678901</td></tr>
+        <tr><td><b>Delivery Date:</b></td><td>Tuesday, March 3, 2026</td></tr>
+        <tr><td><b>Delivery Window:</b></td><td>8:00am - 10:00am</td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <table cellpadding="4" width="100%">
+        <tr>
+          <td valign="top" width="50%">
+            <b>Delivery Address</b><br>
+            Pat Example<br>
+            123 Imaginary Street Apt 4B<br>
+            Brooklyn, NY 11201<br>
+            (212) 555-0199
+          </td>
+          <td valign="top" width="50%">
+            <b>Payment</b><br>
+            Visa ending in 4242<br>
+            pat.example@example.com
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <table cellpadding="4" cellspacing="0" width="100%" class="order-items">
+        <tr>
+          <th>Qty</th><th>Item</th><th>Weight</th><th>Unit Price</th><th>Options</th><th>Price</th><th>T</th><th>S</th><th>D</th>
+        </tr>
+        <tr><td></td><td colspan="8"><b>Dairy</b></td></tr>
+        <tr>
+          <td>3/3</td>
+          <td><a href="https://www.freshdirect.example/product/dai_lactaid_whl_hg?trk=SYNTHETIC">Lactaid 100% Lactose-Free Whole Milk, Carton - (1/2 gallon)</a></td>
+          <td></td><td>($5.79/ea)</td><td></td><td>$17.37</td><td></td><td></td><td></td>
+        </tr>
+        <tr>
+          <td>1/1</td>
+          <td><a href="https://www.freshdirect.example/product/dai_egg_lg_12">Organic Large Brown Eggs - (12 Count)</a></td>
+          <td></td><td>($6.49/ea)</td><td></td><td>$6.49</td><td></td><td></td><td></td>
+        </tr>
+        <tr><td></td><td colspan="8"><b>Vegetables</b></td></tr>
+        <tr>
+          <td>2/1.56</td>
+          <td><a href="https://www.freshdirect.example/product/veg_tomato_beef_lg">Beefsteak Tomatoes, Large</a></td>
+          <td>1.06 lb</td><td>($2.99/lb)</td><td></td><td>$3.17</td><td></td><td></td><td></td>
+        </tr>
+        <tr>
+          <td>2/2</td>
+          <td><a href="https://www.freshdirect.example/product/veg_shishito_8oz">Ark Foods Green Shishito Peppers - (approx. 8oz)</a></td>
+          <td></td><td>($4.00/ea)</td><td></td><td>$8.00</td><td></td><td>S</td><td></td>
+        </tr>
+        <tr><td></td><td colspan="8"><b>Beverages</b></td></tr>
+        <tr>
+          <td>1/1</td>
+          <td><a href="https://www.freshdirect.example/product/bev_seltzer_lime_6pk">Lime Seltzer - (6 pk, 12 fl oz)</a></td>
+          <td></td><td>($4.99/ea)</td><td></td><td>$4.99</td><td>T</td><td></td><td>D</td>
+        </tr>
+        <tr><td></td><td colspan="8"><b>Deli</b></td></tr>
+        <tr>
+          <td>1/1</td>
+          <td><a href="https://www.freshdirect.example/product/del_turkey_sliced">Oven Roasted Turkey Breast, Sliced</a></td>
+          <td>0.52 lb</td><td>($12.99/lb)</td><td>$1.00</td><td>$7.75</td><td></td><td></td><td></td>
+        </tr>
+        <tr>
+          <td colspan="9"><i>Thank you for ordering! Items marked S were on special this week.</i></td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <table cellpadding="4" align="right">
+        <tr><td>Subtotal</td><td>$47.77</td></tr>
+        <tr><td>Tax</td><td>$0.44</td></tr>
+        <tr><td>Bottle Deposit</td><td>$0.30</td></tr>
+        <tr><td>Delivery Fee</td><td>$5.99</td></tr>
+        <tr><td>Service Fee</td><td>$2.00</td></tr>
+        <tr><td>Tip</td><td>$6.00</td></tr>
+        <tr><td><b>Order Total</b></td><td><b>$62.50</b></td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <p style="font-size: 11px;">Questions? Call (212) 555-0199 or reply to this email. FreshDirect, 2 Imaginary Plaza, Bronx, NY 10474.</p>
+      <p style="font-size: 11px;"><a href="https://www.freshdirect.example/unsubscribe?u=SYNTHETIC-CUSTOMER-ID">Manage preferences</a></p>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

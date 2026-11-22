@@ -1,0 +1,22 @@
+From sender0@mail.example Tue Mar  3 06:15:00 2026
+From: FreshDirect <service@freshdirect.com>
+To: pat.example@example.com
+Subject: Your FreshDirect order is in the works! Here's your receipt
+Date: Tue, 3 Mar 2026 06:15:00 -0500
+Message-ID: <r2@mail.example>
+Authentication-Results: mx.google.com; dkim=pass header.i=@freshdirect.com
+Content-Type: text/html; charset=utf-8
+
+<p>Order 12345678902</p>
+
+From sender1@mail.example Tue Mar  3 06:15:00 2026
+From: FreshDirect <service@freshdirect.com>
+To: pat.example@example.com
+Subject: Your FreshDirect order is in the works! Here's your receipt
+Date: Tue, 3 Mar 2026 06:15:00 -0500
+Message-ID: <r3@mail.example>
+Authentication-Results: mx.google.com; dkim=pass header.i=@freshdirect.com
+Content-Type: text/html; charset=utf-8
+
+<p>Order 12345678903</p>
+

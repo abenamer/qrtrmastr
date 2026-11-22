@@ -28,3 +28,10 @@ gmail-token.json*
 # A snapshot that a failed test leaves beside the committed one. Read it, then delete it; the
 # committed snapshot is written by the command that docs/reference/files.md names.
 *.snap.new
+
+# What `cargo fuzz` writes: its build, the inputs that a run finds, and the input of a failure.
+# The committed seeds are in fuzz/seeds/.
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
