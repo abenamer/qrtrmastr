@@ -23,6 +23,21 @@ pub struct Normalized {
     pub size_text: Option<String>,
 }
 
+/// The most bytes that the normalized name and the normalized size of one alias hold
+/// together. The two are the key of an alias, and the store keeps a unique index on them; an
+/// index entry has a size limit of its own, about 2,700 bytes in PostgreSQL. A product name
+/// on a receipt is far shorter than this. A name from a receipt is outside data, so the
+/// limit is checked before the store is asked (REAS-SEC-001).
+pub const ALIAS_KEY_MAX_BYTES: usize = 1024;
+
+impl Normalized {
+    /// Whether the normalized name and size are short enough to be the key of an alias: at
+    /// most [`ALIAS_KEY_MAX_BYTES`] bytes together.
+    pub fn fits_an_alias(&self) -> bool {
+        self.name_norm.len().saturating_add(self.size_norm.len()) <= ALIAS_KEY_MAX_BYTES
+    }
+}
+
 static SIZE_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
     // "Name - (1/2 gallon)", "Name (approx. 8oz)", "Name - 16 oz" at the end of the name.
     fixed(r"(?i)\s*(?:[-\u{2013}\u{2014}]\s*)?\((?P<size>[^()]*)\)\s*$")

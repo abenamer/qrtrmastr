@@ -16,6 +16,7 @@ use scraper::{ElementRef, Html, Selector};
 
 use super::{Confidence, ParseError, ReceiptParser};
 use crate::application::ports::ParserTag;
+use crate::domain::identity::{ALIAS_KEY_MAX_BYTES, normalize};
 use crate::domain::ids::OrderNumber;
 use crate::domain::money::{Money, Quantity};
 use crate::domain::receipt::{
@@ -282,6 +283,14 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
         let raw_name = name_cell.clone();
         if raw_name.is_empty() {
             return Classified::Unknown("quantity row without a product name".to_owned());
+        }
+        // A name is the key of an alias after it is normalized, and a key has a limit. A row
+        // with a longer name is a row that this parser cannot read, like any other; the
+        // text of the name does not go into the reason.
+        if !normalize(&raw_name).fits_an_alias() {
+            return Classified::Unknown(format!(
+                "product name longer than {ALIAS_KEY_MAX_BYTES} bytes"
+            ));
         }
         let weight = WEIGHT_CELL.captures(weight_cell).and_then(|w| {
             Quantity::parse(&w[1]).ok().map(|value| Weight {
@@ -702,6 +711,48 @@ mod tests {
             link_path: None,
             header: false,
         }
+    }
+
+    #[test]
+    fn a_row_whose_name_is_too_long_for_an_alias_is_a_row_that_is_not_read() {
+        // The name becomes the key of an alias, and the store has a size limit for a key.
+        // Before 2026-11-21 such a line was read, the store refused the alias, and each later
+        // run of the parse step stopped at that receipt.
+        let at_the_limit = "a".repeat(ALIAS_KEY_MAX_BYTES);
+        let above = "a".repeat(ALIAS_KEY_MAX_BYTES + 1);
+        let item =
+            |name: &str| classify(&row(&["1/1", name, "", "$1.00/ea", "", "$1.00"]), 1, None);
+        assert!(matches!(item(&at_the_limit), Classified::Item(_)));
+        let Classified::Unknown(reason) = item(&above) else {
+            panic!("a name above the limit is no item");
+        };
+        // The reason says the limit and not the name: the name is outside data.
+        assert_eq!(reason, "product name longer than 1024 bytes");
+        // The limit is on the normalized name and size together, in bytes: a size in
+        // parentheses counts, and a letter of two bytes counts twice.
+        let with_size = format!("{} - (12 oz)", "a".repeat(ALIAS_KEY_MAX_BYTES - 5));
+        assert!(matches!(item(&with_size), Classified::Item(_)));
+        let with_longer_size = format!("{} - (12 oz)", "a".repeat(ALIAS_KEY_MAX_BYTES - 4));
+        assert!(matches!(item(&with_longer_size), Classified::Unknown(_)));
+        // The limit is on the name after it is normalized, which can be longer than the name
+        // on the receipt: one letter of three bytes becomes 33 bytes, and a capital I with a
+        // dot, two bytes, becomes three.
+        assert!(matches!(item(&"\u{fdfa}".repeat(31)), Classified::Item(_)));
+        assert!(matches!(
+            item(&"\u{fdfa}".repeat(32)),
+            Classified::Unknown(_)
+        ));
+        assert!(matches!(item(&"\u{130}".repeat(341)), Classified::Item(_)));
+        assert!(matches!(
+            item(&"\u{130}".repeat(342)),
+            Classified::Unknown(_)
+        ));
+        let wide = "\u{e9}".repeat(ALIAS_KEY_MAX_BYTES / 2 + 1);
+        assert!(matches!(item(&wide), Classified::Unknown(_)));
+        assert!(matches!(
+            item(&"\u{e9}".repeat(ALIAS_KEY_MAX_BYTES / 2)),
+            Classified::Item(_)
+        ));
     }
 
     #[test]

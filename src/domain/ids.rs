@@ -22,6 +22,14 @@ pub enum IdError {
     /// text is not in the error: it comes from a mail.
     #[error("a message key has no whitespace at its start or its end")]
     PaddedMessageKey,
+    /// A `Message-ID` header value is longer than [`MESSAGE_ID_MAX_BYTES`] and is no key. The
+    /// text is not in the error.
+    #[error("a message key is at most 998 bytes")]
+    LongMessageKey,
+    /// The text of a `Message-ID` key holds a NUL character, which no store of text holds.
+    /// The text is not in the error.
+    #[error("a message key holds no NUL character")]
+    NulInMessageKey,
     /// The text of a stored or typed SHA-256 key is not 64 lowercase hexadecimal digits. The
     /// text is not in the error.
     #[error("a sha256 message key is 64 lowercase hexadecimal digits")]
@@ -72,13 +80,22 @@ impl fmt::Display for OrderNumber {
     }
 }
 
+/// The most bytes that the text of a `Message-ID` key holds: the longest line that RFC 5322
+/// permits in a mail. A real `Message-ID` is far shorter. The store keeps a unique index on
+/// the key, and an index entry has a size limit of its own, about 2,700 bytes in PostgreSQL;
+/// a header from a mail is outside data, so the limit is checked where the key is made
+/// (REAS-SEC-001).
+pub const MESSAGE_ID_MAX_BYTES: usize = 998;
+
 /// What a raw message is stored under, and the key every import path dedupes on. The RFC 5322
 /// `Message-ID` header when the message has one, which a Takeout export and the Gmail API both
 /// carry, so the two paths dedupe against each other; else the SHA-256 of the raw bytes.
 ///
 /// The fields are private. A key that exists has a text that fits its kind: a `Message-ID`
-/// text is not empty and has no whitespace at either end, and a SHA-256 text is 64 lowercase
-/// hexadecimal digits. A key read back from the store or typed on the command line goes
+/// text is not empty, has no whitespace at either end and holds no NUL character, and a
+/// SHA-256 text is 64 lowercase hexadecimal digits. A key made from a mail is also at most
+/// [`MESSAGE_ID_MAX_BYTES`] long. A key read back from the store can be longer: a version
+/// before 2026-11-21 had no limit, and a key that the store holds is one that it can hold. A key read back from the store or typed on the command line goes
 /// through [`MessageKey::from_parts`], so it is checked like a key made from a mail
 /// (REAS-SEC-002).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,21 +111,38 @@ impl MessageKey {
     ///
     /// # Errors
     ///
-    /// [`IdError::EmptyMessageKey`] when nothing is left after the whitespace and the angle
-    /// brackets are removed.
+    /// - [`IdError::EmptyMessageKey`] when nothing is left after the whitespace and the angle
+    ///   brackets are removed.
+    /// - [`IdError::LongMessageKey`] when what is left is longer than
+    ///   [`MESSAGE_ID_MAX_BYTES`].
+    /// - [`IdError::NulInMessageKey`] when what is left holds a NUL character.
     pub fn from_message_id(raw: &str) -> Result<Self, IdError> {
         let inner = raw
             .trim()
             .trim_start_matches('<')
             .trim_end_matches('>')
             .trim();
-        if inner.is_empty() {
-            return Err(IdError::EmptyMessageKey);
+        Self::check_message_id_text(inner)?;
+        if inner.len() > MESSAGE_ID_MAX_BYTES {
+            return Err(IdError::LongMessageKey);
         }
         Ok(Self {
             kind: KeyKind::MessageId,
             text: inner.to_owned(),
         })
+    }
+
+    /// The checks of a `Message-ID` text that the two constructors share. The whitespace at
+    /// an end and the length are the business of each constructor: one removes the
+    /// whitespace and has the limit, the other refuses the whitespace and has no limit.
+    fn check_message_id_text(text: &str) -> Result<(), IdError> {
+        if text.is_empty() {
+            return Err(IdError::EmptyMessageKey);
+        }
+        if text.contains('\0') {
+            return Err(IdError::NulInMessageKey);
+        }
+        Ok(())
     }
 
     /// The fallback key: the hex SHA-256 of the message bytes as they were read.
@@ -122,7 +156,8 @@ impl MessageKey {
     /// A key from its kind and its text as they are stored: `raw_messages.key_kind` and
     /// `raw_messages.message_key`. The text is taken as it is and nothing is removed from it,
     /// so a key that [`MessageKey::from_message_id`] or [`MessageKey::from_sha256`] made comes
-    /// back equal to itself.
+    /// back equal to itself. The text of a `Message-ID` key has no limit of length here: a
+    /// row that an older version wrote with a longer key is read, and does not stop a run.
     ///
     /// # Errors
     ///
@@ -130,6 +165,8 @@ impl MessageKey {
     ///   empty.
     /// - [`IdError::PaddedMessageKey`] when `kind` is [`KeyKind::MessageId`] and the text
     ///   starts or ends with whitespace.
+    /// - [`IdError::NulInMessageKey`] when `kind` is [`KeyKind::MessageId`] and the text holds
+    ///   a NUL character.
     /// - [`IdError::NotSha256`] when `kind` is [`KeyKind::Sha256`] and the text is not 64
     ///   characters, each a digit or a lowercase letter from `a` to `f`.
     pub fn from_parts(kind: KeyKind, text: &str) -> Result<Self, IdError> {
@@ -141,6 +178,7 @@ impl MessageKey {
                 if text.trim() != text {
                     return Err(IdError::PaddedMessageKey);
                 }
+                Self::check_message_id_text(text)?;
             }
             KeyKind::Sha256 => {
                 let hex_digit = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
@@ -257,6 +295,58 @@ mod tests {
         assert_eq!(
             MessageKey::from_message_id("<>"),
             Err(IdError::EmptyMessageKey)
+        );
+    }
+
+    #[test]
+    fn a_message_id_key_is_at_most_998_bytes_and_holds_no_nul_character() {
+        // The limit, through each of the two constructors: at it, and one byte above it.
+        let at = "a".repeat(MESSAGE_ID_MAX_BYTES);
+        let above = "a".repeat(MESSAGE_ID_MAX_BYTES + 1);
+        assert_eq!(MESSAGE_ID_MAX_BYTES, 998);
+        assert_eq!(
+            MessageKey::from_message_id(&format!(" <{at}> ")).map(|key| key.as_str().len()),
+            Ok(998)
+        );
+        assert_eq!(
+            MessageKey::from_message_id(&format!("<{above}>")),
+            Err(IdError::LongMessageKey)
+        );
+        // A stored key has no limit: a version before 2026-11-21 wrote a longer key when the
+        // index could hold it, and such a row is read and does not stop a run.
+        assert!(MessageKey::from_parts(KeyKind::MessageId, &at).is_ok());
+        assert_eq!(
+            MessageKey::from_parts(KeyKind::MessageId, &above).map(|key| key.as_str().len()),
+            Ok(999)
+        );
+        // The limit counts bytes: 499 letters of two bytes each are at it, 500 are above.
+        assert!(MessageKey::from_message_id(&"\u{e9}".repeat(499)).is_ok());
+        assert_eq!(
+            MessageKey::from_message_id(&"\u{e9}".repeat(500)),
+            Err(IdError::LongMessageKey)
+        );
+        // A NUL character, at the start, in the middle and at the end. At an end it is not
+        // whitespace, so no constructor removes it.
+        for text in ["\0a@mail.example", "a\0b@mail.example", "a@mail.example\0"] {
+            assert_eq!(
+                MessageKey::from_message_id(text),
+                Err(IdError::NulInMessageKey),
+                "{text:?}"
+            );
+            assert_eq!(
+                MessageKey::from_parts(KeyKind::MessageId, text),
+                Err(IdError::NulInMessageKey),
+                "{text:?}"
+            );
+        }
+        // No error holds the text.
+        assert_eq!(
+            IdError::LongMessageKey.to_string(),
+            "a message key is at most 998 bytes"
+        );
+        assert_eq!(
+            IdError::NulInMessageKey.to_string(),
+            "a message key holds no NUL character"
         );
     }
 

@@ -6,7 +6,7 @@ use super::ports::{
     AliasRequest, AttemptRecord, Catalog, GroceryStore, OrderWrite, ParseAttempt, ParseFinish,
     ParserTag, PendingMessage, RawMessageStore, ReceiptParsing, StoreError,
 };
-use crate::domain::identity::normalize;
+use crate::domain::identity::{ALIAS_KEY_MAX_BYTES, normalize};
 use crate::domain::receipt::{Anomaly, Receipt, reconcile};
 use crate::domain::states::{MessageKind, ParseOutcome, ParseState, Platform, SenderCheck};
 
@@ -31,7 +31,8 @@ pub struct ParseReport {
     /// How many receipts gave an order that does not reconcile: outcome `partial`.
     pub partial: usize,
     /// How many receipts have no stored HTML body, have a layout that a parser recognized and
-    /// could not read, or have amounts that cannot be added: outcome `failed`.
+    /// could not read, have amounts that cannot be added, or have a line whose name is too
+    /// long for the key of an alias: outcome `failed`.
     pub failed: usize,
     /// How many receipts have a layout that no parser recognizes: outcome `unsupported`.
     pub unsupported: usize,
@@ -187,6 +188,27 @@ where
                         cells: Vec::new(),
                         reason: "the subtotal and its additions do not sum to the total".to_owned(),
                     });
+                }
+                // A parser leaves out a line whose name is too long to be the key of an
+                // alias. This is the same limit for a parser that did not: the store would
+                // refuse the alias, and each later run would stop at this message.
+                if receipt
+                    .lines
+                    .iter()
+                    .any(|line| !normalize(&line.raw_name).fits_an_alias())
+                {
+                    count(&mut report.failed);
+                    return self
+                        .finish(
+                            message,
+                            parser,
+                            ParseOutcome::Failed,
+                            Some(format!(
+                                "a product name is longer than {ALIAS_KEY_MAX_BYTES} bytes"
+                            )),
+                            None,
+                        )
+                        .await;
                 }
                 let reconciled = reconciliation.reconciled();
                 let outcome = if reconciled {

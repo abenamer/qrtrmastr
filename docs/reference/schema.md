@@ -4,7 +4,7 @@ title: Database schema
 description: Every table of the store, its purpose, and the migration that made it.
 tags: [database, schema, postgresql]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-20
+updated: 2026-11-21
 sources:
   - id: m0001
     resource: ../../migrations/0001_raw_mail.sql
@@ -48,4 +48,5 @@ Migrations live in `migrations/` and only add. `qm migrate` applies them; SQLx r
 * `raw_messages.parse_state` with `version`: a transition is a conditional update on both, and succeeds only when exactly one row changes (REAS-STATE-003).
 * `grocery_order_lines.qty_first` and `qty_second`: the two numbers of the receipt's quantity cell, stored verbatim. `billed_qty` is the weight when present, else `qty_second`; the meaning of the pair is confirmed against a real receipt in milestone 1.
 * Money columns are `numeric(10,2)`; quantities and weights `numeric(10,3)`. No floating point. No table has a column for the currency: each stored amount is from a receipt in US dollars, and the store adapter gives each amount that it reads back the currency `USD` (`Money::from_decimal`). A second currency needs a column first. `Money` and `Quantity` refuse a number that these columns cannot hold: above 99,999,999.99 on either side of zero, and 10,000,000 or more.
+* `raw_messages.message_key` and the pair `product_aliases.name_norm`, `size_norm` have a unique index, and a B-tree index of PostgreSQL holds no entry above about 2,700 bytes. The columns have no length limit in the schema; the program has one before it writes: 998 bytes for a `Message-ID` key (`domain::ids::MESSAGE_ID_MAX_BYTES`) and 1,024 bytes for the name and size together (`domain::identity::ALIAS_KEY_MAX_BYTES`). No text column holds a NUL character; the reader of a mail refuses a message that has one in a stored part.
 * `pg_trgm` is created by migration 0002 for `qm alias suggest`. It is a trusted extension, so the database owner can create it.

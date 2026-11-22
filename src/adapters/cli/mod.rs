@@ -188,7 +188,8 @@ pub enum FixtureAction {
 /// # Errors
 ///
 /// The errors of [`MessageKey::from_parts`]: [`IdError::EmptyMessageKey`],
-/// [`IdError::PaddedMessageKey`] and [`IdError::NotSha256`]. None of them holds the text.
+/// [`IdError::PaddedMessageKey`], [`IdError::NulInMessageKey`] and [`IdError::NotSha256`].
+/// None of them holds the text.
 pub fn message_key_argument(raw: &str) -> Result<MessageKey, IdError> {
     for kind in KeyKind::ALL {
         let text = raw

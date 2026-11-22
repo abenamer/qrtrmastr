@@ -93,8 +93,8 @@ use qrtrmastr::adapters::receipts::registry::Registry;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
-    AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage, ParseFinish,
-    ParserTag, RawMail, RawMessageStore, StoreError,
+    AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage,
+    ParseAttempt, ParseFinish, ParserTag, RawMail, RawMessageStore, ReceiptParsing, StoreError,
 };
 use qrtrmastr::application::recommend::{Due, DueOptions};
 use qrtrmastr::domain::ids::{IdError, MessageKey};
@@ -373,6 +373,283 @@ async fn a_price_that_no_column_holds_does_not_stop_the_messages_after_it(pool: 
     assert_eq!(outcome, ("partial".to_owned(), None, 4));
 }
 
+/// A text of `length` letters that does not compress: the store keeps a long text in a
+/// shorter form when it repeats, and then an index takes a longer one.
+fn letters_that_do_not_repeat(length: usize) -> String {
+    let mut state: u32 = 0x2545_f491;
+    (0..length)
+        .map(|_| {
+            // One step of a small generator; the same letters on each run.
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let letter = usize::try_from(state % 26).expect("below 26");
+            char::from(*b"abcdefghijklmnopqrstuvwxyz".get(letter).expect("a letter"))
+        })
+        .collect()
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_product_name_that_no_index_holds_does_not_stop_the_messages_after_it(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // Before 2026-11-21 the line with this name was read, the unique index of the aliases
+    // refused its key, and each run of the parse step stopped at this message with the
+    // database error: no later message was parsed.
+    let name = letters_that_do_not_repeat(3000);
+    let mail = receipt_mail("12345678901", "Tuesday, March 3, 2026", "long-name");
+    let text = String::from_utf8(mail.bytes).expect("the mail is text");
+    let changed = text.replace("Beefsteak Tomatoes, Large", &name);
+    assert!(changed.contains(&name), "the name is replaced");
+    let mails = Mails(vec![
+        RawMail {
+            bytes: changed.into_bytes(),
+        },
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
+    ]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+
+    let parsed = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("the run goes on after the receipt with the name");
+    // The row with the name is a row that the parser cannot read: an order of five lines
+    // that do not sum to the subtotal. The message after it has its order of six.
+    assert_eq!(
+        (parsed.pending, parsed.parsed, parsed.partial, parsed.failed),
+        (2, 1, 1, 0)
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from grocery_order_lines where order_number = '12345678901'"
+        )
+        .await,
+        5
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from grocery_order_lines where order_number = '12345678902'"
+        )
+        .await,
+        6
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where parse_state = 'fetched'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from product_aliases where length(name_norm) > 1024"
+        )
+        .await,
+        0
+    );
+    // The anomaly says the limit and not the name.
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from order_line_anomalies \
+             where reason = 'product name longer than 1024 bytes'"
+        )
+        .await,
+        1
+    );
+}
+
+/// A parser that reads the synthetic receipt and gives its first line a name that is too long
+/// for an alias: what a parser without the limit of its own would give. The name for the
+/// first order is longer than any index holds. The name for each other order is 96 bytes on
+/// the receipt and more than 1,024 after it is normalized, which the index would hold: the
+/// limit is on the normalized name.
+struct ParserWithoutTheLimit;
+
+impl ReceiptParsing for ParserWithoutTheLimit {
+    fn parse(&self, html: &str) -> ParseAttempt {
+        let mut attempt = Registry::default().parse(html);
+        if let ParseAttempt::Parsed { receipt, .. } = &mut attempt
+            && let Some(line) = receipt.lines.first_mut()
+        {
+            line.raw_name = if html.contains("12345678901") {
+                letters_that_do_not_repeat(3000)
+            } else {
+                "\u{fdfa}".repeat(32)
+            };
+        }
+        attempt
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_name_too_long_for_an_alias_from_any_parser_is_a_failed_attempt(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    let mails = Mails(vec![
+        receipt_mail("12345678901", "Tuesday, March 3, 2026", "r1"),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "r2"),
+    ]);
+    ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+
+    let parsed = ParsePending::new(store.clone(), ParserWithoutTheLimit)
+        .run(Platform::Freshdirect)
+        .await
+        .expect("the use case has the limit too");
+    assert_eq!(
+        (parsed.pending, parsed.parsed, parsed.partial, parsed.failed),
+        (2, 0, 0, 2)
+    );
+    // No order, no alias and no product is left from a failed attempt, and nothing waits.
+    for (table, sql) in [
+        ("grocery_orders", "select count(*) from grocery_orders"),
+        ("product_aliases", "select count(*) from product_aliases"),
+        ("products", "select count(*) from products"),
+    ] {
+        assert_eq!(count(&pool, sql).await, 0, "{table}");
+    }
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from parse_attempts \
+             where outcome = 'failed' and error = 'a product name is longer than 1024 bytes'"
+        )
+        .await,
+        2
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where parse_state = 'fetched'"
+        )
+        .await,
+        0
+    );
+    // The control: the real parser reads the same two messages into two orders. The
+    // messages are failed now, so they are imported into a second, empty state through a
+    // fresh pair of mails.
+    let more = Mails(vec![receipt_mail(
+        "12345678903",
+        "Tuesday, March 17, 2026",
+        "r3",
+    )]);
+    ImportMail::new(more, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    let real = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect)
+        .await
+        .expect("parse");
+    assert_eq!((real.pending, real.parsed), (1, 1));
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_message_id_that_no_index_holds_is_stored_under_the_hash(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // Before 2026-11-21 this header was the key, the unique index of the keys refused it,
+    // and the import stopped at this mail on each run.
+    let long = letters_that_do_not_repeat(3000);
+    let mails = Mails(vec![
+        receipt_mail("12345678901", "Tuesday, March 3, 2026", &long),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
+    ]);
+    let first = ImportMail::new(mails.clone(), reader(), store.clone())
+        .run()
+        .await
+        .expect("the import goes on after the mail with the header");
+    assert_eq!((first.read, first.inserted), (2, 2), "{first:?}");
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages \
+             where key_kind = 'sha256' and message_key = encode(source_sha256, 'hex')"
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages \
+             where key_kind = 'message_id' and message_key = 'after@mail.example'"
+        )
+        .await,
+        1
+    );
+    // The same mails again: each is known by its key, also the one under the hash.
+    let second = ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    assert_eq!(
+        (second.inserted, second.already_known),
+        (0, 2),
+        "{second:?}"
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_mail_with_a_nul_character_is_one_refused_message_and_the_import_goes_on(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // PostgreSQL holds no NUL character in a text. Before 2026-11-21 the insert of such a
+    // mail failed and the import stopped at it on each run, so no later mail was stored.
+    let with_nul = |message_id: &str, body: &str| {
+        let mail = receipt_mail("12345678901", "Tuesday, March 3, 2026", message_id);
+        let text = String::from_utf8(mail.bytes).expect("the mail is text");
+        let changed = text.replace("<body", &format!("{body}<body"));
+        assert!(changed.contains(body), "the body is changed");
+        RawMail {
+            bytes: changed.into_bytes(),
+        }
+    };
+    let mails = Mails(vec![
+        with_nul("nul-byte", "<p>a\0b</p>"),
+        with_nul("nul-entity", "<p>a&#0;b</p>"),
+        receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
+    ]);
+    let first = ImportMail::new(mails.clone(), reader(), store.clone())
+        .run()
+        .await
+        .expect("the import goes on after the two mails");
+    assert_eq!(first.read, 3);
+    assert_eq!((first.inserted, first.malformed.len()), (1, 2), "{first:?}");
+    for line in &first.malformed {
+        assert!(line.ends_with("a NUL character in the text body"), "{line}");
+    }
+    // The mail after them is stored, and no stored text holds the character: a text with
+    // one cannot be in the table, so the rows are counted.
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where message_key = 'after@mail.example'"
+        )
+        .await,
+        1
+    );
+    let stored = count(&pool, "select count(*) from raw_messages").await;
+    assert_eq!(usize::try_from(stored).expect("a count"), first.inserted);
+    // A second run gives the same refusals and stores nothing new.
+    let second = ImportMail::new(mails, reader(), store.clone())
+        .run()
+        .await
+        .expect("import");
+    assert_eq!(second.inserted, 0);
+    assert_eq!(second.malformed, first.malformed);
+}
+
 #[sqlx::test(migrations = false)]
 async fn a_stored_key_that_does_not_fit_its_kind_is_an_invalid_row(pool: PgPool) {
     let store = PostgresStore::from_pool(pool.clone());
@@ -414,6 +691,27 @@ async fn a_stored_key_that_does_not_fit_its_kind_is_an_invalid_row(pool: PgPool)
     );
     // The reason names the rule and not the stored text.
     assert!(!invalid.to_string().contains("not-a-digest"));
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_long_key_that_an_older_version_stored_does_not_stop_a_run(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // A key from a mail is at most 998 bytes since 2026-11-21. A version before that stored
+    // a longer `Message-ID` when the index could hold it. Such a row is still a row.
+    let long = letters_that_do_not_repeat(2000);
+    insert_raw_row(&pool, "message_id", &long, b"older").await;
+    let keys = store.known_keys().await.expect("the keys are read");
+    assert_eq!(keys.len(), 1);
+    assert!(keys.iter().all(|key| key.as_str() == long));
+    assert_eq!(
+        store
+            .pending(Platform::Freshdirect)
+            .await
+            .expect("the pending messages are read")
+            .len(),
+        1
+    );
 }
 
 #[derive(Clone)]
