@@ -42,7 +42,7 @@ Never run `docker compose down -v`: it deletes the volume. The guard hook refuse
 ## Develop: toolchain
 
 * Rust, in the version that `rust-toolchain.toml` names, with `rustfmt` and `clippy`. rustup reads the file and installs that version when you run `cargo` in the repository. CI uses the same version and fails when the workflow and the file differ. The image in the `Dockerfile` is the same minor version. To move to a newer Rust, change the file, the workflow and the image in one pull request; a newer Clippy can report findings that the old one did not.
-* `cargo install sqlx-cli --no-default-features --features postgres,rustls --locked`, `cargo install cargo-audit cargo-deny --locked`: toolchain utilities, not project binaries.
+* `cargo install sqlx-cli --no-default-features --features postgres,rustls --locked`, `cargo install cargo-audit cargo-deny --locked`: toolchain utilities, not project binaries. For the `unsafe` group also `cargo install cargo-geiger --version 0.13.0 --locked`; the group runs with that version only.
 * Python 3 with `pip install -r requirements-docs.txt` for the docs checker.
 * The project's own binary is never installed on the host: `cargo build` puts it under `target/`, and `docker compose run --rm qm` runs it.
 
@@ -144,10 +144,11 @@ Other rules:
 | `rules` | The `Read` deny rules of `.claude/settings.json` are the ones that [Privacy](/concepts/privacy.md#what-a-claude-session-may-not-read) lists, and none names a home directory | `privacy`, as a part of the `privacy` group |
 | `hooks` | The tests of the guard hook, of the privacy canary and of the script | `privacy` |
 | `targets` | The fuzz targets, their manifest, their seeds and the list of the script name the same seven; the seeds are what `scripts/fuzz_seeds.py` writes; the fuzz lockfile holds the versions of the program | `privacy`, as a part of the `lists` group |
+| `unsafe` | `cargo geiger` counts the unsafe items of each package that it names, in a build directory of its own, `target/unsafe-count`, and `scripts/unsafe_count.py` compares the count with `unsafe-baseline.tsv` ([Unsafe and native code in the dependencies](/reference/native-code.md)); `scripts/check.sh unsafe write` writes the baseline | `rust` |
 | `fuzz` | The `targets` group, a build of the targets for this machine, then each fuzz target for `QM_FUZZ_SECONDS`, 30 when not set | `fuzz`, in the workflow `fuzz.yml`; not one of the seven required jobs |
 | `lists` | The gate below, and the `targets` group | `privacy` |
 
-`scripts/check.sh all` runs every group except `sqlx` and `fuzz`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, and the canary with your terms on a machine without the terms file.
+`scripts/check.sh all` runs every group except `sqlx` and `fuzz`. Its last line names what it did not run: `sqlx`, the `database` group without `DATABASE_URL`, the `unsafe` group on a machine without `cargo-geiger`, and the canary with your terms on a machine without the terms file.
 
 Two jobs are actions with no command in the script: `secrets` (gitleaks over the history) and `dependency-review` (the dependencies that a pull request changes). A second workflow, `scan.yml`, runs the audit and the deny check once a day on `main`, because an advisory arrives without a change to the code. Its jobs are named `daily-audit` and `daily-deny`; a failed run sends a notification and blocks nothing.
 
@@ -188,6 +189,7 @@ Which job reads a path that a change can touch:
 | `src/`, `tests/`, `examples/`, `migrations/`, `Cargo.toml`, `Cargo.lock`, `clippy.toml`, `rust-toolchain.toml`, `.sqlx/` when it exists | `rust` |
 | `fuzz/`, `scripts/fuzz_seeds.py` | `fuzz` builds and runs the targets; `privacy` runs the `targets` group; `audit` reads the lockfile. No job runs Clippy or `cargo deny` on the fuzz package. |
 | `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` | `deny`, `audit`, `dependency-review` |
+| `Cargo.lock`, `unsafe-baseline.tsv`, `scripts/unsafe_count.py` | `rust` runs the `unsafe` group; `privacy` runs the test of the script in the `hooks` group. No job runs `scripts/outside_data_paths.py`. |
 | Each `.md` file, `scripts/check_docs.py`, `tests/docs/`, `requirements-docs.txt` | `docs` |
 | `.claude/hooks/guard-bash.sh`, `scripts/pii_canary.sh` and `scripts/check.sh`, each with its test | `privacy`, the `hooks` group runs the three tests; each job that calls the script runs a part of it |
 | `.github/workflows/`, `.claude/hooks/stop-check.sh`, and the name of the script in `CLAUDE.md`, `README.md` and this page | `privacy`, the `lists` group, which reads them as text. No job runs the Stop hook or tests its patterns. |
@@ -195,7 +197,7 @@ Which job reads a path that a change can touch:
 | Each tracked file, without the synthetic inputs, images and lockfiles | `privacy`, the canary, for the shapes of personal data. It fails when it does not read ten named files or leaves out more files than its number allows. |
 | `standards/` | `docs` for the links of its Markdown files; `dependency-review` for its lockfiles. No job compiles or reads its Rust files, manifests and corpus files. |
 | `Dockerfile`, `compose.yaml`, `.dockerignore` | No job. Nothing in CI builds the image. |
-| `scripts/due_page.sh`, `.claude/hooks/format.sh` | No job runs a test of these scripts. |
+| `scripts/due_page.sh`, `scripts/restore_drill.sh`, `.claude/hooks/format.sh` | No job runs a test of these scripts. |
 | `.claude/settings.json` | `privacy`: the `rules` group compares its `Read` deny rules with the page on privacy, and the canary reads it. No job checks its other rules or its hooks section. |
 | `.github/dependabot.yml`, `.gitleaks.toml`, `.gitignore`, `.env.example`, `LICENSE`, `backups/.gitkeep` | No job, except `secrets` and the canary. |
 

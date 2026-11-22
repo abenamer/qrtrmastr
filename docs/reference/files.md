@@ -45,6 +45,7 @@ A new file at the top of the repository, and a file in a new directory at the to
 | --- | --- | --- |
 | `Cargo.lock` | Derived, committed | `cargo` writes it from `Cargo.toml`. `cargo update` moves a version; a build with `--locked` does not change it. |
 | `fuzz/Cargo.lock` | Derived, committed | `cargo` writes it. It starts as a copy of `Cargo.lock`: `cp Cargo.lock fuzz/Cargo.lock`, then `cargo +nightly-2026-11-15 fuzz build`, so the fuzz build has the versions of the program. |
+| `unsafe-baseline.tsv` | Derived, committed | `scripts/check.sh unsafe write` writes it from the result of `cargo geiger` 0.13.0: the count of unsafe items for each package that the counter names. `scripts/check.sh unsafe` fails when the count is not the file. |
 | `fuzz/seeds/` | Derived, committed | `python3 scripts/fuzz_seeds.py` writes the seeds of the fuzz targets from the synthetic receipts; its `--check` fails on a seed that was edited by hand. |
 | `fuzz/` | Authored | The fuzz targets and their manifest. |
 | `src/adapters/receipts/snapshots/` | Derived, committed | The snapshot library writes it from the parser and the synthetic receipt: `INSTA_UPDATE=always cargo test --lib the_parsed_receipt_matches`. With that setting the test passes whatever the parser gives, so read the difference before you commit it: the file is what the test expects. The comment of the test names the command too. |
@@ -61,7 +62,7 @@ A new file at the top of the repository, and a file in a new directory at the to
 | `tests/` | Authored | The integration tests, the tests of the documentation checker, and the synthetic receipts. |
 | `examples/` | Authored | The planted lint violations. |
 | `migrations/` | Authored | A migration that is merged is not edited; a new migration adds to it. |
-| `scripts/` | Authored | The checks, the privacy canary and the page script. |
+| `scripts/` | Authored | The checks, the privacy canary, the page script, the two scripts for the unsafe count and its paths, and the backup with its restore drill. |
 | `.claude/` | Authored | The hooks, the rules for a session and the permission settings. |
 | `.github/` | Authored | The two workflows and the Dependabot settings. |
 | `.cargo/audit.toml` | Authored | The one advisory that the audit ignores, with its reason. |

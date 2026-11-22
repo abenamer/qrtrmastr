@@ -32,7 +32,7 @@ Nothing is installed on the host; the database and the command run as containers
 3. `docker compose run --rm qm migrate`
 4. With the archives in place and the terms written as above: `docker compose run --rm qm import --takeout /data/takeout-data`, then `docker compose run --rm qm due`. Inside the container your exports directory is `/data` and your configuration directory is `/config`.
 
-`docker compose run --rm qm --help` repeats what the tool needs. The [command line reference](docs/reference/cli.md) lists every command. [Develop and run](docs/runbooks/develop.md) covers the toolchain and the checks.
+`docker compose run --rm qm --help` repeats what the tool needs. The [command line reference](docs/reference/cli.md) lists every command. [Develop and run](docs/runbooks/develop.md) covers the toolchain and the checks. The database is in a Docker volume, and a volume is not a backup: [Back up the database and restore it](docs/runbooks/backup-and-restore.md) says how to take a backup with `scripts/restore_drill.sh` and how to prove that it restores.
 
 ## Checks
 

@@ -24,13 +24,18 @@
 #   scripts/check.sh targets    the fuzz targets, their manifest, their seeds and this script name
 #                               the same seven; the seeds are what scripts/fuzz_seeds.py writes;
 #                               the fuzz lockfile holds the versions of the program
+#   scripts/check.sh unsafe     the count of unsafe items for each package that the counter names
+#                               is the one of unsafe-baseline.tsv (REAS-NATIVE-002); needs cargo-geiger
+#                               in the version that GEIGER_VERSION names. `unsafe write` writes
+#                               the baseline
 #   scripts/check.sh fuzz       the targets group, a build of the fuzz targets for this machine,
 #                               then each target for QM_FUZZ_SECONDS (30 when not set); needs
 #                               cargo-fuzz and the nightly toolchain that FUZZ_TOOLCHAIN names.
 #                               Not a part of `all`
 #   scripts/check.sh lists      the workflows and the Stop hook call this script, and the commands
 #                               that this script runs are in no line of theirs
-#   scripts/check.sh all        every group above except sqlx; database only with DATABASE_URL
+#   scripts/check.sh all        every group above except sqlx; database only with DATABASE_URL,
+#                               unsafe only with cargo-geiger
 #
 # Each command is printed before it runs, so a report can name it. The last line of `all` names
 # what it did not run. Two jobs of CI are actions and have no command here: `secrets`
@@ -44,15 +49,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets fuzz lists all)
+GROUPS_IN_ORDER=(rust layers planted toolchain compile database sqlx deny audit docs privacy rules hooks targets unsafe fuzz lists all)
 # What the workflow of pull requests must call, the daily workflow, and the Stop hook.
-CI_GROUPS=(toolchain rust sqlx database audit docs privacy hooks lists)
+CI_GROUPS=(toolchain rust sqlx database unsafe audit docs privacy hooks lists)
 SCAN_GROUPS=(audit)
 FUZZ_GROUPS=(fuzz)
 HOOK_GROUPS=(compile docs privacy hooks lists)
 # A line of a workflow or of the Stop hook that holds one of these runs a check of this script
 # without this script.
-OWN_CHECK='cargo (\+[A-Za-z0-9.-]+ +)?(fmt|check|clippy|test|doc|deny|audit|sqlx|fuzz)|python3? +scripts/fuzz_seeds|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test|bash +scripts/pii_canary\.test'
+OWN_CHECK='cargo (\+[A-Za-z0-9.-]+ +)?(fmt|check|clippy|test|doc|deny|audit|sqlx|fuzz|geiger)|python3? +scripts/fuzz_seeds|python3? +scripts/unsafe_count|rustc --version|python3? +scripts/check_docs|python3? +-m +unittest|scripts/pii_canary\.sh|bash +\.claude/hooks/guard-bash|bash +scripts/check\.test|bash +scripts/pii_canary\.test'
 # In a workflow, each of these keys can make a job pass without its check. A job that needs a
 # job that failed or was skipped is skipped itself.
 RISKY_KEY='^[0-9]+:[[:space:]]*(-[[:space:]]+)?(if|needs|continue-on-error|shell):'
@@ -64,6 +69,13 @@ NOT_RUN=()
 # same change; the `targets` group fails when the four do not agree. The list does not get
 # shorter: FUZZ_FLOOR is its length. `cargo fuzz` needs a nightly toolchain; this is the one
 # that CI installs, and the date moves in a pull request of its own.
+# The counter of unsafe items (REAS-NATIVE-002). Another version can count in another way, so
+# the group runs with this one only, and `lists` fails when the workflow installs another. A
+# report with fewer packages than the floor is a counter that did not read the build; the
+# counter named 237 on 2026-11-21.
+GEIGER_VERSION=0.13.0
+UNSAFE_BASELINE=unsafe-baseline.tsv
+UNSAFE_FLOOR=150
 FUZZ_TOOLCHAIN=nightly-2026-11-15
 FUZZ_FLOOR=7
 # The budget of one target in each stage, in seconds (REAS-TEST-003). The fuzz workflow holds
@@ -523,6 +535,37 @@ PY
 # Runs each fuzz target for a time budget, from the inputs that earlier runs found
 # (fuzz/corpus, which git ignores and CI keeps in its cache) and from the committed seeds. A
 # target fails on a stop of the program and on a property that does not hold.
+# The count of unsafe items for each package that the counter names, against the committed
+# baseline. The counter builds the program once to learn which files the build uses; its
+# output on the error stream is the build log, and it is shown only when the counter fails.
+# The counter removes the build directory that it works in before it builds, so it gets one of
+# its own: the build of the developer stays, and no file of an older build is in the count.
+unsafe() {
+  local mode=--check installed report log status=0
+  case "${1:-}" in
+    '') ;;
+    write) mode=--write ;;
+    *) echo "usage: scripts/check.sh unsafe [write]" >&2; return 2 ;;
+  esac
+  installed=$({ cargo geiger --version 2>/dev/null || true; } | head -n 1)
+  if [ "$installed" != "cargo-geiger $GEIGER_VERSION" ]; then
+    echo "scripts/check.sh unsafe needs cargo-geiger $GEIGER_VERSION (see docs/runbooks/develop.md); found: ${installed:-none}" >&2
+    exit 2
+  fi
+  report=$(mktemp)
+  log=$(mktemp)
+  printf '\n$ cargo geiger --locked --output-format Json\n'
+  if ! CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}/unsafe-count" cargo geiger --locked --output-format Json > "$report" 2> "$log"; then
+    tail -n 20 "$log" >&2
+    rm -f "$report" "$log"
+    echo "FAIL: the counter did not finish; this is no count" >&2
+    return 1
+  fi
+  run python3 scripts/unsafe_count.py "$mode" "$UNSAFE_BASELINE" "$report" --root qrtrmastr --floor "$UNSAFE_FLOOR" || status=1
+  rm -f "$report" "$log"
+  return "$status"
+}
+
 fuzz() {
   local seconds=${QM_FUZZ_SECONDS:-$FUZZ_PR_SECONDS} target failed=0 artifact host
   targets
@@ -613,6 +656,11 @@ lists() {
       failed=1
     fi
   done
+  # The workflow installs the counter in the version that the unsafe group runs with.
+  if ! code_lines "$workflow" | grep -qE "^[0-9]+:[[:space:]]*tool: ([^#]*,)?cargo-geiger@${GEIGER_VERSION//./\\.}(,[^#]*)?\$"; then
+    echo "FAIL: $workflow does not install cargo-geiger@$GEIGER_VERSION, the version of the unsafe group" >&2
+    failed=1
+  fi
   for group in "${SCAN_GROUPS[@]}"; do
     if [ "$(steps_that_run "$scan" "$group")" != 1 ]; then
       echo "FAIL: $scan does not run scripts/check.sh $group in one step" >&2
@@ -744,6 +792,12 @@ all() {
   privacy
   hooks
   lists
+  if cargo geiger --version > /dev/null 2>&1; then
+    unsafe
+  else
+    printf '\nNOT RUN: scripts/check.sh unsafe (cargo-geiger is not installed)\n'
+    NOT_RUN+=("unsafe (cargo-geiger is not installed; CI runs it)")
+  fi
   NOT_RUN+=("fuzz (scripts/check.sh fuzz runs the targets; CI runs them in the fuzz workflow)")
 }
 

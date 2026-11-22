@@ -27,12 +27,16 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [Command line](reference/cli.md) - The `qm` commands and their exit status.
 * [Configuration](reference/configuration.md) - Every variable the application reads.
 * [Files and their authority class](reference/files.md) - Each committed file with its class: authored, derived, evidence or companion.
+* [Unsafe and native code in the dependencies](reference/native-code.md) - The count of unsafe items for each package, the dependencies that outside data reaches, and what Miri cannot run.
+* [Build scripts and procedural macros of the dependencies](reference/build-scripts.md) - What each dependency runs on the build machine, as read on 2026-11-21.
+* [Design review of the redactor and the Gmail adapter](reference/design-review.md) - The two components that handle personal data and credentials, against four principles, with the findings that are open.
 
 # Runbooks
 
 * [Develop and run](runbooks/develop.md) - Running qm through Docker Compose, the toolchain, the database options, the checks, and the pull-request flow.
 * [Export your FreshDirect mail and import it](runbooks/takeout-export.md) - The Takeout export, the redaction terms, and the import.
 * [Fetch new receipts from Gmail](runbooks/gmail-fetch.md) - The Google Cloud project, the sign-in, and qm fetch.
+* [Back up the database and restore it](runbooks/backup-and-restore.md) - The backup, the restore drill, where to keep a backup, and the restore after a loss.
 
 # Decisions
 
@@ -53,6 +57,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0015](decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) - REAS 1.7.0-draft, and the order in which its gaps close.
 * [ADR 0016](decisions/0016-the-documentation-checker-follows-the-checker-of-reas.md) - The documentation checker follows the checker of REAS and reads Markdown with a parser.
 * [ADR 0017](decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md) - A fuzz target for each reader of outside bytes, with a pinned nightly toolchain and a budget for each stage.
+* [ADR 0018](decisions/0018-records-for-the-dependencies-the-two-sensitive-components-and-the-backup.md) - A baseline for the unsafe code of the dependencies, the records of the build scripts and of the design review, and a backup with a restore drill.
 
 # Log
 

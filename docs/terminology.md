@@ -39,12 +39,14 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Reconciled | The receipt of an order agrees with itself within one cent in three checks: the line prices sum to the subtotal; the subtotal, tax, bottle deposit, delivery fee, service fee and tip sum to the total; each line with a unit price is that price times its billed quantity, except a line with an options price or the special-price flag, which is not checked. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
 | Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |
+| Restore drill | A run of `scripts/restore_drill.sh`: a new backup is restored into a PostgreSQL container that is thrown away, and each table is compared with the database. Its record goes into the log. |
 | Seed | A committed input of a fuzz target, in `fuzz/seeds/`, written by `scripts/fuzz_seeds.py` from the synthetic fixtures. A fuzz run starts from the seeds. |
 | Simple rule | `qm due --simple`: products present in at least half of all orders and absent from the most recent one. No dates. |
 | Stock | A last purchase of at least 3 usual amounts. The product is left out of the lists until the stock is expected to run out. |
 | Synthetic fixture | A receipt built from the real layout with invented products, prices that reconcile, and fake personal data chosen to trip the privacy canary. Committed under `tests/fixtures/synthetic/`. |
 | Takeout export | What Google Takeout delivers for Gmail: one or more `.zip` archives, each with the mail in mbox form under `Takeout/Mail/`. The MVP's mail source, read in place. It carries personal data and lives outside the repository. |
 | Typical quantity | The median billed quantity of a product over its purchases; what `qm due` suggests. |
+| Unsafe baseline | `unsafe-baseline.tsv`: the count of unsafe items for each package that the counter names, written by `scripts/check.sh unsafe write`. The `unsafe` group fails when a count is not the one of the file. |
 | Usual gap | The median gap, in days, between a product's distinct purchase dates. |
 
 ## Retired terms
