@@ -4,14 +4,14 @@ title: Ports and adapters for a private tool with replaceable external systems
 description: Why a single-user tool uses the REAS ports-and-adapters layout rather than the flat layout REAS-ARCH-003 permits, with the five questions the rule asks and their answers.
 tags: [decision, architecture, reas]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # ADR 0001 — Ports and adapters for a private tool with replaceable external systems
 
 ## Context
 
-REAS-ARCH-003 permits a flat module layout for a private personal tool with no replaceable external dependency, and asks questions before the architecture is selected: four in REAS 1.4.0-draft, against which this decision was made, and a fifth since 1.5.0-draft. Quartermaster is private and single-user, so the exception is on the table.
+REAS-ARCH-003 permits a flat module layout for a private personal tool with no replaceable external dependency, and asks questions before the architecture is selected: four in REAS 1.4.0-draft, against which this decision was made, a fifth since 1.5.0-draft, and a sixth and a seventh since 1.9.0-draft. Quartermaster is private and single-user, so the exception is on the table.
 
 The questions and their answers:
 
@@ -25,6 +25,9 @@ The questions and their answers:
    * The maintainer: the configuration file, the command line, and the text of `qm add`.
 
    The application has no listener and no endpoint. The answer to this question sets the exposure for the REAS security rules: other parties can supply outside data, so the exception that REAS gives a private tool whose only source of outside data is its maintainer does not apply. [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) records what follows from that.
+
+6. Which decisions are costly to reverse, or will later code copy? Not answered. REAS 1.9.0-draft added the question; [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) holds a proposal.
+7. Which components are consequential, and what is the failure path of each? Added on 2026-11-22, for REAS 1.9.0-draft. The redactor and the Gmail adapter are consequential. The mail readers with the classifier, the receipt parser with the money type and the reconciliation, the store adapter and the recommendation rules are not. ADR 0020 holds the failure path or the reason for each, as the maintainer accepted it.
 
 ## Decision
 

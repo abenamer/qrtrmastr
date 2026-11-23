@@ -1,8 +1,8 @@
 ---
 type: Architecture Decision
 title: The gaps that remain after the ten steps, sorted into work and into limits that the maintainer decides
-description: A proposal. Each gap of each rule of REAS that the self-audit holds as partly met or not met after ADR 0015, and each finding of the design review, sorted into work with an order or into a limit that needs the maintainer's yes.
-tags: [decision, proposal, reas, planning]
+description: Accepted on 2026-11-22 with the changes of ADR 0020. Each gap of each rule of REAS that the self-audit holds as partly met or not met after ADR 0015, and each finding of the design review, sorted into work with an order or into a limit that needs the maintainer's yes.
+tags: [decision, reas, planning]
 generated: { by: "process:claude-code", at: "2026-11-22T04:30:00Z" }
 updated: 2026-11-22
 sources:
@@ -21,9 +21,9 @@ sources:
 
 ## Status
 
-Proposed on 2026-11-21. The maintainer has not accepted it. Nothing in this record is in force: no limit below is an exception, and no order below is a plan, until the maintainer says yes to it. A part that the maintainer refuses is taken out, and the record says so.
+Accepted on 2026-11-22, with the changes of [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md). The maintainer accepted part 1 as written, as the order of the work, and gave an answer to each line of part 2 that 1.9.0-draft still asks; the section "The answers of the maintainer" holds them. The questions that a line of part 1 gives to the maintainer in its column "Who" were not asked and are open: each is asked when its line starts. The record was proposed on 2026-11-21. The tables of part 1 and part 2 are the proposal as it was written and are not changed. No answer records the exception of the standard.
 
-On 2026-11-22 the copy of the standard changed to 1.9.0-draft. This record reads 1.7.0-draft. [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md), also a proposal, names each line below that the new version moves: lines 9, 10, 13, 15 and 16 of part 1, and of part 2 the lines on the unsafe code of the dependencies, on the one architecture and the release stage, and on the six mutants.
+On 2026-11-22 the copy of the standard changed to 1.9.0-draft. This record reads 1.7.0-draft. [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) names each line below that the new version moves: lines 9, 10, 13, 15 and 16 of part 1, and of part 2 the lines on the unsafe code of the dependencies, on the one architecture and the release stage, and on the six mutants.
 
 ## Context
 
@@ -89,11 +89,47 @@ Each line is a question to the maintainer, and each asks for a yes. A line that 
 
 Two findings of the design review need no line. F6, the phone digits with one more digit after them in a body, was decided by the maintainer on 2026-11-21 and is in ADR 0004. F17 says that no exception is recorded; it is a statement about the others.
 
+### The answers of the maintainer: 2026-11-22
+
+The maintainer read each line with its text and answered one line at a time.
+
+Part 1 is accepted as written, with the lines 9, 10, 13, 15 and 16 as ADR 0020 changes them. The acceptance is of the lines and their order. It answers no question that a line gives to the maintainer: what an empty kind of term means (line 1), each rule of the redactor (line 2), what happens to a stored row (line 3), the drill and the schedule of a backup (line 5), what stays of line 6, the change of the protocol (line 13), the required check (line 15), which of the two ways (line 17) and what stays of line 18. Four lines are new:
+
+| Order | Class | What | From | Who |
+| --- | --- | --- | --- | --- |
+| 19, before line 10 | Checks | `cargo vet` with the audits of Mozilla, Google and the Bytecode Alliance, and `cargo vet check` in CI. The first run reports how many packages the three sources cover and which are left; the maintainer decides about those before one is exempted. | REAS-SEC-001 in 1.9.0-draft | A session; the maintainer for what no audit covers |
+| 20 | Types | An unchecked and a checked message type for the sender check, and the parameter of a parser says which one it takes. | REAS-STATE-002; the maintainer refused the limit | A session |
+| 21 | Types | The port of the mail source does not name the channel type of Tokio. | REAS-ARCH-002; the maintainer refused this part of the limit | A session |
+| 22 | Readings | The review of the documents against ASD-STE100 Issue 9, with its record in the STE review. It waits for the document, which the maintainer gets and keeps outside the repository. | REAS-DOC-001; the maintainer refused the limit | The maintainer, then a session |
+
+Three lines get more work: line 2 also writes the list of the forms that the redactor covers into the privacy page and makes the assertion of the redactor read each stored character, also inside a tag, in a form that does not depend on the pass (finding F7); line 6 also gets a test that kills the two mutants of the hours of overlap of `qm fetch`; line 16 makes a change of the count of a dependency a report, after `cargo vet` is set up; the project's own crates still fail on any unsafe code. For finding F4 the maintainer chose no second check that is independent of the configured terms; the check of its own that line 2 gives the assertion for a phone number and a card ending stays.
+
+The lines of part 2:
+
+| Line of part 2 | Answer |
+| --- | --- |
+| REAS-SEC-002, a receipt without a DKIM pass is parsed | Accepted as a limit. |
+| REAS-STATE-002, the sender check is a value | Refused. It is line 20. |
+| REAS-ARCH-002, one package, a check that reads text, the channel type of Tokio | The one package and the text check: accepted as a limit. The channel type: refused. It is line 21. |
+| REAS-ARCH-004, the mail source passes bytes | Accepted as a limit. Line 17 goes on as planned. |
+| The unsafe code of the 107 dependencies | No answer is due: 1.9.0-draft no longer asks for it. Line 19 takes its place. |
+| No fuzz target reaches the TLS library | Accepted as a limit, with a condition: line 19 shows a trusted audit for `ring` and for the TLS library. If none covers them, the question goes back to the maintainer. |
+| One processor architecture; no release stage | The release stage: 1.9.0-draft no longer asks for it. One architecture: accepted as a limit. It moves to part 1 when `qm` runs on another architecture. |
+| REAS-SEC-003, the index of a capture group | Accepted as a limit. |
+| REAS-TEST-001, six mutants | A disposition for each, as REAS-TEST-001 asks in 1.9.0-draft. `hex_pair` and the arm `tr` of `own_rows`: equivalent. The two of the hours of overlap of `qm fetch`: to be killed, with line 6. The question of `qm add` and the list of the applied migrations: reported survivors, left open. |
+| REAS-TEST-002, results before 2026-11-20 | Accepted as a limit. |
+| REAS-DOC-001, no check against ASD-STE100 | Refused. It is line 22. |
+| REAS-NATIVE-001, the list follows the dependency graph | Accepted as a limit. |
+| REAS-SEC-001, the design review came after the code | Accepted as a limit until each finding of that review is corrected or accepted. The sentence then leaves the row of the self-audit. |
+| Finding F4 | The list of the covered forms is written with line 2. What is outside that list is accepted as a limit. |
+| Finding F7 | Refused. It is corrected with line 2. |
+| Finding F11 | After line 6, the token that reads the whole mailbox and does not end is accepted as a limit. |
+
 ### What this record does not decide
 
 * It records no exception. The word stays with the maintainer.
 * It does not say that the project complies with REAS, with part 1 done or not.
-* It does not decide `cargo vet`.
+* As proposed, it did not decide `cargo vet`. Since 2026-11-22 line 19 does.
 
 ## Consequences
 

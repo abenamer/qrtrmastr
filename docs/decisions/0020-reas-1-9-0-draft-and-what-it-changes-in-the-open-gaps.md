@@ -1,8 +1,8 @@
 ---
 type: Architecture Decision
 title: REAS 1.9.0-draft, and what it changes in the open gaps
-description: The copy of REAS 1.9.0-draft, the rules that it adds or changes, and a proposal for what moves in the plan of ADR 0019 and for the judgments that only the maintainer can record.
-tags: [decision, proposal, reas, planning]
+description: The copy of REAS 1.9.0-draft, the rules that it adds or changes, what moves in the plan of ADR 0019, and the judgments that the maintainer recorded on 2026-11-22.
+tags: [decision, reas, planning]
 generated: { by: "process:claude-code", at: "2026-11-23T02:30:00Z" }
 updated: 2026-11-22
 sources:
@@ -21,7 +21,7 @@ sources:
 
 ## Status
 
-The copy of the standard is done, on 2026-11-22. The other parts are proposed, and the maintainer has not accepted them: the lines that change in [ADR 0019](/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md), the failure paths of the components, and the two new answers of REAS-ARCH-003. ADR 0019 is itself a proposal that the maintainer has not accepted.
+The copy of the standard is done, on 2026-11-22. Accepted on 2026-11-22, later the same day: the changes to the lines 9, 10, 13, 15 and 16 of part 1 of [ADR 0019](/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) and the new line for `cargo vet`, which the maintainer accepted with part 1; the consequence of each component, as proposed; Mozilla, Google and the Bytecode Alliance as the sources of audits for `cargo vet`, where the maintainer decides about each package that no audit covers before it is exempted; and a change of the count of a dependency as a report, with line 16 and after `cargo vet` is set up, while the project's own crates still fail on any unsafe code. Two lines of part 2 that the table below takes out, the review of the unsafe code of the dependencies and the release stage, needed no answer: the standard no longer asks for them. Still proposed: the sixth answer of REAS-ARCH-003 and the shape of the self-audit, for which the maintainer was not asked yet. The headings below say "Proposed" as they were written.
 
 ## Context
 
@@ -50,18 +50,20 @@ The standard has no status "compliant". Its own self-audit is a table of checks 
 
 | Line of ADR 0019 | What 1.9.0-draft changes | Proposal |
 | --- | --- | --- |
-| Part 2, "No unsafe code of the 107 dependencies on a path of outside data is reviewed" | The rule no longer asks for that review. It asks for `cargo vet`. | The line goes. A new line of work replaces it: set up `cargo vet` with imported audits, run `cargo vet check` in CI, and record an own review only for what no trusted audit covers. The maintainer names the organizations to trust. ADR 0019 left `cargo vet` undecided; the rule now names it. |
+| Part 2, "No unsafe code of the 107 dependencies on a path of outside data is reviewed" | The rule no longer asks for that review. It asks for `cargo vet`. | The line goes. A new line of work replaces it: set up `cargo vet` with imported audits, run `cargo vet check` in CI, and record an own review only for what no trusted audit covers. The maintainer names the organizations to trust. ADR 0019 left `cargo vet` undecided; the rule now names it. Named on 2026-11-22: Mozilla, Google and the Bytecode Alliance. |
 | Part 1, line 10, the build scripts of 27 packages and the full reading of 18 macro crates | An imported audit stands in for an own review. | The line waits for `cargo vet`. An own reading is due only for a package that no trusted audit covers. |
-| Part 1, line 16, and the `unsafe` group | A change of the count of a dependency is a review event, not a build failure. | The group today fails on a change of any package. That is more than the rule asks, and it is not what the rule describes. The maintainer chooses: keep the failure, or make the count of a dependency a report. |
-| Part 2, "One processor architecture is counted and fuzzed. No release stage." | No release stage is asked. A second architecture is due where the code has SIMD paths or paths that depend on the byte order. | The release stage goes from the line. The program has no such path of its own; some dependencies have. Whether the sentence means the dependencies is not clear from the text, so the architecture stays a question to the maintainer. |
+| Part 1, line 16, and the `unsafe` group | A change of the count of a dependency is a review event, not a build failure. | The group today fails on a change of any package. That is more than the rule asks, and it is not what the rule describes. The maintainer chooses: keep the failure, or make the count of a dependency a report. Chosen on 2026-11-22: a report, with line 16 and after `cargo vet` is set up. |
+| Part 2, "One processor architecture is counted and fuzzed. No release stage." | No release stage is asked. A second architecture is due where the code has SIMD paths or paths that depend on the byte order. | The release stage goes from the line. The program has no such path of its own; some dependencies have. Whether the sentence means the dependencies is not clear from the text, so the architecture stays a question to the maintainer. Answered on 2026-11-22: one architecture is accepted as a limit, and moves to work if `qm` runs on another architecture. |
 | Part 1, line 15, the fuzz targets | A report of the executions, the size of the corpus and whether the run reached its end. Kept inputs in artifact storage or a corpus repository. | Both are added to the line. The run prints the final statistics of the fuzzer; no report says whether the run reached the end of the corpus. The cache of CI is not storage that stays. |
 | Part 1, line 13, `cargo mutants` on the lines of a change | Required for decision code in a consequential component, with three outcomes for a missed mutant. Not a gate of CI. | The line follows the judgment of the next table. No job of CI is added for it. |
-| Part 2, "Six mutants of the run of 2026-11-21 have no test" | Each missed mutant gets a disposition, and the maintainer gives it. | Two are equivalent, and the log of step 10 says why. The other four fit none of the three outcomes as the log describes them: each needs a test that the project cannot run today. They stay open as reported survivors until the maintainer disposes of them. |
+| Part 2, "Six mutants of the run of 2026-11-21 have no test" | Each missed mutant gets a disposition, and the maintainer gives it. | Two are equivalent, and the log of step 10 says why. The other four fit none of the three outcomes as the log describes them: each needs a test that the project cannot run today. They stay open as reported survivors until the maintainer disposes of them. Disposed on 2026-11-22: the two of the hours of overlap are to be killed with line 6; the other two stay reported survivors. |
 | Part 1, line 9, a test for each error variant | A test asserts the typed variant and the diagnostic facts, not the wording. | The reading of line 9 also asks, for each variant, whether it carries the operation, the expected and the observed condition. |
 
 ### Proposed: the consequence of each component
 
 REAS-FOUND-004 asks for a failure path of one sentence for each consequential component, and says that a session proposes it and the maintainer records it. Until the maintainer records a judgment, a component that handles outside data, credentials or money is treated as consequential. A "not consequential" below, when the maintainer accepts it, makes the mutation pass Advisory for that component and leaves its fuzz run at the baseline; the fuzz target, the limits and the tests stay, because they apply by property.
+
+The maintainer accepted the table on 2026-11-22 as it stands; it is the record of the judgment.
 
 | Component | Proposed | Failure path, or the reason |
 | --- | --- | --- |
@@ -77,7 +79,7 @@ REAS-FOUND-004 asks for a failure path of one sentence for each consequential co
 The answers are the maintainer's, and [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md) records them when the maintainer gives them.
 
 6. Which decisions are costly to reverse, or will later code copy? Proposed: the redaction before storage, because a stored row keeps the form that its redaction version gave it; the message key, because each stored row is found by it; the schema, because migrations only add; the split into domain, application and adapters; the form of a parser and of its fixture test, because each new platform copies it.
-7. Which components are consequential? Proposed: the table above.
+7. Which components are consequential? Proposed: the table above. Accepted on 2026-11-22, and in ADR 0001.
 
 ### What this record does not decide
 
@@ -88,7 +90,7 @@ The answers are the maintainer's, and [ADR 0001](/decisions/0001-ports-and-adapt
 
 ## Consequences
 
-* The self-audit has 49 rows: 20 met, 26 partly met, 2 not met and 1 not applicable. Before, it had 44: 20, 22, 1 and 1. The five rules of Foundations are new rows. REAS-ARCH-003 moves from "met" to "partly met", because two of seven answers are not recorded. REAS-FOUND-004 is "not met" until the maintainer records the judgments.
+* The self-audit has 49 rows. After the copy: 20 met, 26 partly met, 2 not met and 1 not applicable. After the answers of the maintainer of 2026-11-22: 20, 27, 1 and 1, because REAS-FOUND-004 is partly met: the judgment is recorded, and the effort does not follow it yet. Before the copy it had 44: 20, 22, 1 and 1. The five rules of Foundations are new rows. REAS-ARCH-003 moves from "met" to "partly met", because two of seven answers are not recorded. REAS-FOUND-004 was "not met" until the maintainer recorded the judgments.
 * The largest line that ADR 0019 would have left open, the review of the unsafe code of 107 dependencies, is no longer asked. The setup of `cargo vet` takes its place as work.
 * No rule of 1.9.0-draft makes a status better by itself: where a gap went, another part of the same row is still open.
 * The rows whose rule did not change between the two versions were not read again. Their text is the reading of 2026-11-20 with the changes of the ten steps.
