@@ -4,7 +4,7 @@ title: Project terminology
 description: Project-specific technical terms used in this bundle and in the code.
 tags: [terminology, ste]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-21
+updated: 2026-11-22
 sources:
   - id: reas-terms
     resource: https://github.com/abenamer/reas/blob/main/standard/terminology.md
@@ -22,8 +22,10 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Anomaly | A row of a receipt's item table that no parser rule classified, kept with its raw cells in `order_line_anomalies`; also a check of the receipt's amounts that did not hold, kept there with no cells. The order is still stored. Nothing is dropped. |
 | Billed quantity | The quantity the receipt charged for: the weight when the receipt gives the line one, else the second number of the quantity cell. Stored as `billed_qty`. |
 | Composition root | `src/main.rs`. The one place that creates the concrete adapters and wires them to the use cases. |
+| Consequential component | A part of the program in which one defect can expose sensitive data, misuse a credential that can change or spend, lose money, or cause physical, legal or safety harm, through a failure path that the maintainer can name (REAS-FOUND-004). The maintainer records which parts are consequential; [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) holds a proposal. |
 | DKIM pass | The mail's `Authentication-Results` header says the sender's signature verified. Stored as `dkim_pass`. An order from a receipt without it is tagged `non-verified`. |
 | Essential | A product in at least a quarter of the latest 20 orders. The other products of the habit rule are extras. |
+| Failure path | One sentence for a consequential component: the defect, what it travels through, and the party that it reaches. |
 | Fuzz target | A small program in `fuzz/fuzz_targets/` that calls one reader of outside bytes with bytes that a fuzzer makes, and that fails on a stop and on a property that does not hold. [ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md). |
 | Gap rule | `qm due --gap`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |

@@ -80,8 +80,9 @@ The inbound adapter is the trust boundary, as [REAS-SEC-002](security.md#reas-se
 
 ### Intent
 
-Ports and adapters cost files and indirection.
+Ports and adapters cost reading: each boundary is one more place a reader must follow.
 A private tool with one maintainer and no replaceable dependency pays that cost for no reader.
+The cost of producing the boundary is not the question; who must read it is.
 
 ### Enforcement
 
@@ -101,15 +102,18 @@ Before you select the architecture, ask these questions:
 3. For how long must the project remain in use?
 4. How likely are the boundaries to change?
 5. Who can supply outside data to the application?
+6. Which decisions are costly to reverse, or will later code copy?
+7. Which components are consequential, and what is the one-sentence failure path for each, as [REAS-FOUND-004](foundations.md#reas-found-004) specifies?
 
 The answer to question 5 sets the exposure for the [security rules](security.md).
+The answer to question 6 names the decisions to make deliberately now, as [REAS-FOUND-002](foundations.md#reas-found-002) specifies; the rest stay reversible.
 Use a flat module layout for a private personal tool with no replaceable external dependency.
 Keep domain behavior separate from I/O even in that layout.
 For other exceptions to REAS-ARCH-001, record the answers and the selected boundaries in an architecture decision.
 
 ### Verification
 
-- Record: the five answers appear in an architecture decision or in the project README.
+- Record: the seven answers appear in an architecture decision or in the project README.
 - Review question: has an answer changed since the architecture was selected?
 
 <a id="reas-arch-004"></a>
@@ -135,6 +139,7 @@ Declare a port trait where a test double or a replaceable implementation is nece
 Use a port to isolate a system outside your control.
 Shape each port method in the application's terms: domain types in, domain types or a typed error out.
 A port method that mirrors the storage API, such as `append_line(&str)` or `execute_sql(&str)`, is an adapter in disguise; move the translation into the adapter.
+The ease of generating an abstraction is not evidence that it is needed; a recorded requirement or an existing responsibility is.
 Do not add factories that build factories.
 Do not use a service locator or hidden dependency registration.
 Do not add duplicate interfaces or forwarding layers without a different responsibility.

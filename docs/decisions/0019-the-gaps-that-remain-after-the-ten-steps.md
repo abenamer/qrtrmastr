@@ -4,7 +4,7 @@ title: The gaps that remain after the ten steps, sorted into work and into limit
 description: A proposal. Each gap of each rule of REAS that the self-audit holds as partly met or not met after ADR 0015, and each finding of the design review, sorted into work with an order or into a limit that needs the maintainer's yes.
 tags: [decision, proposal, reas, planning]
 generated: { by: "process:claude-code", at: "2026-11-22T04:30:00Z" }
-updated: 2026-11-21
+updated: 2026-11-22
 sources:
   - id: audit
     resource: ../self-audit.md
@@ -22,6 +22,8 @@ sources:
 ## Status
 
 Proposed on 2026-11-21. The maintainer has not accepted it. Nothing in this record is in force: no limit below is an exception, and no order below is a plan, until the maintainer says yes to it. A part that the maintainer refuses is taken out, and the record says so.
+
+On 2026-11-22 the copy of the standard changed to 1.9.0-draft. This record reads 1.7.0-draft. [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md), also a proposal, names each line below that the new version moves: lines 9, 10, 13, 15 and 16 of part 1, and of part 2 the lines on the unsafe code of the dependencies, on the one architecture and the release stage, and on the six mutants.
 
 ## Context
 

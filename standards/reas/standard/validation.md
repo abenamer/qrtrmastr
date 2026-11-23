@@ -53,12 +53,35 @@ Design tests so that a mutation of the code under test fails them:
 - For each `>=`, `<=`, `<`, or `>` guard, test the value below the threshold, at the threshold, and above it.
 - Use inputs where an operator swap changes the result: `3` not `1` for multiplication, a nonzero value for addition.
 - For each `&&` or `||`, include a case where exactly one operand is true.
-- Assert the exact error message or the typed error variant, not a substring.
+- Assert the typed error variant and the diagnostic facts its message must carry, such as the identifiers and sizes a person needs. Pin exact wording only when the wording is itself a requirement, for example a message shown to a user or written into a contract.
 - Assert an observable outcome: a return value, a state change, or an effect. A test with no assertion cannot fail.
 
 Do not write a test for a constructor or an accessor alone; a behavior test covers construction.
 Validation rules are behavior and get explicit tests.
-`cargo mutants` reports which tests a mutation survives; run it on a module before review, and read the score as a triage signal, not a target.
+A reviewer must be able to say what property a test checks, why its oracle is independent of the implementation, which mutations would make it fail, and what it cannot establish.
+Prefer one property test with an independent oracle to many example tests that share one; the measure is what a reviewer can verify, not line count.
+
+Mutation testing challenges the tests.
+It is Required for decision code in a consequential component under [REAS-FOUND-004](foundations.md#reas-found-004), and Advisory elsewhere.
+Decision code is logic whose incorrect behavior could violate a domain invariant, a state transition, a security property, a persistence guarantee, or an external contract.
+Before review of a change to such code, run the diff-scoped pass:
+
+```bash
+git diff --merge-base origin/main > pr.diff
+cargo mutants --in-diff pr.diff
+```
+
+Dispose of each line in `mutants.out/missed.txt` as one of three outcomes, in the pull request:
+
+- Killed: a new or strengthened test fails on the mutant.
+- Equivalent: the mutant does not change observable behavior; say why.
+- Accepted survivor, non-contractual configuration: the mutant changes behavior, but the exact value is not required by an external contract, a documented operational requirement, or a correctness or security invariant; the tests establish that the behavior is correct for the configured value; and the survivor and its reason stay visible. This outcome is never reported as killed or equivalent.
+
+Report survivors and their dispositions, not a score.
+A survivor that reveals an untested contract is the finding; a survivor on a configurable value is one line.
+Do not add a test that pins incidental wording or a configurable value only to kill a mutant; test the diagnostic facts, the error behavior, or the source chain, which are requirements.
+Exclude a test double from the pass with `exclude_re` in `.cargo/mutants.toml` when its own tests show that it can both accept and reject.
+Mutation testing does not substitute for Miri, sanitizers, or fuzzing on the paths those cover.
 
 ### Allowances
 
@@ -68,7 +91,12 @@ A test that pins an interface for a consumer outside this repository may restate
 
 - Review question: for each new test, what change to the code under test would make it fail?
 - Review question: which assertion in this test is a positive control for its negative assertions?
-- Tool: `cargo mutants --in-diff` on the changed files before review, with surviving mutants either killed or recorded as equivalent.
+- Tool: the diff-scoped `cargo mutants` pass on decision code in a consequential component, each survivor disposed as one of the three outcomes.
+
+### Limits
+
+A killed mutant shows that one test distinguishes the code from one specific wrong version of it, and a survivor shows that no test does.
+The pass says nothing about defects no mutation operator produces, about memory safety, or about lines outside the diff.
 
 <a id="reas-test-002"></a>
 ## REAS-TEST-002: Report observable evidence
@@ -91,6 +119,7 @@ Does not apply to a local run that nobody cites.
 
 Report a check as passed only when execution evidence shows that result.
 Report these outcomes separately: passed, failed, errored, timed out, skipped, and not run.
+For a check with no pass criterion of its own, such as a mutation pass, report the tool's result and the maintainer's disposition of it as two separate statements; do not fold the disposition into a pass.
 Errored means the check could not start or crashed before it produced a verdict.
 Skipped is never reported as passed.
 Not run is never reported as passed, and a not-applicable check names the reason.
@@ -133,33 +162,35 @@ A target that only checks for the absence of a panic finds fewer defects.
 Assert these properties where they apply:
 
 - The adapter returns a value or a typed error.
-- A parsed value encodes back to the input bytes.
+- Where the format has one canonical encoding, as the trust-boundary frame does, a parsed value encodes back to the input bytes. Where several encodings denote one value, encoding the parsed value and parsing it again yields an equal value, and encoding is idempotent.
 - Each duplicate implementation returns the same result as its reference, as [REAS-SEC-005](security.md#reas-sec-005) specifies.
 - The adapter rejects an input above the resource limit before it allocates.
 
 Build each target with `cargo fuzz`.
 Keep debug assertions and overflow checks enabled in the fuzz build.
 
-Persist the corpus.
+Persist the corpus wherever this rule applies.
 Commit a seed corpus with at least one valid input for each target.
-Store the corpus that CI finds in artifact storage or a corpus repository.
-Start the next run from that corpus.
+Store the inputs and crash artifacts that runs discover in artifact storage or a corpus repository, and start the next run from them; without persistence, successive short runs repeat each other.
 Minimize the corpus on a schedule.
 Record each crash artifact as a bug and add a regression test.
 
-Set a time budget for each stage and record it in the workflow file:
-
-- Pull request: a short run for each target, for example 30 to 60 seconds, from the persisted corpus.
-- Nightly: a longer run, for example 30 minutes for each target.
-- Release: a run from the full corpus, for example several hours, before the release is cut.
-
-Run the targets on each CPU architecture and target-feature set that the code deploys to.
-SIMD paths and endianness differ between them.
+Run each target on every pull request for 30 to 60 seconds from the persisted corpus.
+That is the baseline check.
+Report what ran: the executions, the corpus size, and whether the run reached the end of the corpus; a short run over a large corpus has not replayed it.
+For a consequential component under [REAS-FOUND-004](foundations.md#reas-found-004), run a longer campaign, and record its duration, its hardware, and the reason in the component's decision document.
+Run the targets on each CPU architecture and target-feature set where the code has SIMD or endianness-dependent paths, because those paths differ between them.
 
 ### Verification
 
-- CI: one fuzz job for each stage, with the budget in the workflow file.
+- CI: the pull-request fuzz job, with its duration in the workflow file; a longer campaign where a component's decision document calls for one.
 - Review question: which inbound adapter has no target, and why?
+
+### Limits
+
+A fuzz run establishes that no input it actually exercised violated the asserted properties.
+A short run may not have replayed the whole persisted corpus, which is why the report states the executions and the corpus coverage.
+It does not establish the absence of violating inputs, and it says nothing about properties the target does not assert or hardware it did not run on.
 
 The [trust-boundary example](../examples/trust-boundary/) includes one target with a seed corpus.
 Its nightly CI job builds the target and runs it for 30 seconds on x86_64.

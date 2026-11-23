@@ -105,7 +105,8 @@ Use a conditional update or a row lock for each transition.
 For a conditional update, include the record identifier and expected state in the condition.
 For example, use `UPDATE jobs SET state = $1 WHERE id = $2 AND state = $3`.
 Report success only when the update changes one row.
-Report a conflict or missing record when the update changes no rows.
+Report a conflict or missing record when the update changes no rows, and carry the record identifier and the expected state or version in the error, so that a person starts at the concurrency boundary instead of reconstructing which operation lost.
+A failed conditional update does not reveal the stored value; if the code reads it afterward, label it a snapshot taken after the conflict, not the value at conflict time.
 
 Use a version column when the operation must detect intervening changes.
 This includes changes that return to the same state.

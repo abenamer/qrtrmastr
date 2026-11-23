@@ -37,7 +37,7 @@ Code blocks and code spans do not declare links or rules.
 | Local fragments | A referenced Markdown heading or explicit HTML anchor exists. |
 | Event metadata | `generated` and `verified` events have an actor and a datetime with a UTC offset. |
 | Source metadata | Each `sources` entry has a non-empty `resource` string. |
-| Rule shape | In an `Engineering Standard` concept, each rule is a level-two heading followed by level-three sections Intent, Enforcement, Scope, Rules, optional Allowances, and Verification, in that order and non-empty. Enforcement is `Required.` or `Advisory.` |
+| Rule shape | In an `Engineering Standard` concept, each rule is a level-two heading followed by level-three sections Intent, Enforcement, Scope, Rules, optional Allowances, Verification, and optional Limits, in that order and non-empty. Enforcement is `Required.` or `Advisory.` |
 | Quality test | Each `Engineering Standard` concept ends with a non-empty `## Quality test` section. |
 | Retired terms | `standard/terminology.md` has a non-empty `## Retired terms` table. No document outside the exempt list uses a retired term in prose; code spans and code blocks are not scanned. |
 | Freshness | An `updated` date is a valid `YYYY-MM-DD` date and not in the future. A concept older than the threshold for its type is a warning; `--strict-freshness` makes it an error. |

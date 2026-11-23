@@ -52,18 +52,25 @@ Before you implement a component that handles payments, personal data, or creden
 Run a dependency vulnerability scan with `cargo deny check` in CI.
 Run it on each pull request and on a schedule, because advisories arrive without a code change.
 Restrict dependency sources to the registries you approve in the `sources` section of `deny.toml`.
-A dependency with a build script or a proc-macro runs code on the build machine; review that code before you add the dependency, and record the review.
+A dependency with a build script or a proc-macro runs code on the build machine.
+Use `cargo vet` with imported audit sets from organizations you name in `supply-chain/config.toml`, and run `cargo vet check` in CI.
+An imported audit stands in for your own review when its criteria cover what the dependency does in your build, when its source is one you have chosen to trust and recorded, and when it covers the exact version resolved.
+Review yourself, and record it with `cargo vet certify`, only a build script or proc-macro that no trusted audit covers, and any advisory or audit finding that remains unresolved.
+Handle a rise in a dependency's unsafe count, reported by [REAS-NATIVE-002](native-code.md#reas-native-002), the same way: a trusted audit of the new version closes it; your own review is needed only when no audit covers it and the dependency sits in a consequential component or on a path outside data reaches.
 Prefer a version published more than a few days ago; flag a version published within days of the change for operator review.
-List each dependency that reads outside data and contains `unsafe` code.
-Review that unsafe code with `cargo vet` or a recorded manual review, or replace the dependency, before the first release that uses it.
-`cargo geiger` counts unsafe items; it does not review them. [REAS-NATIVE-002](native-code.md#reas-native-002) owns the count and its baseline.
+`cargo geiger` counts unsafe items; it does not review them. [REAS-NATIVE-002](native-code.md#reas-native-002) owns the count and reports dependency changes.
 Document the project's own unsafe code as [REAS-SEC-004](#reas-sec-004) specifies, and treat every crossing into native code as [Native code](native-code.md) specifies.
 
 ### Verification
 
-- CI: a `cargo deny check` job on pull requests and on a daily schedule.
-- Review question: which new dependencies carry a build script or a proc-macro, and where is their review recorded?
-- Review question: which dependencies touch outside data, and which of them contain `unsafe`?
+- CI: a `cargo deny check` job on pull requests and on a daily schedule; a `cargo vet check` job where dependencies are vetted.
+- Review question: which new dependencies carry a build script or a proc-macro that no trusted audit covers, and where is their review recorded?
+
+### Limits
+
+An advisory scan establishes that no dependency version matches a published advisory at scan time.
+An imported audit establishes that a source you trust reviewed that version against stated criteria.
+Neither establishes the absence of unpublished defects, and neither observes the dependency's behavior in your build.
 
 <a id="reas-sec-002"></a>
 ## REAS-SEC-002: Parse outside data at the trust boundary
@@ -109,7 +116,9 @@ All safe public construction paths must preserve the invariant, as [REAS-RUST-00
 
 Report a validation failure at two levels.
 The caller receives what failed and what a valid value looks like, with no internal detail.
-The log receives the rule, the rejected value after [REAS-SEC-006](#reas-sec-006) encoding, and the request context.
+The log receives the rule that failed, the request context, and an identifier that connects the log line to the operation that produced it, so that a person troubleshooting starts at the boundary that refused the input.
+Log the rejected value only when it is not sensitive, and encode it for the log as [REAS-SEC-006](#reas-sec-006) specifies; redact or omit a secret, a credential, or personal data.
+Encoding makes a value safe for the log's syntax, not safe to disclose.
 For an authentication or authorization failure, the caller receives a generic message and a reference identifier; the log receives the detail.
 
 ### Verification
