@@ -21,7 +21,7 @@ sources:
 
 ## Status
 
-The copy of the standard is done, on 2026-11-22. Accepted on 2026-11-22, later the same day: the changes to the lines 9, 10, 13, 15 and 16 of part 1 of [ADR 0019](/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) and the new line for `cargo vet`, which the maintainer accepted with part 1; the consequence of each component, as proposed; Mozilla, Google and the Bytecode Alliance as the sources of audits for `cargo vet`, where the maintainer decides about each package that no audit covers before it is exempted; and a change of the count of a dependency as a report, with line 16 and after `cargo vet` is set up, while the project's own crates still fail on any unsafe code. Two lines of part 2 that the table below takes out, the review of the unsafe code of the dependencies and the release stage, needed no answer: the standard no longer asks for them. Still proposed: the sixth answer of REAS-ARCH-003 and the shape of the self-audit, for which the maintainer was not asked yet. The headings below say "Proposed" as they were written.
+The copy of the standard is done, on 2026-11-22. Accepted on 2026-11-22, later the same day: the changes to the lines 9, 10, 13, 15 and 16 of part 1 of [ADR 0019](/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) and the new line for `cargo vet`, which the maintainer accepted with part 1; the consequence of each component, as proposed; Mozilla, Google and the Bytecode Alliance as the sources of audits for `cargo vet`, where the maintainer decides about each package that no audit covers before it is exempted; and a change of the count of a dependency as a report, with line 16 and after `cargo vet` is set up, while the project's own crates still fail on any unsafe code. Two lines of part 2 that the table below takes out, the review of the unsafe code of the dependencies and the release stage, needed no answer: the standard no longer asks for them. The sixth answer of REAS-ARCH-003 and the shape of the self-audit were answered after that, the same day: the answer is in ADR 0001, with three decisions more than the five that this record proposed, and the short form of the self-audit is line 23 of ADR 0019. The headings below say "Proposed" as they were written.
 
 ## Context
 
@@ -76,9 +76,9 @@ The maintainer accepted the table on 2026-11-22 as it stands; it is the record o
 
 ### Proposed: the two new answers of REAS-ARCH-003
 
-The answers are the maintainer's, and [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md) records them when the maintainer gives them.
+The answers are the maintainer's, and [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md) records them. The maintainer gave both on 2026-11-22.
 
-6. Which decisions are costly to reverse, or will later code copy? Proposed: the redaction before storage, because a stored row keeps the form that its redaction version gave it; the message key, because each stored row is found by it; the schema, because migrations only add; the split into domain, application and adapters; the form of a parser and of its fixture test, because each new platform copies it.
+6. Which decisions are costly to reverse, or will later code copy? Proposed: the redaction before storage, because a stored row keeps the form that its redaction version gave it; the message key, because each stored row is found by it; the schema, because migrations only add; the split into domain, application and adapters; the form of a parser and of its fixture test, because each new platform copies it. Answered on 2026-11-22, in ADR 0001: these five, and the sign-in to Gmail, the date library and the names of the keys of the `[redaction]` section.
 7. Which components are consequential? Proposed: the table above. Accepted on 2026-11-22, and in ADR 0001.
 
 ### What this record does not decide
@@ -86,11 +86,11 @@ The answers are the maintainer's, and [ADR 0001](/decisions/0001-ports-and-adapt
 * It does not say that the project complies with REAS.
 * It records no exception.
 * It does not start the setup of `cargo vet`, and it does not change the `unsafe` group. Until `cargo vet` is set up, no trusted audit exists, and each new dependency with a build script or a procedural macro gets a recorded own review before it is added, as before.
-* It does not change the shape of the self-audit. The standard cut its own audit to the evidence of the current revision, and REAS-FOUND-005 asks for a short report. The self-audit of this project has long rows; whether it gets the shorter shape is a question to the maintainer.
+* It does not change the shape of the self-audit. The standard cut its own audit to the evidence of the current revision, and REAS-FOUND-005 asks for a short report. The self-audit of this project has long rows; whether it gets the shorter shape was a question to the maintainer, who said yes on 2026-11-22 (ADR 0019, line 23).
 
 ## Consequences
 
-* The self-audit has 49 rows. After the copy: 20 met, 26 partly met, 2 not met and 1 not applicable. After the answers of the maintainer of 2026-11-22: 20, 27, 1 and 1, because REAS-FOUND-004 is partly met: the judgment is recorded, and the effort does not follow it yet. Before the copy it had 44: 20, 22, 1 and 1. The five rules of Foundations are new rows. REAS-ARCH-003 moves from "met" to "partly met", because two of seven answers are not recorded. REAS-FOUND-004 was "not met" until the maintainer recorded the judgments.
+* The self-audit has 49 rows. After the copy: 20 met, 26 partly met, 2 not met and 1 not applicable. After the answers of the maintainer of 2026-11-22: 21, 26, 1 and 1. REAS-FOUND-004 is partly met: the judgment is recorded, and the effort does not follow it yet. REAS-ARCH-003 is met again: the seven answers are recorded. Before the copy it had 44: 20, 22, 1 and 1. The five rules of Foundations are new rows. With the copy, REAS-ARCH-003 moved from "met" to "partly met", because two of seven answers were not recorded. REAS-FOUND-004 was "not met" until the maintainer recorded the judgments.
 * The largest line that ADR 0019 would have left open, the review of the unsafe code of 107 dependencies, is no longer asked. The setup of `cargo vet` takes its place as work.
 * No rule of 1.9.0-draft makes a status better by itself: where a gap went, another part of the same row is still open.
 * The rows whose rule did not change between the two versions were not read again. Their text is the reading of 2026-11-20 with the changes of the ten steps.

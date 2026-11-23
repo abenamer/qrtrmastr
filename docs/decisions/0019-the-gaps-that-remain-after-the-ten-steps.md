@@ -21,7 +21,7 @@ sources:
 
 ## Status
 
-Accepted on 2026-11-22, with the changes of [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md). The maintainer accepted part 1 as written, as the order of the work, and gave an answer to each line of part 2 that 1.9.0-draft still asks; the section "The answers of the maintainer" holds them. The questions that a line of part 1 gives to the maintainer in its column "Who" were not asked and are open: each is asked when its line starts. The record was proposed on 2026-11-21. The tables of part 1 and part 2 are the proposal as it was written and are not changed. No answer records the exception of the standard.
+Accepted on 2026-11-22, with the changes of [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md). The maintainer accepted part 1 as written, as the order of the work, and gave an answer to each line of part 2 that 1.9.0-draft still asks; the section "The answers of the maintainer" holds them. Of the questions that a line of part 1 gives to the maintainer in its column "Who", the maintainer answered those of lines 1, 2, 3, 13 and 17 and the question of line 5 on a schedule later the same day; the section "The answers to the questions inside the lines" holds them. The others are open, and each is asked when its line starts. The record was proposed on 2026-11-21. The tables of part 1 and part 2 are the proposal as it was written and are not changed. No answer records the exception of the standard.
 
 On 2026-11-22 the copy of the standard changed to 1.9.0-draft. This record reads 1.7.0-draft. [ADR 0020](/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) names each line below that the new version moves: lines 9, 10, 13, 15 and 16 of part 1, and of part 2 the lines on the unsafe code of the dependencies, on the one architecture and the release stage, and on the six mutants.
 
@@ -93,7 +93,7 @@ Two findings of the design review need no line. F6, the phone digits with one mo
 
 The maintainer read each line with its text and answered one line at a time.
 
-Part 1 is accepted as written, with the lines 9, 10, 13, 15 and 16 as ADR 0020 changes them. The acceptance is of the lines and their order. It answers no question that a line gives to the maintainer: what an empty kind of term means (line 1), each rule of the redactor (line 2), what happens to a stored row (line 3), the drill and the schedule of a backup (line 5), what stays of line 6, the change of the protocol (line 13), the required check (line 15), which of the two ways (line 17) and what stays of line 18. Four lines are new:
+Part 1 is accepted as written, with the lines 9, 10, 13, 15 and 16 as ADR 0020 changes them. The acceptance is of the lines and their order. When it was given, it answered no question that a line gives to the maintainer: what an empty kind of term means (line 1), each rule of the redactor (line 2), what happens to a stored row (line 3), the drill and the schedule of a backup (line 5), what stays of line 6, the change of the protocol (line 13), the required check (line 15), which of the two ways (line 17) and what stays of line 18. Four lines are new:
 
 | Order | Class | What | From | Who |
 | --- | --- | --- | --- | --- |
@@ -124,6 +124,27 @@ The lines of part 2:
 | Finding F4 | The list of the covered forms is written with line 2. What is outside that list is accepted as a limit. |
 | Finding F7 | Refused. It is corrected with line 2. |
 | Finding F11 | After line 6, the token that reads the whole mailbox and does not end is accepted as a limit. |
+
+### The answers to the questions inside the lines: 2026-11-22
+
+The maintainer answered these later the same day, one question at a time, each with its text in plain words.
+
+| Line | Question | Answer |
+| --- | --- | --- |
+| 1 | What an empty kind of redaction term means | Each of the five keys of `[redaction]` shall be in the file, or the import refuses to run. A kind for which the maintainer has no term is written as an empty list, which is a statement. A key that the program does not know is refused. |
+| 2 | Each rule of the redactor | All approved: a term in percent-encoded form in each stored part; the query string and the path of a link in the text body; the other forms of a card ending; the invisible characters, the other Unicode composition and the `Message-ID`; and a check of its own in the assertion for a phone number and a card ending, so that a form that the pass does not know refuses the message. Each change of the redactor is reviewed two times. |
+| 3 | What happens to a stored row of an older redaction version | A command redacts the stored row again, in its place, with the redactor of today. A row that the assertion still refuses after that is removed and reported, so that the maintainer can import it again. Beside the answer, as line 3 says and the session told the maintainer: a row of an older version is not shown and not written to a file before that. |
+| 5 | Whether a backup runs on a schedule | No schedule. Each time that it runs, `qm` says so when the newest backup is older than a number of days, about 7. The design is proposed to the maintainer before it is built, because `qm` runs in a container that does not see `backups/` today. The restore drill on the Compose database is still the maintainer's to run. |
+| 13 | The change of the commit protocol for `cargo mutants` | The protocol gets the step for a change to a consequential component, the redactor and the Gmail adapter, as REAS-TEST-001 requires. A missed mutant that a test does not kill and that is not equivalent goes to the maintainer in the pull request. The text of `CLAUDE.md` changes with line 13; a session runs the pass on such a change from now on. |
+| 17 | Which of the two ways for the second check of the use case | The second check stays. It moves into a function with a test of its own, and the test that wraps the parser registry goes. |
+
+Two more answers of that day are not about a line. The sixth answer of REAS-ARCH-003 is in [ADR 0001](/decisions/0001-ports-and-adapters-for-a-private-tool.md): eight decisions that are costly to reverse. And the self-audit gets a short form, as a new line:
+
+| Order | Class | What | From | Who |
+| --- | --- | --- | --- | --- |
+| 23 | Readings | The self-audit in a short form: for each rule its status, what is absent, whether the maintainer accepted the gap and when, and a link to the log or the decision that holds the evidence. The full text stays in the log and in the decisions; a sentence of a long row that is in neither goes there before the row is cut. A review compares the two forms, so that no gap of the long form is absent from the short one. | REAS-FOUND-005 | A session |
+
+Still open: the restore drill of line 5, which the maintainer runs; what stays of line 6 and of line 18; the leftovers of line 19; and the setting of line 15, which the maintainer makes.
 
 ### What this record does not decide
 
