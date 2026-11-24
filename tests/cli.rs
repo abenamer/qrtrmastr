@@ -190,6 +190,59 @@ fn an_import_without_redaction_terms_fails_before_it_reads_a_mail() {
 }
 
 #[test]
+fn an_import_with_a_redaction_section_that_lacks_a_key_fails_before_it_reads_a_mail() {
+    let dir = tempfile::tempdir().expect("a directory");
+    // Four of the five keys: `address_lines` is absent. The command asks for the terms first,
+    // so the error is about the key and not about the export that is not there.
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\ncard_last4 = []\n",
+    )
+    .expect("the file");
+    let output = qm(
+        dir.path(),
+        &[NO_DATABASE],
+        &["import", "--takeout", "/no/such/export"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let text = stderr(&output);
+    assert!(text.contains("has no key address_lines;"), "{text}");
+    assert!(!text.contains("Pat Example"), "{text}");
+    assert!(!text.contains("/no/such/export"), "{text}");
+    assert_eq!(stdout(&output), "");
+}
+
+#[test]
+fn a_key_that_is_spelled_wrongly_in_the_redaction_section_stops_a_command() {
+    let dir = tempfile::tempdir().expect("a directory");
+    // `address_line` for `address_lines`, beside the five keys.
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\naddress_lines = []\n\
+         card_last4 = []\naddress_line = [\"12 Example Street\"]\n",
+    )
+    .expect("the file");
+    let output = qm(
+        dir.path(),
+        &[NO_DATABASE],
+        &["import", "--takeout", "/no/such/export"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let text = stderr(&output);
+    assert!(text.contains("unknown field address_line"), "{text}");
+    assert!(!text.contains("Example Street"), "{text}");
+    assert!(!text.contains("/no/such/export"), "{text}");
+    assert_eq!(stdout(&output), "");
+    // A command that redacts nothing reads the same file and stops at the same key.
+    let due = qm(dir.path(), &[NO_DATABASE], &["due"]);
+    assert_eq!(due.status.code(), Some(1));
+    let text = stderr(&due);
+    assert!(text.contains("unknown field address_line"), "{text}");
+    assert!(!text.contains("Example Street"), "{text}");
+    assert_eq!(stdout(&due), "");
+}
+
+#[test]
 fn an_addition_without_a_reason_and_without_a_terminal_is_refused() {
     let dir = tempfile::tempdir().expect("a directory");
     let output = qm(dir.path(), &[NO_DATABASE], &["add", "miso", "paste"]);

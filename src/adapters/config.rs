@@ -61,6 +61,23 @@ pub enum ConfigError {
          Put the same terms, one per line, in canary-terms.txt beside it for the local privacy canary."
     )]
     NoRedactionTerms(PathBuf),
+    /// A command that redacts mail asked for the redaction terms, and the `[redaction]`
+    /// section does not have each of its five keys. A key that is absent could be a kind of
+    /// term that the maintainer forgot, so the command refuses to run.
+    #[error(
+        "the [redaction] section in {path} has no key {}; the import refuses to run until \
+         each of the five keys (names, emails, phones, address_lines, card_last4) is there.\n\
+         Write a key for which you have no term as an empty list, for example:\n\n\
+         card_last4 = []",
+        .missing.join(", ")
+    )]
+    IncompleteRedaction {
+        /// The configuration file that was read.
+        path: PathBuf,
+        /// The keys that the section does not have, in the order of the documentation. A name
+        /// of a key, never a value.
+        missing: Vec<&'static str>,
+    },
     /// `QM_CONFIG` is not set, and the operating system names no home directory from which
     /// the default place of the configuration file follows.
     #[error("no configuration directory can be found for this user")]
@@ -208,14 +225,76 @@ impl ImportConfig {
     }
 }
 
+/// The `[redaction]` section as the configuration file has it: the redaction terms of the
+/// maintainer, by kind. Every value is personal data, so the `Debug` form prints none.
+///
+/// A key that the program does not know is an error when the file is read: a key with a
+/// spelling error would otherwise be a kind without a term. A key that is absent is kept as
+/// absent, and [`RedactionSection::terms`] refuses it: an empty kind must be a statement of
+/// the maintainer, an empty list, and not a silence.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedactionSection {
+    names: Option<Vec<String>>,
+    emails: Option<Vec<String>>,
+    phones: Option<Vec<String>>,
+    address_lines: Option<Vec<String>>,
+    card_last4: Option<Vec<String>>,
+}
+
+impl RedactionSection {
+    /// The terms of the section, when it has each of the five keys.
+    ///
+    /// # Errors
+    ///
+    /// The names of the keys that the section does not have, in the order `names`, `emails`,
+    /// `phones`, `address_lines`, `card_last4`. A key with an empty list is there.
+    pub fn terms(&self) -> Result<RedactionTerms, Vec<&'static str>> {
+        let Self {
+            names,
+            emails,
+            phones,
+            address_lines,
+            card_last4,
+        } = self;
+        match (names, emails, phones, address_lines, card_last4) {
+            (Some(names), Some(emails), Some(phones), Some(address_lines), Some(card_last4)) => {
+                Ok(RedactionTerms {
+                    names: names.clone(),
+                    emails: emails.clone(),
+                    phones: phones.clone(),
+                    address_lines: address_lines.clone(),
+                    card_last4: card_last4.clone(),
+                })
+            }
+            _ => Err([
+                ("names", names.is_none()),
+                ("emails", emails.is_none()),
+                ("phones", phones.is_none()),
+                ("address_lines", address_lines.is_none()),
+                ("card_last4", card_last4.is_none()),
+            ]
+            .into_iter()
+            .filter_map(|(key, absent)| absent.then_some(key))
+            .collect()),
+        }
+    }
+}
+
+impl std::fmt::Debug for RedactionSection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RedactionSection([REDACTED])")
+    }
+}
+
 /// The TOML file. `redaction` has no default on purpose: the import needs your terms.
 #[derive(Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct FileConfig {
     /// The `[redaction]` section: the redaction terms of the maintainer. `None` when the file
     /// has no such section or does not exist. [`Settings::redaction_terms`] makes an error of
-    /// that for a command that redacts mail.
-    pub redaction: Option<RedactionTerms>,
+    /// that, and of a section without one of its keys, for a command that redacts mail.
+    pub redaction: Option<RedactionSection>,
     /// The `[recommend]` section. The defaults when the file has none.
     pub recommend: RecommendConfig,
     /// The `[import]` section. The default sender addresses when the file has none.
@@ -225,7 +304,7 @@ pub struct FileConfig {
 impl std::fmt::Debug for FileConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileConfig")
-            .field("redaction", &self.redaction.as_ref().map(|_| "[REDACTED]"))
+            .field("redaction", &self.redaction)
             .field("recommend", &self.recommend)
             .field("import", &self.import)
             .finish()
@@ -269,8 +348,8 @@ impl Settings {
     /// - [`ConfigError::NoConfigDir`] when `QM_CONFIG` is not set and the user has no home
     ///   directory to find the configuration directory from.
     /// - [`ConfigError::File`] when the configuration file exists and cannot be read, is not
-    ///   valid TOML, or when a key of it or of a `QM_` variable has the wrong type or names an
-    ///   unknown platform.
+    ///   valid TOML, or when a key of it or of a `QM_` variable has the wrong type, names an
+    ///   unknown platform, or is a key that the `[redaction]` section does not have.
     pub fn load() -> Result<Self, ConfigError> {
         // A missing .env is the normal case outside development; a present one is loaded.
         let _ = dotenvy::dotenv();
@@ -332,13 +411,22 @@ impl Settings {
     ///
     /// # Errors
     ///
-    /// [`ConfigError::NoRedactionTerms`], with the path of the configuration file, when the
-    /// configuration has no `[redaction]` section.
+    /// - [`ConfigError::NoRedactionTerms`], with the path of the configuration file, when the
+    ///   configuration has no `[redaction]` section.
+    /// - [`ConfigError::IncompleteRedaction`], with the path and the names of the keys, when
+    ///   the section does not have each of its five keys.
     pub fn redaction_terms(&self) -> Result<RedactionTerms, ConfigError> {
-        self.file
+        let section = self
+            .file
             .redaction
-            .clone()
-            .ok_or_else(|| ConfigError::NoRedactionTerms(self.config_path.clone()))
+            .as_ref()
+            .ok_or_else(|| ConfigError::NoRedactionTerms(self.config_path.clone()))?;
+        section
+            .terms()
+            .map_err(|missing| ConfigError::IncompleteRedaction {
+                path: self.config_path.clone(),
+                missing,
+            })
     }
 }
 
@@ -403,11 +491,23 @@ mod tests {
 
     #[test]
     fn the_terms_of_the_file_are_the_terms_that_a_command_gets() {
-        let with = settings("[redaction]\nnames = [\"Pat Example\"]\nphones = [\"2125550199\"]\n");
-        let terms = with.redaction_terms().expect("the section is there");
-        assert_eq!(terms.names, vec!["Pat Example".to_owned()]);
-        assert_eq!(terms.phones, vec!["2125550199".to_owned()]);
-        assert!(terms.emails.is_empty());
+        let with = settings(
+            "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = [\"2125550199\"]\n\
+             address_lines = [\"12 Example Street\"]\ncard_last4 = [\"4242\"]\n",
+        );
+        let terms = with
+            .redaction_terms()
+            .expect("the section has its five keys");
+        assert_eq!(
+            terms,
+            RedactionTerms {
+                names: vec!["Pat Example".to_owned()],
+                emails: Vec::new(),
+                phones: vec!["2125550199".to_owned()],
+                address_lines: vec!["12 Example Street".to_owned()],
+                card_last4: vec!["4242".to_owned()],
+            }
+        );
         // Without the section a command that redacts gets an error with the path, and no
         // empty set of terms.
         let without = settings("[recommend]\nmin_purchases = 4\n");
@@ -424,6 +524,120 @@ mod tests {
                 lapsed_after_gaps: 5
             }
         );
+    }
+
+    /// The five keys, each with one made-up term, as lines of a `[redaction]` section.
+    const FIVE_KEYS: [&str; 5] = [
+        "names = [\"Pat Example\"]\n",
+        "emails = [\"pat@example.com\"]\n",
+        "phones = [\"2125550199\"]\n",
+        "address_lines = [\"12 Example Street\"]\n",
+        "card_last4 = [\"4242\"]\n",
+    ];
+
+    /// A `[redaction]` section with the five keys except those at the given positions.
+    fn section_without(left_out: &[usize]) -> String {
+        let lines: String = FIVE_KEYS
+            .iter()
+            .enumerate()
+            .filter(|(position, _)| !left_out.contains(position))
+            .map(|(_, line)| *line)
+            .collect();
+        format!("[redaction]\n{lines}")
+    }
+
+    #[test]
+    fn a_section_without_one_of_its_keys_gives_no_terms_and_names_each_absent_key() {
+        // The positive control: the same lines with no key left out give the terms.
+        assert!(settings(&section_without(&[])).redaction_terms().is_ok());
+        let keys = ["names", "emails", "phones", "address_lines", "card_last4"];
+        for (position, key) in keys.iter().enumerate() {
+            let one = settings(&section_without(&[position])).redaction_terms();
+            assert!(
+                matches!(
+                    &one,
+                    Err(ConfigError::IncompleteRedaction { path, missing })
+                        if path.as_os_str() == "/config/config.toml" && missing == &[*key]
+                ),
+                "{key}: {one:?}"
+            );
+        }
+        // More than one absent key: each is named, in the order of the documentation.
+        let three = settings(&section_without(&[4, 0, 2])).redaction_terms();
+        assert!(
+            matches!(
+                &three,
+                Err(ConfigError::IncompleteRedaction { missing, .. })
+                    if missing == &["names", "phones", "card_last4"]
+            ),
+            "{three:?}"
+        );
+        // A section with no key at all is not the terms of nobody.
+        let empty = settings("[redaction]\n").redaction_terms();
+        assert!(
+            matches!(&empty, Err(ConfigError::IncompleteRedaction { missing, .. }) if missing == &keys),
+            "{empty:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_list_is_a_key_that_is_there() {
+        let terms = settings(
+            "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\n\
+             address_lines = []\ncard_last4 = []\n",
+        )
+        .redaction_terms()
+        .expect("each key is there");
+        assert_eq!(terms.names, vec!["Pat Example".to_owned()]);
+        assert!(terms.emails.is_empty() && terms.phones.is_empty());
+        assert!(terms.address_lines.is_empty() && terms.card_last4.is_empty());
+    }
+
+    #[test]
+    fn a_key_that_the_redaction_section_does_not_have_is_an_error_at_its_name() {
+        // `address_line` for `address_lines`: without the refusal the import would run with
+        // no address line to redact.
+        let text = section_without(&[3]) + "address_line = [\"12 Example Street\"]\n";
+        let error: figment::Error = Figment::new()
+            .merge(Toml::string(&text))
+            .extract::<FileConfig>()
+            .expect_err("the key is not one of the five");
+        let shown = describe_without_values(&error);
+        assert!(shown.contains("unknown field address_line"), "{shown}");
+        assert!(shown.contains("redaction"), "{shown}");
+        assert!(!shown.contains("Example Street"), "{shown}");
+        // The positive control: the same text with the key spelled right is read.
+        let right = section_without(&[3]) + "address_lines = [\"12 Example Street\"]\n";
+        assert!(
+            Figment::new()
+                .merge(Toml::string(&right))
+                .extract::<FileConfig>()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_incomplete_redaction_error_names_the_file_and_the_keys_and_how_to_say_none() {
+        let text = ConfigError::IncompleteRedaction {
+            path: PathBuf::from("/config/config.toml"),
+            missing: vec!["emails", "card_last4"],
+        }
+        .to_string();
+        assert!(
+            text.starts_with(
+                "the [redaction] section in /config/config.toml has no key emails, card_last4;"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("card_last4 = []"), "{text}");
+    }
+
+    #[test]
+    fn the_debug_form_of_the_section_prints_no_term() {
+        let file: FileConfig = toml::from_str(&section_without(&[])).expect("parses");
+        let section = file.redaction.expect("the section is there");
+        let debug = format!("{section:?}");
+        assert_eq!(debug, "RedactionSection([REDACTED])");
     }
 
     #[test]

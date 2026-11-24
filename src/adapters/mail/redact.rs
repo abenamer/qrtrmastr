@@ -21,7 +21,6 @@ use regex::{Regex, RegexBuilder};
 
 use crate::domain::pattern::{SIZE_LIMIT, fixed};
 use scraper::{Html, Node, Selector};
-use serde::Deserialize;
 use thiserror::Error;
 
 /// Bumped whenever a pass changes, so stored rows can be re-imported and re-redacted.
@@ -36,26 +35,23 @@ use thiserror::Error;
 /// whether a `Message-ID` is the message key.
 pub const REDACTION_VERSION: i32 = 8;
 
-/// The `[redaction]` section of the configuration file: the redaction terms of the
-/// maintainer, by kind. Every value is personal data. A key that the section leaves out is an
-/// empty list: no term of that kind is configured, and the patterns for the shapes still run.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+/// The redaction terms of the maintainer, by kind. Every value is personal data. An empty
+/// list says that no term of that kind is configured; the patterns for the shapes still run.
+/// The configuration reader makes this value from the `[redaction]` section of the file, and
+/// only when the section has each of the five keys
+/// ([`RedactionSection`](crate::adapters::config::RedactionSection)).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RedactionTerms {
     /// Full names and first names as the mail greets you.
-    #[serde(default)]
     pub names: Vec<String>,
     /// Email addresses of the maintainer, each replaced as one term in any case. The pattern
     /// for the shape of an address removes other addresses too.
-    #[serde(default)]
     pub emails: Vec<String>,
     /// Phone numbers; any formatting, only the digits are used.
-    #[serde(default)]
     pub phones: Vec<String>,
     /// Each line of the delivery address as the mail prints it.
-    #[serde(default)]
     pub address_lines: Vec<String>,
     /// Last four digits of payment cards; redacted only in payment context.
-    #[serde(default)]
     pub card_last4: Vec<String>,
 }
 

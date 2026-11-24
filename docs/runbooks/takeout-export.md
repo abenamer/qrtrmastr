@@ -4,7 +4,7 @@ title: Export your FreshDirect mail and import it
 description: The one-time Google Takeout export of the receipts, the configuration file with your redaction terms, and the import through Docker Compose.
 tags: [runbook, import, takeout]
 generated: { by: "process:claude-code", at: "2026-11-13T23:30:00Z" }
-updated: 2026-11-20
+updated: 2026-11-24
 sources:
   - id: reader
     resource: ../../src/adapters/mail/mod.rs
@@ -44,6 +44,8 @@ FreshDirect has no public API and the tool does not scrape its site, so the rece
        phones = ["2125550100"]
        address_lines = ["12 Example Street Apt 3", "Exampleville, NY 00000"]
        card_last4 = ["4242"]
+
+   Write each of the five keys. When you have no term of a kind, write an empty list, for example `card_last4 = []`. The import refuses to run when a key is absent, and a command that reads the configuration stops when the section has a key that is not one of the five.
 
    The same terms, one per line, go into `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
 5. Import. The exports directory is `/data` inside the container:
