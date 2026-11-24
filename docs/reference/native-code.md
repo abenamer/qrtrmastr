@@ -4,7 +4,7 @@ title: Unsafe and native code in the dependencies
 description: The count of unsafe items for each package of the build, the dependencies that outside data reaches and that hold unsafe code, and what Miri cannot run in each.
 tags: [security, dependencies, native-code, unsafe]
 generated: { by: "process:claude-code", at: "2026-11-22T02:40:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: baseline
     resource: ../../unsafe-baseline.tsv
@@ -87,7 +87,7 @@ The last column is what Miri cannot run (REAS-NATIVE-004). Miri runs Rust code. 
 | `event-listener` | 5.4.2 | 55 | `jiff-sqlx`, `sqlx` | assembly (1 files) |
 | `flate2` | 1.1.11 | 69 | `zip` | foreign function (1 files) |
 | `foldhash` | 0.2.0 | 205 | `jiff-sqlx`, `sqlx` | — |
-| `form_urlencoded` | 1.2.2 | 2 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
+| `form_urlencoded` | 1.2.3 | 2 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
 | `futures-channel` | 0.3.34 | 92 | `jiff-sqlx`, `sqlx` | — |
 | `futures-core` | 0.3.34 | 38 | `jiff-sqlx`, `sqlx` | — |
 | `futures-intrusive` | 0.5.0 | 922 | `jiff-sqlx`, `sqlx` | — |
@@ -158,7 +158,7 @@ The last column is what Miri cannot run (REAS-NATIVE-004). Miri runs Rust code. 
 | `typed-path` | 0.13.0 | 112 | `zip` | — |
 | `unicode-bidi` | 0.3.18 | 5 | `jiff-sqlx`, `sqlx` | — |
 | `unicode-normalization` | 0.1.26 | 25 | `jiff-sqlx`, `sqlx`, `unicode-normalization` | — |
-| `url` | 2.5.8 | 4 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
+| `url` | 2.5.9 | 4 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
 | `utf8-zero` | 0.8.1 | 3 | `ureq` | — |
 | `utf8_iter` | 1.1.0 | 47 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
 | `utf_types` | 1.0.0 | 43 | `jiff-sqlx`, `sqlx`, `ureq`, `url` | — |
