@@ -4,7 +4,7 @@ title: Build scripts and procedural macros of the dependencies
 description: What the build script or the procedural macro of each dependency does on the build machine, as read on 2026-11-21, and what was not read.
 tags: [security, dependencies, build, review]
 generated: { by: "process:claude-code", at: "2026-11-22T02:20:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: lockfile
     resource: ../../Cargo.lock
@@ -109,7 +109,7 @@ Status for all 27: in the lockfile, not compiled on Linux x86_64, code not read.
 |---|---|
 | borsh 1.8.1 | build script |
 | borsh-derive 1.8.1 | proc-macro |
-| cookie 0.18.2 | build script |
+| cookie 0.18.3 | build script |
 | document-features 0.2.12 | proc-macro |
 | generic-array 0.14.9 | build script |
 | getrandom 0.3.4 | build script |

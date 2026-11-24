@@ -2,6 +2,7 @@
 
 ## 0.1.0 — unreleased
 
+- Two packages move to versions that correct a published advisory: `url` 2.5.9 (RUSTSEC-2026-0592) and `cookie` 0.18.3 (RUSTSEC-2026-0594), with `form_urlencoded` 1.2.3. No path to either defect was found in `qm`, and `cookie` is not compiled into it. Nothing that `qm` does changes.
 - The plan for the rules of REAS that are still partly met is accepted: [ADR 0019](docs/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) holds the work in its order and the maintainer's answer to each proposed limit, and the redactor and the Gmail adapter are recorded as the consequential components. Nothing that `qm` does changes yet; the first line of the work is an import that refuses a `[redaction]` section in which one of the five keys is absent or a key is not known. The maintainer's answers to the questions inside the first lines are in the same record.
 - The project follows REAS 1.9.0-draft, was 1.7.0-draft: the copy in `standards/reas/` is new, the self-audit has a row for each of the 49 rules, and [ADR 0020](docs/decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) says what the new version changes in the open gaps. It is a proposal where it asks for a decision of the maintainer. Nothing that `qm` does changes.
 - A proposal, not yet accepted, for the rules of REAS that are still partly met after the ten steps: [ADR 0019](docs/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) sorts each gap into work with an order or into a limit that the maintainer decides. Nothing that `qm` does changes.
