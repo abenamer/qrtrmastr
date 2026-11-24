@@ -1,0 +1,9 @@
+# cargo-mutants configuration (REAS-TEST-001).
+#
+# The XOR test double in `doubles::` is its own oracle: the tests compute the
+# expected tag with it, so a mutation of its internals cannot be observed by
+# them. Its acceptance and rejection paths are exercised by
+# `receive_returns_the_event_for_a_valid_frame` and
+# `verify_rejects_a_wrong_tag`. Excluding it removes scoring noise, not
+# evidence.
+exclude_re = ["doubles::"]

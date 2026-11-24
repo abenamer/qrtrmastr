@@ -599,8 +599,8 @@ class RealRepositoryTests(unittest.TestCase):
         self.assertGreaterEqual(counts.fragments, 50)
         self.assertGreaterEqual(counts.retired_terms, 2)
         self.assertGreaterEqual(counts.documents_read_for_terms, 30)
-        # The rules are declared in the vendored copy of the standard, 44 in 1.7.0-draft.
-        self.assertGreaterEqual(counts.rules, 44)
+        # The rules are declared in the vendored copy of the standard, 49 in 1.9.0-draft.
+        self.assertGreaterEqual(counts.rules, 49)
 
 
 class AuthorityClassTests(FixtureTests):

@@ -72,6 +72,10 @@ pub mod frame {
 
     /// Resource limit (REAS-SEC-001). The parser compares the declared length
     /// with this limit before it allocates.
+    ///
+    /// The exact value is operator configuration, not a contract with any
+    /// peer, so the tests reference the constant rather than the number. A
+    /// mutation of the value is an accepted survivor under REAS-TEST-001.
     pub const MAX_PAYLOAD_LEN: usize = 64 * 1024;
 
     /// A decoded frame: payload and tag. The payload is within `MAX_PAYLOAD_LEN`.
@@ -865,6 +869,58 @@ mod tests {
             err.to_string(),
             "invalid event payload: invalid value: integer `-1`, expected u32 at line 1 column 33"
         );
+    }
+
+    #[test]
+    fn event_name_accepts_digits_and_underscore() {
+        // Positive control for every permitted character class (REAS-TEST-001).
+        let name = EventName::try_from("order_2.paid".to_owned()).expect("all classes allowed");
+        assert_eq!(name.as_str(), "order_2.paid");
+    }
+
+    // Diagnostics: an error carries what a person needs to start (REAS-RUST-005).
+
+    #[test]
+    fn frame_error_names_the_sizes_a_person_needs() {
+        // The diagnostic facts are the requirement: both sizes appear. The
+        // wording is incidental and is not pinned (REAS-TEST-001).
+        let err = FrameError::Truncated {
+            expected: 20,
+            actual: 12,
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("20") && message.contains("12"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn tag_mismatch_names_the_boundary() {
+        // The requirement is that the message exists and names the tag.
+        let message = TagMismatch.to_string();
+        assert!(message.contains("tag"), "{message}");
+    }
+
+    #[test]
+    fn receive_error_keeps_the_source_chain() {
+        use std::error::Error;
+
+        let frame = Frame::new(VALID_PAYLOAD.to_vec(), [0; TAG_LEN]).expect("within the limit");
+        let err = receive(&frame.to_bytes(), &verifier()).expect_err("wrong tag");
+        let source = err.source().expect("the refusing step is the source");
+        assert!(source.downcast_ref::<TagMismatch>().is_some());
+        assert_eq!(err.to_string(), source.to_string());
+    }
+
+    #[test]
+    fn payload_error_keeps_the_serde_source() {
+        use std::error::Error;
+
+        let err = receive(&encode(b"not json"), &verifier()).expect_err("invalid payload");
+        let payload = err.source().expect("PayloadError is the source");
+        assert!(payload.source().is_some(), "the serde error is behind it");
+        assert!(err.to_string().starts_with("invalid event payload: "));
     }
 
     // Duplicate implementation against the reference (REAS-SEC-005).

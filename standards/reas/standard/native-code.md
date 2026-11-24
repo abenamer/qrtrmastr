@@ -89,11 +89,12 @@ Does not apply to code that `unsafe_code = "forbid"` excludes, where the count i
 Keep the unsafe surface enumerable.
 At any moment, list every `unsafe` block and function in your crates and in the dependencies on a path that outside data reaches.
 
-Record the count for each crate in a committed baseline.
-The baseline may shrink or stay.
-A growth needs a justification comment on the changed line, a review, and the name of the allowlisted module that holds the new code.
+Keep two counts.
+The project's own crates form the shrink-only baseline, committed to the repository: growth fails the build and needs a justification comment on the changed line, a review, and the name of the allowlisted module that holds the new code.
 Hold unsafe only in allowlisted modules; unsafe outside the allowlist fails the build.
-Review the unsafe in a dependency as [REAS-SEC-001](security.md#reas-sec-001) specifies, and count it here.
+Dependency counts are reported on every run and compared with the previous run.
+A change in a dependency count is a review event that names the dependency and what moved; it is not a build failure, and it does not by itself mean a defect.
+A dependency whose count rises is a finding with a bounded response, as [REAS-SEC-001](security.md#reas-sec-001) specifies: a trusted `cargo vet` audit of the new version closes it, and your own review is needed only when no audit covers it and the dependency sits in a consequential component or on a path outside data reaches.
 
 The current enforcement is `cargo geiger`, which produces the per-crate count of unsafe items in a crate and its dependency graph.
 Run it in CI on each pull request and compare the result with the baseline.
@@ -107,9 +108,14 @@ It records the exception and the last count in an architecture decision.
 
 ### Verification
 
-- CI: a job that runs the counter and fails when a crate's count exceeds its baseline or when unsafe appears outside an allowlisted module.
+- CI: a job that runs the counter, fails when a first-party crate's count exceeds its baseline or when unsafe appears outside an allowlisted module, and reports dependency changes.
 - Evidence: the [self-audit](self-audit.md) cites the CI run, its revision, and the baseline file for the current count, as [REAS-TEST-002](validation.md#reas-test-002) specifies.
 - Review question: what is the unsafe count of each crate this change touches, and did it move?
+
+### Limits
+
+The count establishes how many unsafe items exist where the counter can see them.
+It does not see unsafe in a build script or a macro expansion it cannot follow, and a stable count says nothing about whether the existing items are sound.
 
 <a id="reas-native-003"></a>
 ## REAS-NATIVE-003: Confine and mark
@@ -203,6 +209,11 @@ The Miri-blind marks stay in all cases, because they tell the next reader where 
 - CI: a Miri job for each crate with an allowlisted module; the fuzz jobs of REAS-TEST-003; a sanitizer job for each Miri-blind path on a runner that has the feature.
 - Evidence: the [self-audit](self-audit.md) cites each run with its revision and, for a CPU-gated path, the runner's hardware target and target-feature set, as [REAS-TEST-002](validation.md#reas-test-002) specifies.
 - Review question: which native path in this change did Miri execute, which is Miri-blind, and on which hardware did the sanitizer and the fuzzer run?
+
+### Limits
+
+Miri reports that it detected no instance of the undefined behavior it supports, on the paths it executed, with the inputs the tests supplied; that is not a general absence guarantee.
+It cannot execute FFI, vendor intrinsics, or inline assembly, and a sanitizer run reports the same, only for the hardware it ran on.
 
 ## Quality test
 

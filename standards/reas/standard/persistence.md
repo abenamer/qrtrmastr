@@ -27,6 +27,7 @@ Does not apply to an in-memory adapter.
 
 ### Rules
 
+Develop against the production database engine from the first commit when that engine is a recorded requirement; a container makes it as cheap as an embedded database, and it removes a predictable migration.
 Write a specific SQL query for each operation.
 Keep SQL in named concrete adapters.
 Version each schema change as a migration.
@@ -150,12 +151,19 @@ Use `--locked` for release builds.
 Record the Rust toolchain, target, enabled features, and native dependencies.
 Record the lockfile policy for library examples.
 Declare the minimum supported Rust version with `rust-version` in each published crate's manifest, and check it in CI with `cargo hack check --rust-version`.
-For a crate with Cargo features, check each combination in CI with `cargo hack check --feature-powerset --no-dev-deps`.
+For a crate with Cargo features, check combinations in CI with `cargo hack check --feature-powerset --depth 2 --no-dev-deps`.
+Declare features that must not be combined with `--mutually-exclusive-features a,b`, so that the powerset skips them.
+Add `--all-features` where that configuration is valid, `--no-default-features`, and each combination that a recorded requirement names.
 
 ### Verification
 
-- CI: `--locked` on every build, `cargo sqlx prepare --check` where SQLx is used, `cargo hack check --rust-version` where `rust-version` is declared, and the feature powerset where features exist.
+- CI: `--locked` on every build, `cargo sqlx prepare --check` where SQLx is used, `cargo hack check --rust-version` where `rust-version` is declared, and the bounded feature powerset where features exist.
 - Review question: which file records the toolchain, and does the lockfile change in this pull request match the manifest change?
+
+### Limits
+
+Depth two establishes that the selected feature combinations compile.
+It does not establish that any feature interaction is correct, and it does not reach a three-way interaction; only a named combination, a test of the combined behavior, or the full powerset finds one.
 
 <a id="reas-data-005"></a>
 ## REAS-DATA-005: Make event consumers idempotent

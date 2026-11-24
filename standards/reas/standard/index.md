@@ -4,7 +4,11 @@ okf_version: "0.2"
 
 # REAS knowledge index
 
-Read only the rules that apply to the current task.
+Read [Foundations](foundations.md) first.
+Then read only the rules that apply to the current task.
+
+## Foundations
+- [Foundations](foundations.md)
 
 ## Rust
 - [Core Rust](core-rust.md)

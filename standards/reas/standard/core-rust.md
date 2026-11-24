@@ -41,6 +41,7 @@ Use enum variants for the legal cases.
 For enums that this project controls, match all variants without a wildcard arm.
 For an external non-exhaustive enum, handle the unknown case explicitly.
 Do not expose a field or setter that can make a domain value invalid.
+This rule has no exception for a first version: a value passed as a bare `String` or integer is copied at every call site, and every later change and every agent copies the pattern, so the newtype is cheapest on the first commit, as [REAS-FOUND-002](foundations.md#reas-found-002) explains.
 
 Record a new variant in a public exhaustive enum as a breaking API change.
 Mark a public enum that is expected to grow with `#[non_exhaustive]`.
@@ -117,6 +118,7 @@ Use a blanket implementation only when its behavior is correct for all types tha
 Examine coherence and orphan rules before you add an implementation.
 Record implementation conflicts that a future adapter could cause.
 Do not build a generic repository framework before a second concrete implementation exists.
+The ease of generating the framework is not evidence that it is needed.
 
 Do not give an inherent method the same name as a trait method on that type.
 For the same candidate receiver type, Rust searches inherent methods before trait methods.
@@ -188,8 +190,8 @@ Does not apply to test code, where `unwrap` and `expect` on a fixture are accept
 
 In a library crate, return `Result` with a typed error.
 Define one error enum for each module or crate surface, with one variant for each cause a caller can act on.
-Carry the data the caller needs to act.
-Wrap a lower-level error with `#[source]` or `#[from]` so that the error chain is kept.
+Carry the data the caller needs to act, and the data a person needs to start troubleshooting: the operation, the expected condition, and the observed one.
+Wrap a lower-level error with `#[source]` or `#[from]` so that the error chain is kept; the chain is the diagnostic trail from the boundary that failed back to its cause.
 `thiserror` is the usual derive.
 A type-erased error such as `anyhow::Error` does not appear in a library's public API.
 

@@ -48,6 +48,9 @@ The current identifiers remain in use to avoid another reassignment.
 Resolve an old reference against its cited version or commit.
 If that context is absent, report the ambiguity instead of selecting a meaning silently.
 
+Version 1.9.0-draft added an optional Limits section to the rule shape after Verification.
+No identifier changed.
+
 The documentation checker detects duplicate declarations in the current files.
 It does not detect reassignment across commits.
 Compare the identifier history during a rule review.
