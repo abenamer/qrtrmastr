@@ -4,7 +4,7 @@ title: Configuration
 description: Every environment variable the application reads, with its default.
 tags: [configuration, reference]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-20
+updated: 2026-11-24
 sources:
   - id: config
     resource: ../../src/adapters/config.rs
@@ -35,11 +35,11 @@ The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `
 
 | Section | Key | Default | Meaning |
 | --- | --- | --- | --- |
-| `[redaction]` | `names` | none | Your name as the mail greets you, and your full name. Each at least three characters. |
-| `[redaction]` | `emails` | none | Your email addresses. |
-| `[redaction]` | `phones` | none | Your phone numbers; any formatting, at least seven digits. |
-| `[redaction]` | `address_lines` | none | Each line of the delivery address as the receipt prints it. |
-| `[redaction]` | `card_last4` | none | The last four digits of each payment card; exactly four. |
+| `[redaction]` | `names` | none; the key is required | Your name as the mail greets you, and your full name. Each at least three characters. |
+| `[redaction]` | `emails` | none; the key is required | Your email addresses. |
+| `[redaction]` | `phones` | none; the key is required | Your phone numbers; any formatting, at least seven digits. |
+| `[redaction]` | `address_lines` | none; the key is required | Each line of the delivery address as the receipt prints it. |
+| `[redaction]` | `card_last4` | none; the key is required | The last four digits of each payment card; exactly four. |
 | `[recommend]` | `min_purchases` | `3` | Purchases needed before an item is recommended. |
 | `[recommend]` | `lapsed_after_gaps` | `3` | An item not bought for more than this many usual gaps is lapsed. |
 | `[import]` | `senders` | `["service@freshdirect.com"]` | The exact From addresses that are FreshDirect's. |
@@ -52,4 +52,4 @@ The Compose file reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `
 
 A `[import.restaurant_senders]` table in the file replaces the whole default: list every platform you want stored. A key that is not one of the six platforms is an error. Mail from an address that is in neither list is counted and not stored ([ADR 0007](/decisions/0007-restaurant-mail-is-stored-at-import-and-parsed-later.md)).
 
-`qm import` refuses to run without a `[redaction]` section; its error prints the section with placeholder values and names the file it looked for. The section is personal data: the file is outside the repository and denied to the assistant. The same terms, one per line, belong in `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
+`qm import` and `qm fetch` read and store no mail without a `[redaction]` section; the error prints the section with placeholder values and names the file that was looked for. Since 2026-11-24 they also stop when the section does not have each of its five keys, and the error names the keys that are absent. When you have no term of a kind, write the key with an empty list, for example `card_last4 = []`: an empty list says "none", and a key that is absent could be one that you forgot. A key in the section that is not one of the five, such as `address_line` for `address_lines`, is an error for every command that reads the configuration, with the name of the key; `qm --help` reads none. `qm fetch` asks for the terms after the sign-in to Gmail is read and before a mail is read. A `QM_REDACTION__<KEY>` variable counts as the key of the section, as for each other value: `QM_REDACTION__CARD_LAST4=[]` gives the key with an empty list, also in place of a list of the file, and the error names the file also when the section came from the environment. The section is personal data: the file is outside the repository and denied to the assistant. The same terms, one per line, belong in `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.

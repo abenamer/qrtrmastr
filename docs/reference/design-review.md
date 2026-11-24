@@ -4,7 +4,7 @@ title: Design review of the redactor and the Gmail adapter
 description: A review after the fact of the two components that handle personal data and credentials, against least privilege, fail-safe defaults, complete mediation and defense in depth, with 17 findings.
 tags: [security, privacy, review, redaction, gmail]
 generated: { by: "process:claude-code", at: "2026-11-22T02:25:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: redactor
     resource: ../../src/adapters/mail/redact.rs
@@ -299,6 +299,7 @@ The findings are in the order of what they can let through, the largest first.
 * Evidence: `src/adapters/config.rs:211-218` (the section is an `Option`, so only a missing section is an error); `src/adapters/mail/redact.rs:41-58` (each list has a default, and the type has no `deny_unknown_fields`); `redact.rs:326-414` (the constructor has no check for an empty set); `src/main.rs:105-106`. By reading; the test at `config.rs:350` shows that a section with one key of five is accepted.
 * Record: new. The self-audit says only that the `Deserialize` derives of `config.rs` and `redact.rs` "were not examined for invariants or for `deny_unknown_fields`" (`docs/self-audit.md:81`). The doc comment at `redact.rs:38-40` states the empty list as the design.
 * A fix must guarantee that a command that redacts runs only with the terms that the maintainer wrote, each under a key that the program knows, and that an empty kind is a statement of the maintainer and not a silence.
+* Corrected on 2026-11-24 (line 1 of [ADR 0019](/decisions/0019-the-gaps-that-remain-after-the-ten-steps.md)): a key of the section that the program does not know is an error when the file is read, and a command that redacts refuses to run when one of the five keys is absent. An empty list is the statement. A section with five empty lists still runs the import, with the patterns for the shapes only: that is the maintainer's answer of 2026-11-22. The line numbers above are of the commit of the review.
 
 ### F2. A term in percent-encoded form is stored outside the three link attributes (new)
 
