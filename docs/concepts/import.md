@@ -4,7 +4,7 @@ title: Import
 description: How a mail export becomes stored messages and parsed orders, what each message state means, and why nothing is dropped.
 tags: [import, parsing, states]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: import
     resource: ../../src/application/import.rs
@@ -32,14 +32,16 @@ The mail source is the `TakeoutExport` adapter. Its path is a folder, one Takeou
 
 A path that cannot be opened, a folder with no archive and no mailbox file, archives with no mailbox entry, a file that is not a readable archive, or a read that fails ends the run with an error and a failure exit status, and the parse step does not run (REAS-RUST-005). Messages read before the error are stored; the next run counts them as known. For each message, in order:
 
-1. The MIME parts and a few headers are read: `Message-ID`, `Date`, `Subject`, `From`, `Authentication-Results`, the HTML body, the text body.
+1. The MIME parts and a few headers are read: `Message-ID`, `Date`, `Subject`, `From`, `Authentication-Results`, the HTML body.
 2. The message key is the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing or is no key: empty, longer than 998 bytes, or with a NUL character. The limit of 998 bytes is the longest line of a mail; the database has a unique index on the key, and an index holds no entry above about 2,700 bytes. A key that a version before 2026-11-21 stored can be longer, and is read as it is. A key already stored is skipped and counted as known. The import reads the stored keys once when it starts; a stored key whose text does not fit its kind (a `message_id` key that is empty, has whitespace at its start or its end or holds a NUL character, or a `sha256` key that is not 64 lowercase hexadecimal digits) stops the run with an error that names the row and not the text. The source hash is stored too and is unique, so a message that arrives under a new header is still stored once.
 3. The platform comes from the exact From address: `import.senders` in the configuration are FreshDirect's, `import.restaurant_senders` lists the addresses of each restaurant platform. A message from any other address is counted and not stored.
-4. The kind comes from the subject, by the rules of the platform: `placed`, `updated`, `receipt`, or `unknown`. Unknown is stored.
+4. The kind comes from the subject, by the rules of the platform: `placed`, `updated`, `receipt`, or `unknown`. The subject is read for that and not stored.
 5. `dkim_pass` records whether an `Authentication-Results` header that Gmail itself added (authserv-id `mx.google.com`) says a DKIM signature verified for the domain of this message's sender or one of its subdomains. A pass from another signing domain, or a header another server added, does not count; a forged sender with its own valid signature would otherwise pass.
-6. The redactor runs over the subject and both bodies ([Privacy](/concepts/privacy.md)). A message in which a configured term survives is refused: nothing of it is stored, the import continues, and the command exits with a failure status at the end.
-7. A message with a NUL character in its subject or in a body after redaction is refused as a message that cannot be read: PostgreSQL holds no such character in a text. The import reports it as `malformed` with its key and continues. The redacted HTML never holds the character: the page reader removes it or puts U+FFFD in its place. The text body can hold it. When a mail has no text part, its text body is made from the HTML, and there a NUL character or the reference `&#0;` gives the character; such a mail is refused. A mail with a text part that has no NUL beside such an HTML part is stored.
-8. One row of `raw_messages` is written, in state `fetched`.
+6. No subject and no body of the mail is stored ([ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md)). The page of a receipt of FreshDirect stays in memory for the parse step of the same command. Until 2026-11-24 the redactor ran here, and the redacted subject and bodies were stored.
+7. A `Message-ID` with a NUL character is no key, and the hash of the mail is the key. The key is the one text of a mail in the row of the message.
+8. One row of `raw_messages` is written, in state `fetched`: the key, the platform, the kind, the date, the DKIM result and the hash of the bytes. Its columns for a subject and a body stay empty.
+
+The parse step then reads each message that waits and whose mail this command read: a message that was never parsed, and a message whose last attempt gave no order that reconciles. A receipt that waits and whose mail was not read gets no attempt; the command prints how many there are. To give them one, import their mail again. A message of another kind than a receipt has no parser and is counted as left for later. What the parse step stores of a receipt is what the parser extracted; of a row that no rule read it stores the place and the reason, and no cell.
 
 ## Parsing receipts
 

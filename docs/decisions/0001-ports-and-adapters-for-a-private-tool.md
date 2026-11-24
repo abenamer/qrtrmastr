@@ -4,7 +4,7 @@ title: Ports and adapters for a private tool with replaceable external systems
 description: Why a single-user tool uses the REAS ports-and-adapters layout rather than the flat layout REAS-ARCH-003 permits, with the seven questions the rule asks and their answers.
 tags: [decision, architecture, reas]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-22
+updated: 2026-11-24
 ---
 
 # ADR 0001 — Ports and adapters for a private tool with replaceable external systems
@@ -27,7 +27,7 @@ The questions and their answers:
    The application has no listener and no endpoint. The answer to this question sets the exposure for the REAS security rules: other parties can supply outside data, so the exception that REAS gives a private tool whose only source of outside data is its maintainer does not apply. [ADR 0015](/decisions/0015-reas-1-7-0-draft-and-the-order-of-its-gaps.md) records what follows from that.
 
 6. Which decisions are costly to reverse, or will later code copy? Added on 2026-11-22, for REAS 1.9.0-draft. Eight decisions; a change to one of them needs the maintainer's word first:
-   * The redaction before storage: a stored row keeps the form that its redaction version gave it.
+   * The redaction before storage: a stored row keeps the form that its redaction version gave it. Reversed on 2026-11-24 by [ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md): the store keeps no text of a mail. What the store keeps of a receipt is the decision that is costly to reverse now.
    * The message key: each stored row is found by it.
    * The schema: migrations only add.
    * The split into domain, application and adapters.

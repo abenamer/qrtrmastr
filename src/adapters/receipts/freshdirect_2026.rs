@@ -237,6 +237,12 @@ enum Classified {
     Unknown(String),
 }
 
+/// Whether the text holds four ASCII digits one after another.
+fn has_four_digits_in_a_row(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_digit())
+        .any(|run| run.len() >= 4)
+}
+
 fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
     if row.header {
         return Classified::Header;
@@ -348,10 +354,14 @@ fn classify(row: &Row, line_no: u32, department: Option<&str>) -> Classified {
     {
         return Classified::Footer(label[1].to_lowercase(), amount);
     }
+    // A department is stored with each line under it. A lone cell with four digits in a row
+    // is none: the line of the payment card can stand alone in a cell, and no department has
+    // such a number ("4-Minute Meals" has one digit).
     if let [only] = non_empty
         && !only.contains('$')
         && only.len() <= 40
         && !MONEY_CELL.is_match(only)
+        && !has_four_digits_in_a_row(only)
     {
         return Classified::Department((*only).to_owned());
     }
@@ -710,6 +720,32 @@ mod tests {
             cells: cells.iter().map(|cell| (*cell).to_owned()).collect(),
             link_path: None,
             header: false,
+        }
+    }
+
+    #[test]
+    fn a_lone_cell_with_four_digits_in_a_row_is_no_department() {
+        // The line of the payment card can stand alone in a cell. A department is stored
+        // with each line under it, so such a cell must not become one.
+        for payment in [
+            "Credit Card MC # xxxx4242",
+            "Visa ending in 4242",
+            "Acct 00004242",
+        ] {
+            assert!(
+                matches!(classify(&row(&[payment]), 1, None), Classified::Unknown(_)),
+                "{payment}"
+            );
+        }
+        // The controls: the departments of a receipt, one of them with a digit.
+        for department in ["Vegetables", "Meat & Poultry", "4-Minute Meals", "Aisle 12"] {
+            assert!(
+                matches!(
+                    classify(&row(&[department]), 1, None),
+                    Classified::Department(name) if name == department
+                ),
+                "{department}"
+            );
         }
     }
 

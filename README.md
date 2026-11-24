@@ -2,7 +2,7 @@
 
 A personal tool that turns FreshDirect receipt emails into a PostgreSQL order history and recommends the next cart. It runs on the maintainer's machine. It is written in Rust (Tokio, SQLx) and follows the [REAS engineering standard](https://github.com/abenamer/reas), vendored at `standards/reas/`.
 
-The MVP reads a one-time Google Takeout export of the receipts, redacts personal data before anything is stored, parses each receipt into an order with its lines, resolves renamed products through aliases, and recommends items whose usual gap between purchases has elapsed. It places no orders and talks to no retailer.
+The MVP reads a one-time Google Takeout export of the receipts, parses each receipt into an order with its lines and stores those, and no subject and no body of the mail, resolves renamed products through aliases, and recommends items whose usual gap between purchases has elapsed. It places no orders and talks to no retailer.
 
 The documentation is an [Open Knowledge Format bundle](docs/index.md) that targets ASD-STE100 Simplified Technical English. Full STE compliance is not verified; see the [self-audit](docs/self-audit.md).
 
@@ -13,7 +13,7 @@ FreshDirect has no public API and this tool does not scrape its site, so your re
 1. In Gmail, create a filter for `from:service@freshdirect.com` that applies a new label, `FreshDirect`, and tick "Also apply filter to matching conversations" so the old receipts get the label too.
 2. Open <https://takeout.google.com>. Deselect everything, select Mail, choose "All Mail data included", deselect everything there and select only the label `FreshDirect`. Request one export as a .zip. Google takes hours to a day to build it and sends you a mail when it is ready.
 3. Download the archive, or archives when Google splits a large export, into a folder of your exports directory, `~/qm-data/takeout-data/` for example. Do not unzip them: the import reads each archive in place, one message at a time, and extracts nothing. The export carries your name, address, phone and card digits: it never enters this repository, and the tool redacts every message before it stores anything.
-4. Write your redaction terms into `~/.config/qrtrmastr/config.toml`: your name, email, phone, each line of your delivery address and the last four digits of your cards, in a `[redaction]` section. Write each of the five keys; a kind for which you have no term gets an empty list, `card_last4 = []` for example. The import refuses to run without the section or without one of its keys, and its error prints what to add.
+4. No redaction terms are needed since 2026-11-24: the import stores the items of a receipt and no subject and no body of the mail, so it has nothing to redact. A `[redaction]` section that your configuration file has is read and not used; it goes with the next change.
 
 The runbook [Export your FreshDirect mail and import it](docs/runbooks/takeout-export.md) has the same steps with the expected output. An export of the whole mailbox works too; the import then also stores the order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash for a later parser. Repeating the export later and importing it again adds only the new messages.
 

@@ -262,6 +262,13 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
         out.push_str(&format!(", conflicts {}", parse.conflicts));
     }
     out.push('\n');
+    if parse.not_in_this_run > 0 {
+        out.push_str(&format!(
+            "{} earlier message(s) wait for a parser and were not in this run; \
+             import their mail again to give them a new attempt\n",
+            parse.not_in_this_run
+        ));
+    }
     out
 }
 
@@ -802,6 +809,24 @@ mod tests {
     }
 
     #[test]
+    fn the_import_report_says_how_many_messages_wait_for_their_mail() {
+        let waiting = |not_in_this_run| ParseReport {
+            not_in_this_run,
+            ..ParseReport::default()
+        };
+        let none = render_import(&ImportReport::default(), &waiting(0));
+        assert!(!none.contains("wait for a parser"), "{none}");
+        let some = render_import(&ImportReport::default(), &waiting(3));
+        assert!(
+            some.ends_with(
+                "3 earlier message(s) wait for a parser and were not in this run; \
+                 import their mail again to give them a new attempt\n"
+            ),
+            "{some}"
+        );
+    }
+
+    #[test]
     fn the_last_line_of_the_import_report_names_conflicts_only_when_there_are_some() {
         let parse = |conflicts| ParseReport {
             pending: 9,
@@ -810,6 +835,7 @@ mod tests {
             partial: 2,
             failed: 3,
             unsupported: 4,
+            not_in_this_run: 0,
             anomalies: 6,
             conflicts,
         };
@@ -896,6 +922,7 @@ mod tests {
                 "freshdirect receipt, text part: a name in the text".to_owned(),
                 2,
             )]),
+            pages: crate::application::ports::ReceivedPages::default(),
         };
         let report = render_import(&import, &ParseReport::default());
         assert!(

@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
 use qrtrmastr::adapters::mail::PlatformMail;
-use qrtrmastr::adapters::mail::redact::{RedactionTerms, Redactor};
 use qrtrmastr::application::import::{ImportError, ImportMail};
 use qrtrmastr::application::ports::{
     InsertOutcome, MailError, MailSource, MailStream, NewRawMessage, PendingMessage, RawMail,
@@ -18,17 +17,10 @@ use qrtrmastr::domain::states::{KeyKind, MessageKind, Platform};
 
 /// The reader of the program, with the made-up person of the synthetic receipts.
 fn reader() -> PlatformMail {
-    PlatformMail::new(
-        vec![("service@freshdirect.com".to_owned(), Platform::Freshdirect)],
-        Redactor::new(RedactionTerms {
-            names: vec!["Pat Example".to_owned(), "Pat".to_owned()],
-            emails: vec!["pat.example@example.com".to_owned()],
-            phones: vec!["2125550199".to_owned()],
-            address_lines: vec!["123 Imaginary Street Apt 4B".to_owned()],
-            card_last4: vec!["4242".to_owned()],
-        })
-        .expect("terms"),
-    )
+    PlatformMail::new(vec![(
+        "service@freshdirect.com".to_owned(),
+        Platform::Freshdirect,
+    )])
 }
 
 /// One mail with an HTML body.
@@ -111,7 +103,7 @@ impl RawMessageStore for BrokenStore {
 const GROCER: &str = "FreshDirect <service@freshdirect.com>";
 
 #[tokio::test]
-async fn known_messages_are_skipped_and_a_redaction_failure_is_reported_not_stored() {
+async fn a_known_message_is_skipped_and_the_page_of_each_receipt_stays_out_of_the_store() {
     let inserted = Rc::new(RefCell::new(Vec::new()));
     let store = MemoryStore {
         known: HashSet::from([MessageKey::from_message_id("a@mail.example").expect("key")]),
@@ -125,16 +117,13 @@ async fn known_messages_are_skipped_and_a_redaction_failure_is_reported_not_stor
             "<p>Hi Pat Example, order 2 for 212-555-0199</p>",
         ),
         mail("Someone <someone@mail.example>", "c", "<p>hello</p>"),
-        // The letters of the name with a tag between them: the passes of the redactor leave
-        // this form, and its assertion finds it, so the message is refused.
-        mail(GROCER, "leaky", "<p>P<b>a</b>t Example</p>"),
     ]);
     let report = ImportMail::new(source, reader(), store)
         .run()
         .await
         .expect("import");
 
-    assert_eq!(report.read, 4);
+    assert_eq!(report.read, 3);
     assert_eq!(report.inserted, 1);
     assert_eq!(
         report.inserted_by_platform,
@@ -143,21 +132,9 @@ async fn known_messages_are_skipped_and_a_redaction_failure_is_reported_not_stor
     assert_eq!(report.already_known, 1);
     assert_eq!(report.other_sender, 1);
     assert!(report.malformed.is_empty(), "{:?}", report.malformed);
-    // The line of the refusal names the key and the kind of the term, and no text of the mail.
-    assert_eq!(
-        report.redaction_failures,
-        vec!["message_id:leaky@mail.example: name".to_owned()]
-    );
-    assert_eq!(
-        report.refused_by_cause,
-        BTreeMap::from([(
-            "freshdirect receipt, html body: name same letters and digits, other punctuation"
-                .to_owned(),
-            1
-        )])
-    );
 
-    // One message reached the store: the new one, classified and redacted by the real reader.
+    // One record reached the store: the new one, classified by the real reader. A record
+    // has no field for a subject or a body, so nothing that the mail says is in it.
     let inserted = inserted.borrow();
     assert_eq!(inserted.len(), 1);
     let stored = &inserted[0];
@@ -165,9 +142,49 @@ async fn known_messages_are_skipped_and_a_redaction_failure_is_reported_not_stor
     assert_eq!(stored.key.as_str(), "b@mail.example");
     assert_eq!(stored.platform, Platform::Freshdirect);
     assert_eq!(stored.kind, MessageKind::Receipt);
-    let html = stored.body_html.as_deref().expect("an HTML body");
-    assert!(html.contains("order 2"), "{html}");
-    assert!(!html.contains("Pat") && !html.contains("0199"), "{html}");
+
+    // The page of each receipt of the run is in the report for the parse step, also the one
+    // of the known message, and not the mail of the other sender.
+    assert_eq!(report.pages.len(), 2);
+    let known = MessageKey::from_message_id("a@mail.example").expect("key");
+    assert_eq!(report.pages.get(&known), Some(Some("<p>Order 1</p>")));
+    let page = report.pages.get(&stored.key).flatten().expect("the page");
+    assert!(page.contains("order 2"), "{page}");
+    // The debug form of the report, which a failed assertion prints, shows no page.
+    let debug = format!("{report:?}");
+    assert!(
+        debug.contains("ReceivedPages(2 pages, not shown)"),
+        "{debug}"
+    );
+    assert!(
+        !debug.contains("Pat Example") && !debug.contains("0199"),
+        "{debug}"
+    );
+}
+
+#[tokio::test]
+async fn the_page_of_a_receipt_is_kept_only_for_a_platform_that_the_caller_names() {
+    let store = || MemoryStore {
+        known: HashSet::new(),
+        inserted: Rc::new(RefCell::new(Vec::new())),
+    };
+    let source = || Source(vec![mail(GROCER, "a", "<p>Order 1</p>")]);
+    // The grocer is named: its receipt has a page for the parser.
+    let named = ImportMail::new(source(), reader(), store())
+        .keeping_pages_of(&[Platform::Freshdirect])
+        .run()
+        .await
+        .expect("import");
+    assert_eq!((named.inserted, named.pages.len()), (1, 1));
+    // Another platform is named: the receipt of the grocer is stored as a record, and its
+    // page is not kept.
+    let other = ImportMail::new(source(), reader(), store())
+        .keeping_pages_of(&[Platform::Seamless])
+        .run()
+        .await
+        .expect("import");
+    assert_eq!((other.inserted, other.pages.len()), (1, 0));
+    assert!(other.pages.is_empty());
 }
 
 #[tokio::test]

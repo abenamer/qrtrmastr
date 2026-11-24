@@ -60,6 +60,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 * [ADR 0018](decisions/0018-records-for-the-dependencies-the-two-sensitive-components-and-the-backup.md) - A baseline for the unsafe code of the dependencies, the records of the build scripts and of the design review, and a backup with a restore drill.
 * [ADR 0019](decisions/0019-the-gaps-that-remain-after-the-ten-steps.md) - The plan for the rules that are still partly met: the work in its order, and the maintainer's answer of 2026-11-22 to each proposed limit.
 * [ADR 0020](decisions/0020-reas-1-9-0-draft-and-what-it-changes-in-the-open-gaps.md) - REAS 1.9.0-draft, what it moves in the plan of ADR 0019, and which components the maintainer recorded as consequential.
+* [ADR 0021](decisions/0021-store-the-extracted-items-and-not-the-mail.md) - The store keeps the items of a receipt and not the mail; it replaces ADR 0004, and the plan of ADR 0019 is paused.
 
 # Log
 

@@ -168,10 +168,11 @@ fn the_token_of_the_sign_in_is_looked_for_in_the_state_directory_that_is_set() {
 }
 
 #[test]
-fn an_import_without_redaction_terms_fails_before_it_reads_a_mail() {
+fn an_import_needs_no_redaction_terms_and_goes_on_to_the_database() {
     let dir = tempfile::tempdir().expect("a directory");
-    // A configuration file with no `[redaction]` section, and a path that is not there. The
-    // error is about the terms: the command asks for them first.
+    // A configuration file with no `[redaction]` section. Until 2026-11-24 the import
+    // stopped here and asked for the terms. It stores no text of a mail now, so it has
+    // nothing to redact: it goes on to the database, which this test does not have.
     std::fs::write(
         dir.path().join("config.toml"),
         "[recommend]\nmin_purchases = 3\n",
@@ -184,31 +185,8 @@ fn an_import_without_redaction_terms_fails_before_it_reads_a_mail() {
     );
     assert_eq!(output.status.code(), Some(1));
     let text = stderr(&output);
-    assert!(text.contains("no [redaction] section"), "{text}");
-    assert!(!text.contains("/no/such/export"), "{text}");
-    assert_eq!(stdout(&output), "");
-}
-
-#[test]
-fn an_import_with_a_redaction_section_that_lacks_a_key_fails_before_it_reads_a_mail() {
-    let dir = tempfile::tempdir().expect("a directory");
-    // Four of the five keys: `address_lines` is absent. The command asks for the terms first,
-    // so the error is about the key and not about the export that is not there.
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\ncard_last4 = []\n",
-    )
-    .expect("the file");
-    let output = qm(
-        dir.path(),
-        &[NO_DATABASE],
-        &["import", "--takeout", "/no/such/export"],
-    );
-    assert_eq!(output.status.code(), Some(1));
-    let text = stderr(&output);
-    assert!(text.contains("has no key address_lines;"), "{text}");
-    assert!(!text.contains("Pat Example"), "{text}");
-    assert!(!text.contains("/no/such/export"), "{text}");
+    assert!(!text.contains("[redaction]"), "{text}");
+    assert!(text.contains("database, connect"), "{text}");
     assert_eq!(stdout(&output), "");
 }
 

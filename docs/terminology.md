@@ -4,7 +4,7 @@ title: Project terminology
 description: Project-specific technical terms used in this bundle and in the code.
 tags: [terminology, ste]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-22
+updated: 2026-11-24
 sources:
   - id: reas-terms
     resource: https://github.com/abenamer/reas/blob/main/standard/terminology.md
@@ -37,7 +37,7 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |
 | Platform | Where a message came from: `freshdirect`, or a restaurant platform (`seamless`, `grubhub`, `toast`, `square`, `clover`, `doordash`). Found from the exact sender address. Another source adds a value, not a table. |
 | Purchase | One line of one order, read through its alias to a product: product, delivery date, billed quantity and price. The `purchases` view. |
-| Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
+| Raw message | The record of one imported mail: its key, platform, kind, date and parse state, and no text of the mail. Stored in `raw_messages`. A row of before 2026-11-24 also holds the redacted subject and bodies. |
 | Reconciled | The receipt of an order agrees with itself within one cent in three checks: the line prices sum to the subtotal; the subtotal, tax, bottle deposit, delivery fee, service fee and tip sum to the total; each line with a unit price is that price times its billed quantity, except a line with an options price or the special-price flag, which is not checked. Stored as `reconciled` on the order. |
 | Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
 | Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |

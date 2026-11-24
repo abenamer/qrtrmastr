@@ -231,11 +231,14 @@ impl RawMessageStore for PostgresStore {
     }
 
     async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError> {
+        // The columns for the subject, the two bodies and the redaction version are of the
+        // time when the mail was stored. A new row has an empty subject, no body, and the
+        // version 0: nothing of the mail is in it.
         let row: Option<(i64,)> = sqlx::query_as(
             "insert into raw_messages \
                (platform, message_key, key_kind, received_at, subject, kind, dkim_pass, \
-                body_html, body_text, source_sha256, redaction_version) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+                source_sha256, redaction_version) \
+             values ($1, $2, $3, $4, '', $5, $6, $7, 0) \
              on conflict do nothing \
              returning id",
         )
@@ -243,13 +246,9 @@ impl RawMessageStore for PostgresStore {
         .bind(message.key.as_str())
         .bind(message.key.kind().as_str())
         .bind(message.received_at.to_sqlx())
-        .bind(&message.subject)
         .bind(message.kind.as_str())
         .bind(message.dkim_pass)
-        .bind(&message.body_html)
-        .bind(&message.body_text)
         .bind(&message.source_sha256[..])
-        .bind(message.redaction_version)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| database_error("insert raw message", e))?;
@@ -264,7 +263,8 @@ impl RawMessageStore for PostgresStore {
     async fn pending(&self, platform: Platform) -> Result<Vec<PendingMessage>, StoreError> {
         let rows: Vec<PendingRow> = sqlx::query_as(
             "select id, message_key, key_kind, kind, dkim_pass, received_at, body_html, parse_state, version \
-             from raw_messages where platform = $1 and parse_state = 'fetched' \
+             from raw_messages \
+             where platform = $1 and parse_state in ('fetched', 'partial', 'failed', 'unsupported') \
              order by received_at, id",
         )
         .bind(platform.as_str())
@@ -389,7 +389,11 @@ impl GroceryStore for PostgresStore {
                 .bind(message_id)
                 .bind(number)
                 .bind(i32::try_from(anomaly.row_index).unwrap_or(i32::MAX))
-                .bind(serde_json::Value::from(anomaly.cells.clone()))
+                // The cells of a row that no rule read are text of the mail as it came: in
+                // the real layout one such row holds the line of the payment card. The
+                // store keeps what the parser extracted, so it keeps the place and the
+                // reason of the anomaly and no cell (ADR 0021).
+                .bind(serde_json::Value::Array(Vec::new()))
                 .bind(&anomaly.reason)
                 .execute(&mut *tx)
                 .await

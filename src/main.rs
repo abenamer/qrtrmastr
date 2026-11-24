@@ -22,7 +22,6 @@ use qrtrmastr::adapters::config::{ConfigError, Settings};
 use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::gmail::{self, Endpoints, GmailApi, GmailError, SignIn, TokenFile};
-use qrtrmastr::adapters::mail::redact::Redactor;
 use qrtrmastr::adapters::mail::takeout::TakeoutExport;
 use qrtrmastr::adapters::postgres::PostgresStore;
 use qrtrmastr::adapters::receipts::registry::Registry;
@@ -102,24 +101,20 @@ fn token_file(settings: &Settings) -> anyhow::Result<TokenFile> {
 /// Stores the new messages of a source and parses the FreshDirect receipts that wait: what
 /// `qm import` and `qm fetch` share.
 async fn import_from(source: impl MailSource, settings: &Settings) -> anyhow::Result<()> {
-    let terms = settings.redaction_terms()?;
-    let redactor = Redactor::new(terms)?;
-    let reader = PlatformMail::new(settings.file.import.sender_platforms(), redactor);
+    let reader = PlatformMail::new(settings.file.import.sender_platforms());
     let store = connect(settings).await?;
-    let import = ImportMail::new(source, reader, store.clone()).run().await?;
-    // The restaurant platforms have no parser yet (ADR 0007); their mail stays fetched.
+    // The pages of the receipts stay in memory from the import to the parse run and are not
+    // stored: the store keeps what a parser extracts, not the mail (ADR 0021).
+    let import = ImportMail::new(source, reader, store.clone())
+        .keeping_pages_of(&[Platform::Freshdirect])
+        .run()
+        .await?;
+    // The restaurant platforms have no parser yet (ADR 0007).
     let parse = ParsePending::new(store, Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &import.pages)
         .await?;
     print!("{}", render_import(&import, &parse));
-    if import.redaction_failures.is_empty() {
-        Ok(())
-    } else {
-        anyhow::bail!(
-            "{} message(s) refused because personal data survived redaction; nothing of them was stored",
-            import.redaction_failures.len()
-        )
-    }
+    Ok(())
 }
 
 /// `qm gmail login`: the consent in the user's browser, then the refresh token into its file.

@@ -4,7 +4,7 @@ title: Privacy
 description: What personal data the mail carries, what the store keeps, what a Claude session may not read, and the two canaries that guard the repository.
 tags: [privacy, security, redaction]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: canary
     resource: ../../scripts/pii_canary.sh
@@ -30,6 +30,10 @@ sources:
 Every FreshDirect mail carries the maintainer's name, email address, delivery address, phone number, and the last four digits of the payment card. None of these is stored. The repository may become public, so the rule is stricter than "not in the database": nothing that came from a real receipt is committed, even redacted.
 
 ## What the store keeps
+
+Since 2026-11-24 the store keeps no subject and no body of a mail ([ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md)): a row of `raw_messages` holds the key of a mail, its platform, kind and date, its DKIM result, a hash of its bytes and the state of its parse. The import reads the page of a receipt, hands it to the parser in memory, and stores the order and its lines: the name of each product as the receipt prints it, its department, quantities and prices, and the path of its link. Of a row that the parser could not read it stores the place and the reason, and no cell; such a row can be the line of the payment card. The `Message-ID` of a mail is its key and is stored as the sender wrote it.
+
+The rest of this section describes the rows of before that day, which hold a redacted subject and redacted bodies until a command that the maintainer runs empties them, and the redactor, which no import calls now and which the next change removes.
 
 `raw_messages` holds each message after redaction: its key, kind, date, subject, the redacted HTML and text, and a hash of the unredacted bytes for change detection. The hash is one-way. The order tables hold what the receipt says about products, quantities, prices and dates, and nothing about the person.
 

@@ -6,8 +6,10 @@ use thiserror::Error;
 
 use super::count;
 use super::ports::{
-    InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore, StoreError,
+    InsertOutcome, MailError, MailReader, MailSource, Prepared, RawMessageStore, ReceivedPages,
+    StoreError,
 };
+use crate::domain::states::MessageKind;
 use crate::domain::states::Platform;
 
 /// Why an import run stopped. A source that cannot be read at all, or a store that fails, ends
@@ -51,6 +53,9 @@ pub struct ImportReport {
     pub redaction_failures: Vec<String>,
     /// The refused messages counted by where and how the term survived; never the text.
     pub refused_by_cause: BTreeMap<String, usize>,
+    /// The page of each receipt that this run read, for the parse run that follows. It is
+    /// not stored and not printed.
+    pub pages: ReceivedPages,
 }
 
 /// The first half of an import: it takes the raw mail of a source, has the reader prepare
@@ -59,6 +64,9 @@ pub struct ImportMail<M: MailSource, R: MailReader, S: RawMessageStore> {
     source: M,
     reader: R,
     store: S,
+    /// The platforms whose receipts a parser reads, when the caller says so: the page of a
+    /// receipt of another platform is not kept. `None` keeps the page of each receipt.
+    pages_of: Option<Vec<Platform>>,
 }
 
 impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
@@ -69,11 +77,21 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
             source,
             reader,
             store,
+            pages_of: None,
         }
     }
 
-    /// Reads the source message by message and stores each message once. Idempotent: a key or a source hash
-    /// already stored is counted as known and skipped. A malformed message or a redaction
+    /// Keeps the pages of the receipts of these platforms only. A page is the whole mail in
+    /// memory until the parse run, and a platform without a parser needs none.
+    #[must_use]
+    pub fn keeping_pages_of(mut self, platforms: &[Platform]) -> Self {
+        self.pages_of = Some(platforms.to_vec());
+        self
+    }
+
+    /// Reads the source message by message and stores the record of each message once; the
+    /// page of each receipt is returned for the parse run and is not stored. Idempotent: a
+    /// key or a source hash already stored is counted as known and no row is written. A malformed message or a redaction
     /// failure is recorded and the run continues; a source that cannot be read, or a store
     /// failure, stops it.
     ///
@@ -95,17 +113,29 @@ impl<M: MailSource, R: MailReader, S: RawMessageStore> ImportMail<M, R, S> {
             match self.reader.prepare(&raw) {
                 Ok(Prepared::OtherSender { .. }) => count(&mut report.other_sender),
                 Ok(Prepared::Message(message)) => {
-                    if known.contains(&message.key) {
+                    let record = message.record;
+                    // The page of a receipt waits in memory for the parse run, also when the
+                    // message is a known one: a receipt that a parser could not read before
+                    // is read again from the mail. No other kind has a parser.
+                    if record.kind == MessageKind::Receipt
+                        && self
+                            .pages_of
+                            .as_ref()
+                            .is_none_or(|platforms| platforms.contains(&record.platform))
+                    {
+                        report.pages.insert(record.key.clone(), message.html);
+                    }
+                    if known.contains(&record.key) {
                         count(&mut report.already_known);
                         continue;
                     }
-                    match self.store.insert(&message).await? {
+                    match self.store.insert(&record).await? {
                         InsertOutcome::Inserted(_) => {
                             count(&mut report.inserted);
                             count(
                                 report
                                     .inserted_by_platform
-                                    .entry(message.platform)
+                                    .entry(record.platform)
                                     .or_default(),
                             );
                         }
