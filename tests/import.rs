@@ -1,7 +1,7 @@
 //! Tests of the import use case with the real reader of a mail (REAS-TEST-004). The mail source
 //! and the store are doubles, because control leaves the application there: a file or a
-//! mailbox on one side, the database on the other. The classifier and the redactor are code of
-//! this application and run for real. No database is needed.
+//! mailbox on one side, the database on the other. The reader of a mail and its classifier are code
+//! of this application and run for real. No database is needed.
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
@@ -10,7 +10,7 @@ use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::application::import::{ImportError, ImportMail};
 use qrtrmastr::application::ports::{
     InsertOutcome, MailError, MailSource, MailStream, NewRawMessage, PendingMessage, RawMail,
-    RawMessageStore, StoreError, StoredBody,
+    RawMessageStore, StoreError,
 };
 use qrtrmastr::domain::ids::{MessageKey, RawMessageId};
 use qrtrmastr::domain::states::{KeyKind, MessageKind, Platform};
@@ -67,9 +67,6 @@ impl RawMessageStore for MemoryStore {
     async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
         Ok(None)
     }
-    async fn body_by_key(&self, _: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
-        Ok(None)
-    }
     async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError> {
         self.inserted.borrow_mut().push(message.clone());
         Ok(InsertOutcome::Inserted(RawMessageId::new(1).expect("id")))
@@ -87,9 +84,6 @@ impl RawMessageStore for BrokenStore {
         Err(StoreError::Migration("down".to_owned()))
     }
     async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
-        unreachable!()
-    }
-    async fn body_by_key(&self, _: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
         unreachable!()
     }
     async fn insert(&self, _: &NewRawMessage) -> Result<InsertOutcome, StoreError> {

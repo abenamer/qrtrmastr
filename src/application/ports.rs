@@ -83,18 +83,6 @@ pub enum MailError {
         /// What is wrong with the message, as a fixed text.
         reason: String,
     },
-    /// Personal data survived redaction. The message is not stored.
-    #[error("message {key}: {kind} survived redaction; not stored")]
-    RedactionFailed {
-        /// The message key, written as its kind, a colon and its text.
-        key: String,
-        /// The kind of the redaction term that survived: `name`, `email`, `address`, `phone`
-        /// or `card`. Never the term.
-        kind: &'static str,
-        /// Where and how, for the report: platform, message kind, part and the assertion that
-        /// failed. It never carries the text.
-        context: String,
-    },
 }
 
 /// What a migration run did.
@@ -124,8 +112,8 @@ pub trait SchemaStore {
 /// One message as the source holds it: the raw RFC 5322 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawMail {
-    /// The whole message, headers and body, as the source delivered it. It is not redacted:
-    /// it is read once to prepare the message and is never stored.
+    /// The whole message, headers and body, as the source delivered it. It is read once to
+    /// prepare the message and is never stored.
     pub bytes: Vec<u8>,
 }
 
@@ -270,7 +258,7 @@ pub struct PendingMessage {
     pub dkim_pass: bool,
     /// The moment in the `Date` header of the mail. The pending messages are ordered by it.
     pub received_at: Timestamp,
-    /// The HTML body that a row of before 2026-11-24 holds, redacted. `None` for each row
+    /// The HTML body that a row of before 2026-11-24 holds, as the redactor of that time left it. `None` for each row
     /// since then: the page of a mail is not stored, and a parse run reads it from the mail
     /// that the import of the same run read.
     pub body_html: Option<String>,
@@ -282,27 +270,11 @@ pub struct PendingMessage {
     pub version: i32,
 }
 
-/// A stored message's redacted body, for writing a local fixture.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StoredBody {
-    /// The platform of the message. The fixture goes into a folder of this name.
-    pub platform: Platform,
-    /// The message key. The file name of the fixture is made from its text.
-    pub key: MessageKey,
-    /// The moment in the `Date` header of the mail. Its year in UTC names the folder of the
-    /// fixture.
-    pub received_at: Timestamp,
-    /// The redacted HTML body. `None` when the mail had neither an HTML part nor a text
-    /// part; no fixture is written then.
-    pub body_html: Option<String>,
-}
-
 #[expect(
     async_fn_in_trait,
     reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
 )]
-/// The raw messages: what the import writes, and what the parse step, a fetch and
-/// `qm fixture add` read.
+/// The raw messages: what the import writes, and what the parse step and a fetch read.
 pub trait RawMessageStore {
     /// The key of every stored message. The import reads the set once when it starts, and
     /// skips a message whose key is in it. Two keys are equal when their kind and their text
@@ -322,15 +294,6 @@ pub trait RawMessageStore {
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
     async fn newest_received_at(&self) -> Result<Option<Timestamp>, StoreError>;
-    /// The redacted body stored under `key`, if any. `None` also when the text of `key` is
-    /// stored under the other kind.
-    ///
-    /// # Errors
-    ///
-    /// - [`StoreError::Database`] when the connection or the statement fails.
-    /// - [`StoreError::InvalidRow`] when the stored platform is not a value that the domain
-    ///   knows. The kind and the text of the row are those of `key`, which is valid.
-    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError>;
     /// Inserts unless the key or the source hash is already stored.
     ///
     /// # Errors
@@ -568,7 +531,7 @@ pub trait Catalog {
 /// Runs the receipt parsers over one HTML body. The registry of format adapters implements it;
 /// it is a trait so a use-case test can use a fixed double.
 pub trait ReceiptParsing {
-    /// Parses one redacted HTML body with the parser that recognizes its layout best. The
+    /// Parses the HTML body of one mail with the parser that recognizes its layout best. The
     /// call does not fail: an unknown layout and an error of the parser are variants of the
     /// result.
     fn parse(&self, html: &str) -> ParseAttempt;

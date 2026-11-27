@@ -29,9 +29,6 @@ fuzz_target!(|data: &[u8]| {
     match prepared {
         // Property: bytes that are no message are refused as malformed, with a typed error.
         Err(MailError::Malformed { .. }) => {}
-        // The reader of one mail redacts nothing since 2026-11-24, so it refuses nothing for
-        // a redaction term.
-        Err(error @ MailError::RedactionFailed { .. }) => panic!("a refusal for a term: {error}"),
         Err(error @ MailError::Read(_)) => panic!("the reader of one mail read no source: {error}"),
         Ok(Prepared::OtherSender { .. }) => assert!(parsed.is_some()),
         Ok(Prepared::Message(message)) => {

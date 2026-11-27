@@ -601,34 +601,23 @@ mod tests {
         );
     }
 
-    /// The committed snapshot is derived from redacted HTML, so it is provably what the store
-    /// holds; redaction must not change what the parser reads.
+    /// The committed snapshot is what the parser makes of the synthetic receipt: the order
+    /// and its lines, which is what the store holds of a receipt.
     ///
     /// The snapshot is a derived file (REAS-DOC-002): do not edit it. When the parser is meant
     /// to give another value, `INSTA_UPDATE=always cargo test --lib the_parsed_receipt_matches`
     /// writes the file again. With that setting the test passes whatever the parser gives, so
     /// read the difference of the file before you commit it.
     #[test]
-    fn the_parsed_receipt_matches_its_snapshot_and_redaction_does_not_change_it() {
-        use crate::adapters::mail::redact::{RedactionTerms, Redactor};
-        let redactor = Redactor::new(RedactionTerms {
-            names: vec!["Pat Example".to_owned(), "Pat".to_owned()],
-            emails: vec!["pat.example@example.com".to_owned()],
-            phones: vec!["2125550199".to_owned()],
-            address_lines: vec![
-                "123 Imaginary Street Apt 4B".to_owned(),
-                "Brooklyn, NY 11201".to_owned(),
-            ],
-            card_last4: vec!["4242".to_owned()],
-        })
-        .expect("terms");
-        let redacted = redactor.redact_html(FIXTURE).expect("redacts");
-        let document = Html::parse_document(&redacted);
-        let from_redacted = FreshDirect2026
+    fn the_parsed_receipt_matches_its_snapshot() {
+        // The page as the sender wrote it, with the address and the card line of the made-up
+        // person in it: the parser reads the items and stores none of those.
+        let document = Html::parse_document(FIXTURE);
+        let receipt = FreshDirect2026
             .parse(&document)
-            .expect("the redacted receipt parses");
-        assert_eq!(from_redacted, parsed());
-        insta::assert_debug_snapshot!(from_redacted);
+            .expect("the receipt parses");
+        assert_eq!(receipt, parsed());
+        insta::assert_debug_snapshot!(receipt);
     }
 
     #[test]
@@ -660,7 +649,8 @@ mod tests {
         assert!(r.reconciled(), "{r:?}");
     }
 
-    /// A backtest over stored, redacted receipts, outside the repository. `QM_BACKTEST_FILE` is
+    /// A backtest over the redacted receipts that a version of before 2026-11-24 stored,
+    /// outside the repository. `QM_BACKTEST_FILE` is
     /// a file of JSON lines, each `{"year": 2026, "html": "..."}`, as a query over
     /// `raw_messages` writes them. Run: `QM_BACKTEST_FILE=... cargo test --lib backtest -- --ignored --nocapture`.
     #[test]

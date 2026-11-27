@@ -58,14 +58,12 @@ services:
     volumes:
       # The Takeout exports, read-only. The export carries personal data and never leaves this mount.
       - ${QM_DATA_DIR:-${HOME}/qm-data}:/data:ro
-      # The configuration file with the redaction terms, read-only.
+      # The configuration file, read-only.
       - ${QM_CONFIG_DIR:-${HOME}/.config/qrtrmastr}:/config:ro
       # What the tool remembers between runs: the Gmail refresh token, in a file only you can
       # read. Create the directory first (mkdir -p), or Docker creates it as root.
       - ${QM_STATE_DIR:-${HOME}/.local/state/qrtrmastr}:/state
-      # Where `qm fixture add --dir /fixtures` writes; gitignored on the host.
-      - ./tests/fixtures/local:/fixtures
-    # Runs as your host user so files it writes under /fixtures are yours; set QM_UID and QM_GID in
+    # Runs as your host user so files it writes under /state are yours; set QM_UID and QM_GID in
     # .env if `id -u` and `id -g` are not 1000.
     user: "${QM_UID:-1000}:${QM_GID:-1000}"
     read_only: true

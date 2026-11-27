@@ -89,7 +89,6 @@ async fn a_message_with_an_unknown_kind_is_refused_by_the_check_constraint(pool:
 
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::receipts::registry::Registry;
-use qrtrmastr::application::fixture::ExportFixture;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
@@ -177,48 +176,7 @@ async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPo
         HashSet::from([from_header.clone(), from_bytes.clone()])
     );
 
-    // The use case of `qm fixture add` finds the row, and none for a key that is not stored.
-    let export = ExportFixture::new(store.clone());
-    let exported = export
-        .run(&from_header)
-        .await
-        .expect("the lookup")
-        .expect("the imported message");
-    assert_eq!(exported.key, from_header);
-    // A row of an import of today holds no page.
-    assert_eq!(exported.body_html, None);
-    let absent = MessageKey::from_message_id("<absent@mail.example>").expect("a key");
-    assert!(export.run(&absent).await.expect("the lookup").is_none());
-
-    let body = store
-        .body_by_key(&from_header)
-        .await
-        .expect("the lookup")
-        .expect("the imported message");
-    assert_eq!(body.key, from_header);
-    assert_eq!(body.platform, Platform::Freshdirect);
-    assert_eq!(body.body_html, None);
-    let body = store
-        .body_by_key(&from_bytes)
-        .await
-        .expect("the lookup")
-        .expect("the row with the digest");
-    assert_eq!(body.key, from_bytes);
-    assert_eq!(body.body_html.as_deref(), Some("<p>stored</p>"));
-
-    // A text that is stored under the other kind is not that key, and a text that is not
-    // stored is no key at all.
     let digest_as_header = MessageKey::from_parts(KeyKind::MessageId, &digest).expect("a key");
-    assert_eq!(
-        store
-            .body_by_key(&digest_as_header)
-            .await
-            .expect("the lookup"),
-        None
-    );
-    let absent = MessageKey::from_message_id("<r2@mail.example>").expect("a key");
-    assert_eq!(store.body_by_key(&absent).await.expect("the lookup"), None);
-
     // The text is unique in the table whatever its kind, so the insert of the same text
     // under the other kind stores nothing and says that the message is known.
     let outcome = store
@@ -787,7 +745,6 @@ async fn importing_the_same_export_twice_stores_everything_once(pool: PgPool) {
         .await
         .expect("import");
     assert_eq!((first.read, first.inserted, first.already_known), (3, 3, 0));
-    assert!(first.redaction_failures.is_empty(), "{first:?}");
     let parsed = ParsePending::new(store.clone(), Registry::default())
         .run(Platform::Freshdirect, &first.pages)
         .await

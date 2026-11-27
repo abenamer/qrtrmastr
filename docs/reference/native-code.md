@@ -174,6 +174,6 @@ The last column is what Miri cannot run (REAS-NATIVE-004). Miri runs Rust code. 
 ## What was reviewed, and what was not
 
 * No unsafe code of a dependency was reviewed. REAS-SEC-001 asks for a review with `cargo vet` or a recorded manual review before the first release that uses the dependency. The project has published no release. The list above is what such a review starts from.
-* REAS-NATIVE-004 asks that a path that Miri cannot run is covered by a build with a sanitizer. `cargo fuzz` builds the seven fuzz targets with the address sanitizer, so the Rust code of the libraries that the readers call runs under it in each fuzz run, on x86_64 Linux ([ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md)). No record says which of the 32 packages with a mark a target reaches. No target opens a connection, so none reaches `ring`.
+* REAS-NATIVE-004 asks that a path that Miri cannot run is covered by a build with a sanitizer. `cargo fuzz` builds the six fuzz targets with the address sanitizer, so the Rust code of the libraries that the readers call runs under it in each fuzz run, on x86_64 Linux ([ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md)). No record says which of the 32 packages with a mark a target reaches. No target opens a connection, so none reaches `ring`.
 * `ring` is the one package of the table that carries C and assembly sources. Each byte from the Gmail API passes it, and the database connection when it uses TLS.
 * The [self-audit](/self-audit.md) holds these as gaps.

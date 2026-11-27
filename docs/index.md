@@ -34,7 +34,7 @@ This project follows the [REAS engineering standard](https://github.com/abenamer
 # Runbooks
 
 * [Develop and run](runbooks/develop.md) - Running qm through Docker Compose, the toolchain, the database options, the checks, and the pull-request flow.
-* [Export your FreshDirect mail and import it](runbooks/takeout-export.md) - The Takeout export, the redaction terms, and the import.
+* [Export your FreshDirect mail and import it](runbooks/takeout-export.md) - The Takeout export and the import.
 * [Fetch new receipts from Gmail](runbooks/gmail-fetch.md) - The Google Cloud project, the sign-in, and qm fetch.
 * [Back up the database and restore it](runbooks/backup-and-restore.md) - The backup, the restore drill, where to keep a backup, and the restore after a loss.
 

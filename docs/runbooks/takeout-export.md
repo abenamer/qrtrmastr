@@ -1,10 +1,10 @@
 ---
 type: Runbook
 title: Export your FreshDirect mail and import it
-description: The one-time Google Takeout export of the receipts, the configuration file with your redaction terms, and the import through Docker Compose.
+description: The one-time Google Takeout export of the receipts, and the import through Docker Compose.
 tags: [runbook, import, takeout]
 generated: { by: "process:claude-code", at: "2026-11-13T23:30:00Z" }
-updated: 2026-11-24
+updated: 2026-11-27
 sources:
   - id: reader
     resource: ../../src/adapters/mail/mod.rs
@@ -36,18 +36,7 @@ FreshDirect has no public API and the tool does not scrape its site, so the rece
 1. In Gmail, create a filter for `from:service@freshdirect.com` that applies a new label, `FreshDirect`. Tick "Also apply filter to matching conversations" so the old mail gets the label too.
 2. Open <https://takeout.google.com>. Deselect everything, select Mail, choose "All Mail data included", deselect everything there and select the label `FreshDirect`. Request one export as a .zip.
 3. When the mail from Google arrives, download the archive into a folder of your exports directory (`~/qm-data/` by default, `QM_DATA_DIR` in `.env`), for example `~/qm-data/takeout-data/`. Google splits a large export into more than one `.zip`; put them all in the folder. Do not unzip them. The archives carry your name, address, phone and card digits: never copy them into the repository, never print their content in a Claude Code session. The guard hook refuses the common forms of that.
-4. Since 2026-11-24 this step is not needed: the import stores the items of a receipt and no subject and no body of the mail, so it redacts nothing and asks for no terms. The text of the step is kept until the next change removes the section. Before: write your redaction terms to `~/.config/qrtrmastr/config.toml` (`QM_CONFIG_DIR` in `.env`; the container sees that directory as `/config`, so an error that names `/config/config.toml` means this file). Every line of your delivery address as the receipt prints it, your phone digits, your name as the greeting prints it and alone, your email, the last four digits of each card:
-
-       [redaction]
-       names = ["Your Name", "Your"]
-       emails = ["you@example.com"]
-       phones = ["2125550100"]
-       address_lines = ["12 Example Street Apt 3", "Exampleville, NY 00000"]
-       card_last4 = ["4242"]
-
-   Write each of the five keys. When you have no term of a kind, write an empty list, for example `card_last4 = []`. The import refuses to run when a key is absent, and a command that reads the configuration stops when the section has a key that is not one of the five.
-
-   The same terms, one per line, go into `~/.config/qrtrmastr/canary-terms.txt` for the local privacy canary.
+4. Nothing to configure for the import: it stores the items of a receipt and no subject and no body of the mail, so it asks for no redaction terms. A `[redaction]` section in a configuration file of before 2026-11-24 is not read.
 5. Import. The exports directory is `/data` inside the container:
 
        docker compose run --rm qm import --takeout /data/takeout-data
@@ -72,5 +61,4 @@ Request a new Takeout export, put the archive in the same folder and import the 
 ## Recover
 
 * A failed import is re-run as is; the import is idempotent.
-* To make a stored receipt a parser fixture, create the directory once with `mkdir -p tests/fixtures/local` on the host, then `docker compose run --rm qm fixture add <message key> --dir /fixtures` writes its redacted HTML there, which git ignores. The key is printed by `qm review` in a later milestone; until then, read it from the database: `select message_key, subject from raw_messages where parse_state = 'unsupported'`.
 * To start over, truncate the tables in a `psql` session and run `qm migrate` again. Never delete the Compose volume without a backup.

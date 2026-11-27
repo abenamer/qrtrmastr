@@ -13,9 +13,8 @@ use crate::application::import::ImportReport;
 use crate::application::list::Added;
 use crate::application::parse::ParseReport;
 use crate::application::recommend::{DueReport, HabitReport, SimpleReport};
-use crate::domain::ids::{IdError, MessageKey};
 use crate::domain::recommend::Status;
-use crate::domain::states::{AddReason, KeyKind};
+use crate::domain::states::AddReason;
 
 /// The arguments of one run of `qm`, as `clap` parses them. The help text of the program is
 /// in the `about` and `long_about` of the attribute below, not in this comment.
@@ -33,8 +32,8 @@ use crate::domain::states::{AddReason, KeyKind};
         the whole mailbox works too: only mail from FreshDirect and from the restaurant \
         platforms in the configuration (Seamless, Grubhub, Toast, Square, Clover, DoorDash) is \
         stored, and only FreshDirect receipts are parsed so far. \
-        Before the first import, write your redaction terms into config.toml. Both steps, with \
-        the expected output: docs/runbooks/takeout-export.md"
+        The tool stores the items of each receipt, and no subject and no body of a mail. \
+        The steps, with the expected output: docs/runbooks/takeout-export.md"
 )]
 pub struct Cli {
     /// The command to run.
@@ -52,9 +51,8 @@ pub enum Command {
     ///
     /// The path is a folder that holds the .zip archives as Google delivers them, one archive,
     /// or an unzipped `Takeout/Mail/<label>.mbox` file. Archives are read in place, one at a
-    /// time; nothing is extracted. Through Compose the path starts with /data. The command needs the
-    /// `[redaction]` section of config.toml and refuses to run without it. How to request the
-    /// export and write the terms: docs/runbooks/takeout-export.md
+    /// time; nothing is extracted. Through Compose the path starts with /data. How to
+    /// request the export: docs/runbooks/takeout-export.md
     Import {
         /// A folder of Takeout archives, one archive, or one mailbox file.
         #[arg(long, visible_alias = "mbox", value_name = "PATH")]
@@ -134,12 +132,6 @@ pub enum Command {
         #[arg(value_name = "NUMBER")]
         id: i64,
     },
-    /// Work with parser fixtures.
-    Fixture {
-        /// What to do with the fixtures.
-        #[command(subcommand)]
-        action: FixtureAction,
-    },
 }
 
 /// The actions of `qm gmail`.
@@ -151,61 +143,9 @@ pub enum GmailAction {
     Login,
 }
 
-/// The actions of `qm fixture`.
-#[derive(Debug, Subcommand)]
-pub enum FixtureAction {
-    /// Write the stored, redacted HTML of one message to the local fixtures directory, which
-    /// git ignores. The key is the message key `qm import` stored.
-    Add {
-        /// The message key of the stored message to write: the text of
-        /// raw_messages.message_key. The kind may stand before it, as message_id:TEXT or
-        /// sha256:TEXT. Without a kind, 64 lowercase hexadecimal digits are a sha256 key and
-        /// any other text is a message_id key.
-        #[arg(value_parser = message_key_argument)]
-        key: MessageKey,
-        /// Where to write; the default is the gitignored local directory.
-        #[arg(long, default_value = "tests/fixtures/local")]
-        dir: PathBuf,
-    },
-}
-
-/// Reads the `KEY` argument of `qm fixture add` into a message key (REAS-SEC-002). The
-/// command line is the inbound adapter, so the text becomes the typed key here and no bare
-/// text crosses the store port.
-///
-/// A key has a kind and a text, and `raw_messages.message_key` holds the text alone. The
-/// argument is the text, with or without its kind:
-///
-/// - `message_id:<text>` or `sha256:<text>`, the form in which a message key is printed. What
-///   follows the first colon is the text, whole.
-/// - The text alone. 64 lowercase hexadecimal digits are then a SHA-256 key, because that is
-///   the only text the import stores under that kind, and any other text is a `Message-ID`
-///   key. A `Message-ID` text that is itself 64 such digits, or that starts with one of the
-///   two kinds and a colon, needs `message_id:` before it.
-///
-/// Nothing is removed from the text: it is compared with the stored text as it is.
-///
-/// # Errors
-///
-/// The errors of [`MessageKey::from_parts`]: [`IdError::EmptyMessageKey`],
-/// [`IdError::PaddedMessageKey`], [`IdError::NulInMessageKey`] and [`IdError::NotSha256`].
-/// None of them holds the text.
-pub fn message_key_argument(raw: &str) -> Result<MessageKey, IdError> {
-    for kind in KeyKind::ALL {
-        let text = raw
-            .strip_prefix(kind.as_str())
-            .and_then(|rest| rest.strip_prefix(':'));
-        if let Some(text) = text {
-            return MessageKey::from_parts(*kind, text);
-        }
-    }
-    MessageKey::from_parts(KeyKind::Sha256, raw)
-        .or_else(|_| MessageKey::from_parts(KeyKind::MessageId, raw))
-}
-
 /// Whether a log line of `target` at `level` may be printed, whatever `RUST_LOG` asks for.
 /// Two libraries print what this tool must never log. html5ever prints the tokens of a mail
-/// before redaction at debug and trace. ureq prints every byte it sends and receives at
+/// at debug and trace. ureq prints every byte it sends and receives at
 /// trace: the Gmail tokens and the raw messages among them. The warnings of html5ever and
 /// the debug lines of ureq carry neither. Every other target follows `RUST_LOG`.
 pub fn log_line_is_safe(target: &str, level: &tracing::Level) -> bool {
@@ -218,13 +158,11 @@ pub fn log_line_is_safe(target: &str, level: &tracing::Level) -> bool {
     }
 }
 
-const MAX_REFUSED_LINES: usize = 20;
-
 /// The report of `qm import` and `qm fetch` as lines for the terminal: the counts of the
 /// messages read, the new messages by platform when there are new ones, one line for each
-/// malformed message, the refusals, and the counts of the parse step. A message key and a
-/// cause are outside data and go through [`terminal_text`]. Above 20 refused messages only
-/// the lines by cause are printed. The conflicts are printed only when there are some.
+/// malformed message, and the counts of the parse step. A message key is outside data and
+/// goes through [`terminal_text`]. The conflicts are printed only when there are some, and
+/// so is the line for the messages that wait for their mail.
 pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -241,18 +179,6 @@ pub fn render_import(import: &ImportReport, parse: &ParseReport) -> String {
     }
     for m in &import.malformed {
         out.push_str(&format!("malformed: {}\n", terminal_text(m)));
-    }
-    // One line per message up to a screenful; beyond that the causes say more than the keys.
-    if import.redaction_failures.len() <= MAX_REFUSED_LINES {
-        for r in &import.redaction_failures {
-            out.push_str(&format!(
-                "REFUSED, personal data survived redaction: {}\n",
-                terminal_text(r)
-            ));
-        }
-    }
-    for (cause, count) in &import.refused_by_cause {
-        out.push_str(&format!("REFUSED {count}: {}\n", terminal_text(cause)));
     }
     out.push_str(&format!(
         "freshdirect receipts parsed {}, partial {}, failed {}, unsupported {}, left for later {}, anomalies {}",
@@ -632,15 +558,8 @@ mod tests {
                 matches!(cli.command, Command::Import { takeout } if takeout == *"/tmp/export")
             );
         }
-        let cli = Cli::try_parse_from(["qm", "fixture", "add", "abc@mail.example"]).expect("valid");
-        let Command::Fixture {
-            action: FixtureAction::Add { key, dir },
-        } = cli.command
-        else {
-            panic!("expected `fixture add`");
-        };
-        assert_eq!(key.to_string(), "message_id:abc@mail.example");
-        assert_eq!(dir, PathBuf::from("tests/fixtures/local"));
+        // The command of before 2026-11-24 that wrote a stored mail to a file is gone.
+        assert!(Cli::try_parse_from(["qm", "fixture", "add", "abc@mail.example"]).is_err());
         let cli = Cli::try_parse_from(["qm", "gmail", "login"]).expect("valid");
         assert!(matches!(
             cli.command,
@@ -676,74 +595,6 @@ mod tests {
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn the_key_argument_is_a_key_with_its_kind_or_the_text_alone() {
-        let digest = "0123456789abcdef".repeat(4);
-        let header = |text: &str| MessageKey::from_parts(KeyKind::MessageId, text);
-        let sha = |text: &str| MessageKey::from_parts(KeyKind::Sha256, text);
-
-        // The text alone: the shape of a digest decides the kind.
-        assert_eq!(
-            message_key_argument("abc@mail.example"),
-            header("abc@mail.example")
-        );
-        assert_eq!(message_key_argument(&digest), sha(&digest));
-        // One digit less, or one capital, is not the shape of a digest.
-        let short = "a".repeat(63);
-        assert_eq!(message_key_argument(&short), header(&short));
-        let capital = digest.to_uppercase();
-        assert_eq!(message_key_argument(&capital), header(&capital));
-
-        // The kind before the text: the form that `Display` prints comes back as the same key.
-        for key in [
-            header("abc@mail.example").expect("key"),
-            sha(&digest).expect("key"),
-            // A header text with the shape of a digest, and one that starts like a kind.
-            header(&digest).expect("key"),
-            header("sha256:abc").expect("key"),
-            header("a:b:c").expect("key"),
-        ] {
-            assert_eq!(message_key_argument(&key.to_string()), Ok(key));
-        }
-        // The same for any key that a header can give: printed and read, it is the same key.
-        proptest::proptest!(|(raw in "\\PC{1,40}")| {
-            if let Ok(key) = MessageKey::from_message_id(&raw) {
-                proptest::prop_assert_eq!(message_key_argument(&key.to_string()), Ok(key));
-            }
-        });
-        // What follows the first colon is the text, whole.
-        assert_eq!(message_key_argument("message_id:<abc>"), header("<abc>"));
-
-        // A named kind is not second-guessed, and no error holds the text.
-        assert_eq!(message_key_argument("sha256:abc"), Err(IdError::NotSha256));
-        assert_eq!(
-            message_key_argument("message_id:"),
-            Err(IdError::EmptyMessageKey)
-        );
-        assert_eq!(message_key_argument(""), Err(IdError::EmptyMessageKey));
-        assert_eq!(message_key_argument(" abc"), Err(IdError::PaddedMessageKey));
-        assert_eq!(
-            message_key_argument("message_id:abc "),
-            Err(IdError::PaddedMessageKey)
-        );
-    }
-
-    #[test]
-    fn a_key_argument_that_is_no_key_is_refused_before_the_command_runs() {
-        let error =
-            Cli::try_parse_from(["qm", "fixture", "add", "sha256:abc"]).expect_err("not a digest");
-        assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
-        assert!(
-            error
-                .to_string()
-                .contains("a sha256 message key is 64 lowercase hexadecimal digits"),
-            "{error}"
-        );
-        // The control: the same command with a digest is accepted.
-        let digest = format!("sha256:{}", "ab".repeat(32));
-        assert!(Cli::try_parse_from(["qm", "fixture", "add", &digest]).is_ok());
     }
 
     #[test]
@@ -917,11 +768,6 @@ mod tests {
             already_known: 0,
             other_sender: 0,
             malformed: vec![hostile.to_owned(), forged.to_owned()],
-            redaction_failures: vec![hostile.to_owned(), forged.to_owned()],
-            refused_by_cause: std::collections::BTreeMap::from([(
-                "freshdirect receipt, text part: a name in the text".to_owned(),
-                2,
-            )]),
             pages: crate::application::ports::ReceivedPages::default(),
         };
         let report = render_import(&import, &ParseReport::default());
@@ -929,14 +775,10 @@ mod tests {
             !report.contains(|c: char| c.is_control() && c != '\n'),
             "{report:?}"
         );
-        // The first line, two lines for each of the two lists, the cause, the parse line.
-        assert_eq!(report.lines().count(), 7, "{report:?}");
+        // The first line, one line for each of the two messages, the parse line.
+        assert_eq!(report.lines().count(), 4, "{report:?}");
         assert!(report.contains("malformed: a\\u{1b}[2J@x.example\n"));
-        assert!(report.contains(
-            "REFUSED, personal data survived redaction: b\\u{d}\\u{a} messages read 0, new 0@x.example\n"
-        ));
-        // A cause is the program's own text and is printed as it is.
-        assert!(report.contains("REFUSED 2: freshdirect receipt, text part: a name in the text\n"));
+        assert!(report.contains("malformed: b\\u{d}\\u{a} messages read 0, new 0@x.example\n"));
     }
 
     #[test]

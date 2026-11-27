@@ -22,7 +22,7 @@
 #                               docs/concepts/privacy.md lists, and none names a home directory
 #   scripts/check.sh hooks      the tests of the guard hook, of the privacy canary and of this script
 #   scripts/check.sh targets    the fuzz targets, their manifest, their seeds and this script name
-#                               the same seven; the seeds are what scripts/fuzz_seeds.py writes;
+#                               the same six; the seeds are what scripts/fuzz_seeds.py writes;
 #                               the fuzz lockfile holds the versions of the program
 #   scripts/check.sh unsafe     the count of unsafe items for each package that the counter names
 #                               is the one of unsafe-baseline.tsv (REAS-NATIVE-002); needs cargo-geiger
@@ -77,12 +77,12 @@ GEIGER_VERSION=0.13.0
 UNSAFE_BASELINE=unsafe-baseline.tsv
 UNSAFE_FLOOR=150
 FUZZ_TOOLCHAIN=nightly-2026-11-15
-FUZZ_FLOOR=7
+FUZZ_FLOOR=6
 # The budget of one target in each stage, in seconds (REAS-TEST-003). The fuzz workflow holds
 # the same two numbers in one line, and `lists` fails when it does not.
 FUZZ_PR_SECONDS=30
 FUZZ_NIGHTLY_SECONDS=300
-FUZZ_TARGETS=(takeout mime classify redact receipt pack gmail_json)
+FUZZ_TARGETS=(takeout mime classify receipt pack gmail_json)
 # What the two inner layers may use of the dependencies of Cargo.toml, by the name that Rust
 # writes (REAS-ARCH-002, REAS-DATA-001, REAS-ARCH-005). Every other dependency is a finding
 # there, also one that is added to the manifest later. The domain is pure: values in, values
@@ -99,7 +99,7 @@ APPLICATION_STD_OUTSIDE='fs|net|env|process|os'
 # The fewest Rust files with content that each layer must hold, and the fewest dependencies
 # that the manifest must name, for the check to count.
 DOMAIN_FLOOR=10
-APPLICATION_FLOOR=8
+APPLICATION_FLOOR=7
 DEPENDENCY_FLOOR=30
 # The lint levels of Cargo.toml, as Clippy reports them on the planted violations: `deny`
 # gives an error and `warn` a warning. `forbid` keeps its own word here, because a forbidden

@@ -13,15 +13,15 @@ FreshDirect has no public API and this tool does not scrape its site, so your re
 1. In Gmail, create a filter for `from:service@freshdirect.com` that applies a new label, `FreshDirect`, and tick "Also apply filter to matching conversations" so the old receipts get the label too.
 2. Open <https://takeout.google.com>. Deselect everything, select Mail, choose "All Mail data included", deselect everything there and select only the label `FreshDirect`. Request one export as a .zip. Google takes hours to a day to build it and sends you a mail when it is ready.
 3. Download the archive, or archives when Google splits a large export, into a folder of your exports directory, `~/qm-data/takeout-data/` for example. Do not unzip them: the import reads each archive in place, one message at a time, and extracts nothing. The export carries your name, address, phone and card digits: it never enters this repository, and the tool redacts every message before it stores anything.
-4. No redaction terms are needed since 2026-11-24: the import stores the items of a receipt and no subject and no body of the mail, so it has nothing to redact. A `[redaction]` section that your configuration file has is read and not used; it goes with the next change.
+4. No redaction terms are needed: the import stores the items of a receipt and no subject and no body of the mail, so it has nothing to redact. A `[redaction]` section in a configuration file of before 2026-11-24 is not read; you can delete it.
 
 The runbook [Export your FreshDirect mail and import it](docs/runbooks/takeout-export.md) has the same steps with the expected output. An export of the whole mailbox works too; the import then also stores the order mail of Seamless, Grubhub, Toast, Square, Clover and DoorDash for a later parser. Repeating the export later and importing it again adds only the new messages.
 
 ## Privacy
 
-Real receipts never enter this repository, even redacted; it may become public. The redaction terms and the mail export live outside it. See [Privacy](docs/concepts/privacy.md).
+Real receipts never enter this repository, even redacted; it may become public. The mail export lives outside it. See [Privacy](docs/concepts/privacy.md).
 
-If you work in this repository with Claude Code: `.claude/settings.json` comes with the clone, and for a session that starts at the top of the repository its `deny` rules refuse a read of the places where your data is before redaction: `.env`, your exports directory `~/qm-data`, your configuration and state directories, and a mailbox or message file in any place. The rules name no person; `~/` is your own home directory. If you keep the exports, the configuration or the Gmail token in another place, copy `.claude/settings.local.example.json` to `.claude/settings.local.json` and write your places into it. [What a Claude session may not read](docs/concepts/privacy.md#what-a-claude-session-may-not-read) lists each rule and what the rules do not stop.
+If you work in this repository with Claude Code: `.claude/settings.json` comes with the clone, and for a session that starts at the top of the repository its `deny` rules refuse a read of the places where your mail and your personal data are: `.env`, your exports directory `~/qm-data`, your configuration and state directories, and a mailbox or message file in any place. The rules name no person; `~/` is your own home directory. If you keep the exports, the configuration or the Gmail token in another place, copy `.claude/settings.local.example.json` to `.claude/settings.local.json` and write your places into it. [What a Claude session may not read](docs/concepts/privacy.md#what-a-claude-session-may-not-read) lists each rule and what the rules do not stop.
 
 ## Quick start
 

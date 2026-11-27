@@ -1,6 +1,6 @@
 ---
 source: src/adapters/receipts/freshdirect_2026.rs
-expression: from_redacted
+expression: receipt
 ---
 Receipt {
     order_number: OrderNumber(

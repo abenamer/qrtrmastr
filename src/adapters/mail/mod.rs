@@ -5,7 +5,6 @@
 pub mod classify;
 pub mod gmail;
 pub mod mime;
-pub mod redact;
 pub mod takeout;
 
 use sha2::{Digest, Sha256};

@@ -4,7 +4,7 @@ title: Develop and run
 description: Running qm through Docker Compose, the toolchain for development, the database options, the checks, and the pull-request flow.
 tags: [runbook, development, docker]
 generated: { by: "process:claude-code", at: "2026-11-13T23:30:00Z" }
-updated: 2026-11-21
+updated: 2026-11-27
 sources:
   - id: compose
     resource: ../../compose.yaml
@@ -31,11 +31,10 @@ Nothing of the project is installed on the host. The database and the `qm` comma
        docker compose run --rm qm migrate
        docker compose run --rm qm import --takeout /data/<folder inside your exports directory>
        docker compose run --rm qm due
-       docker compose run --rm qm fixture add <key> --dir /fixtures
 
-   Expected result: the same output the native binary gives ([Command line](/reference/cli.md)). `--rm` removes the container when the command ends; the data stays in the database volume. Before the first `fixture add`, run `mkdir -p tests/fixtures/local` on the host: a bind mount Docker creates itself belongs to root and the container cannot write to it.
+   Expected result: the same output the native binary gives ([Command line](/reference/cli.md)). `--rm` removes the container when the command ends; the data stays in the database volume.
 
-Inside the container, your exports directory is `/data` (read-only), your configuration directory is `/config` (read-only), and `tests/fixtures/local` of the repository is `/fixtures`. The container has a read-only root file system, no capabilities, and runs as an unprivileged user.
+Inside the container, your exports directory is `/data` (read-only), and your configuration directory is `/config` (read-only). The container has a read-only root file system, no capabilities, and runs as an unprivileged user.
 
 Never run `docker compose down -v`: it deletes the volume. The guard hook refuses its common forms as a backstop; the rule is yours to keep.
 
@@ -102,9 +101,9 @@ The checker has limits:
 Each reader of bytes that another party wrote has a fuzz target in `fuzz/` ([ADR 0017](/decisions/0017-fuzz-targets-with-cargo-fuzz-and-a-budget-for-each-stage.md)). A target calls the reader with bytes that the fuzzer makes, and fails on a stop of the program and on a property that does not hold.
 
 1. Once: `cargo install cargo-fuzz --version 0.13.1 --locked`, and `rustup toolchain install nightly-2026-11-15 --profile minimal`. The script names the toolchain in `FUZZ_TOOLCHAIN`; `qm` itself needs neither.
-2. `scripts/check.sh fuzz` runs each of the seven targets for 30 seconds. `QM_FUZZ_SECONDS=300 scripts/check.sh fuzz` runs each for five minutes.
+2. `scripts/check.sh fuzz` runs each of the six targets for 30 seconds. `QM_FUZZ_SECONDS=300 scripts/check.sh fuzz` runs each for five minutes.
 
-   Expected result: a line `PASS: 7 fuzz targets ran for 30 seconds each without a failure`.
+   Expected result: a line `PASS: 6 fuzz targets ran for 30 seconds each without a failure`.
 3. One target, for as long as you want: `mkdir -p fuzz/corpus/mime`, then `cargo +nightly-2026-11-15 fuzz run mime fuzz/corpus/mime fuzz/seeds/mime -- -max_total_time=600`.
 
 The two commands by hand work with a `cargo-fuzz` that `cargo install` built on your machine. A `cargo-fuzz` that came as a ready-made program can build for another platform than yours; then add `--target` with the `host:` value that `cargo +nightly-2026-11-15 -vV` prints, as the script does.
@@ -154,7 +153,7 @@ The log entry of step 10, of 2026-11-21, has that run and what was done with eac
 | `privacy` | The `rules` group, then the privacy canary over every tracked file: shapes, and your terms when the terms file exists | `privacy`, shapes only |
 | `rules` | The `Read` deny rules of `.claude/settings.json` are the ones that [Privacy](/concepts/privacy.md#what-a-claude-session-may-not-read) lists, and none names a home directory | `privacy`, as a part of the `privacy` group |
 | `hooks` | The tests of the guard hook, of the privacy canary and of the script | `privacy` |
-| `targets` | The fuzz targets, their manifest, their seeds and the list of the script name the same seven; the seeds are what `scripts/fuzz_seeds.py` writes; the fuzz lockfile holds the versions of the program | `privacy`, as a part of the `lists` group |
+| `targets` | The fuzz targets, their manifest, their seeds and the list of the script name the same six; the seeds are what `scripts/fuzz_seeds.py` writes; the fuzz lockfile holds the versions of the program | `privacy`, as a part of the `lists` group |
 | `unsafe` | `cargo geiger` counts the unsafe items of each package that it names, in a build directory of its own, `target/unsafe-count`, and `scripts/unsafe_count.py` compares the count with `unsafe-baseline.tsv` ([Unsafe and native code in the dependencies](/reference/native-code.md)); `scripts/check.sh unsafe write` writes the baseline | `rust` |
 | `fuzz` | The `targets` group, a build of the targets for this machine, then each fuzz target for `QM_FUZZ_SECONDS`, 30 when not set | `fuzz`, in the workflow `fuzz.yml`; not one of the seven required jobs |
 | `lists` | The gate below, and the `targets` group | `privacy` |

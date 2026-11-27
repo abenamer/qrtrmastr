@@ -4,7 +4,7 @@
 //! read-only scope; its refresh token is kept in a file only the user can read. A fetch trades
 //! that token for an access token, lists the messages of the platform senders, and reads each
 //! one raw: the same RFC 5322 bytes a Takeout export holds, so everything after the source is
-//! unchanged, redaction included.
+//! unchanged.
 //!
 //! The HTTP client is blocking, so every call here runs on the blocking pool
 //! (REAS-RUST-007); `GmailApi::messages` sends through the bounded channel of the port, which

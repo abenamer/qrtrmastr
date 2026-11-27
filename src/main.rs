@@ -14,18 +14,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 use qrtrmastr::adapters::cli::page::render_habit_page;
 use qrtrmastr::adapters::cli::wire::{DueReportJson, HabitReportJson, SimpleReportJson};
 use qrtrmastr::adapters::cli::{
-    Cli, Command, FixtureAction, GmailAction, ask_reason, json_text, log_line_is_safe,
-    render_added, render_due, render_habit, render_import, render_simple, terminal_lines,
-    terminal_text,
+    Cli, Command, GmailAction, ask_reason, json_text, log_line_is_safe, render_added, render_due,
+    render_habit, render_import, render_simple, terminal_lines, terminal_text,
 };
 use qrtrmastr::adapters::config::{ConfigError, Settings};
-use qrtrmastr::adapters::fixtures::{anchor, write_fixture};
 use qrtrmastr::adapters::mail::PlatformMail;
 use qrtrmastr::adapters::mail::gmail::{self, Endpoints, GmailApi, GmailError, SignIn, TokenFile};
 use qrtrmastr::adapters::mail::takeout::TakeoutExport;
 use qrtrmastr::adapters::postgres::PostgresStore;
 use qrtrmastr::adapters::receipts::registry::Registry;
-use qrtrmastr::application::fixture::ExportFixture;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::list::ManageList;
 use qrtrmastr::application::migrate::Migrate;
@@ -152,8 +149,7 @@ async fn gmail_login(settings: &Settings) -> anyhow::Result<()> {
 ///
 /// An error can quote a stored value, a path or an answer of a server, so its text is
 /// encoded as one line. A configuration error is the exception: its text is the program's own,
-/// it holds configuration only, and the one for missing redaction terms prints the section to
-/// add over several lines. Its line breaks stay; each line is still encoded. The error must be
+/// it holds configuration only. Its line breaks stay; each line is still encoded. The error must be
 /// the configuration error alone: with a context beside it, the text is one line like any other.
 fn error_text(error: &anyhow::Error) -> String {
     let text = format!("{error:#}");
@@ -316,22 +312,6 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 anyhow::bail!("no addition has the number {id}")
             }
         }
-        Command::Fixture {
-            action: FixtureAction::Add { key, dir },
-        } => {
-            let store = connect(&settings).await?;
-            let dir = anchor(&dir, &std::env::current_dir()?);
-            match ExportFixture::new(store).run(&key).await? {
-                None => anyhow::bail!("no stored message has the key {key}"),
-                Some(body) => match write_fixture(&dir, &body)? {
-                    None => anyhow::bail!("message {key} has no HTML body to write"),
-                    Some(path) => {
-                        println!("wrote {}", terminal_text(&path.display().to_string()));
-                        Ok(())
-                    }
-                },
-            }
-        }
     }
 }
 
@@ -343,23 +323,28 @@ mod tests {
 
     #[test]
     fn a_configuration_error_keeps_its_lines_and_any_other_error_is_one_line() {
-        // The help for missing redaction terms is several lines of the program's own text.
-        let config = anyhow::Error::from(ConfigError::NoRedactionTerms(PathBuf::from(
-            "/config/a\u{1b}[2J.toml",
-        )));
-        let shown = error_text(&config);
-        assert!(shown.contains("\n\n[redaction]\nnames = "), "{shown:?}");
-        assert!(shown.starts_with("no [redaction] section in /config/a\\u{1b}[2J.toml;"));
+        // A configuration error is the program's own text with a path in it. The path is
+        // outside data: a control character in it is shown as text.
+        let file_error = |path: &str| ConfigError::File {
+            path: PathBuf::from(path),
+            reason: "unknown variant at import.restaurant_senders".to_owned(),
+        };
+        let shown = error_text(&anyhow::Error::from(file_error("/config/a\u{1b}[2J.toml")));
+        assert!(
+            shown.starts_with("cannot read the configuration file /config/a\\u{1b}[2J.toml:"),
+            "{shown:?}"
+        );
         assert!(!shown.contains('\u{1b}'));
 
         // A configuration error with a context is not the program's own text alone.
-        let with_context = anyhow::Error::from(ConfigError::NoRedactionTerms(PathBuf::from(
-            "/config/config.toml",
-        )))
-        .context("stored value x\nerror: forged");
+        let with_context = anyhow::Error::from(file_error("/config/config.toml"))
+            .context("stored value x\nerror: forged");
         let shown = error_text(&with_context);
         assert!(!shown.contains('\n'), "{shown:?}");
-        assert!(shown.starts_with("stored value x\\u{a}error: forged: no [redaction] section"));
+        assert!(
+            shown.starts_with("stored value x\\u{a}error: forged: cannot read the configuration"),
+            "{shown:?}"
+        );
 
         // Any other error can quote outside data: a line break in it would forge a line.
         let other = anyhow::anyhow!("row 7 holds \"x\nerror: forged\u{1b}[2J\"");

@@ -117,7 +117,7 @@ use rust_decimal::Decimal;
 
 use crate::application::ports::{
     AliasRequest, Catalog, GroceryStore, InsertOutcome, NewAddition, NewRawMessage, ParseFinish,
-    PendingMessage, ProductLabel, RawMessageStore, ShoppingList, StoredBody,
+    PendingMessage, ProductLabel, RawMessageStore, ShoppingList,
 };
 use crate::domain::ids::{AdditionId, AliasId, MessageKey, OrderNumber, ProductId, RawMessageId};
 use crate::domain::list::{Addition, ItemText};
@@ -173,43 +173,7 @@ impl PendingRow {
     }
 }
 
-#[derive(sqlx::FromRow)]
-struct BodyRow {
-    id: i64,
-    platform: String,
-    message_key: String,
-    key_kind: String,
-    received_at: jiff_sqlx::Timestamp,
-    body_html: Option<String>,
-}
-
 impl RawMessageStore for PostgresStore {
-    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
-        // The unique index on message_key serves the lookup; the kind is compared on the one
-        // row that the index finds.
-        let row: Option<BodyRow> = sqlx::query_as(
-            "select id, platform, message_key, key_kind, received_at, body_html \
-             from raw_messages where message_key = $1 and key_kind = $2",
-        )
-        .bind(key.as_str())
-        .bind(key.kind().as_str())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| database_error("find message by key", e))?;
-        row.map(|row| {
-            let id = row.id;
-            let key = stored_key(id, &row.key_kind, &row.message_key)?;
-            Ok(StoredBody {
-                platform: Platform::from_str(&row.platform)
-                    .map_err(|e| invalid_row("raw_messages", id, &e))?,
-                key,
-                received_at: row.received_at.to_jiff(),
-                body_html: row.body_html,
-            })
-        })
-        .transpose()
-    }
-
     async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
         let (newest,): (Option<jiff_sqlx::Timestamp>,) =
             sqlx::query_as("select max(received_at) from raw_messages")
