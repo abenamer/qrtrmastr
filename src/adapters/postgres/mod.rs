@@ -117,7 +117,7 @@ use rust_decimal::Decimal;
 
 use crate::application::ports::{
     AliasRequest, Catalog, GroceryStore, InsertOutcome, NewAddition, NewRawMessage, ParseFinish,
-    PendingMessage, ProductLabel, RawMessageStore, ShoppingList, StoredBody,
+    PendingMessage, ProductLabel, RawMessageStore, ShoppingList,
 };
 use crate::domain::ids::{AdditionId, AliasId, MessageKey, OrderNumber, ProductId, RawMessageId};
 use crate::domain::list::{Addition, ItemText};
@@ -173,43 +173,112 @@ impl PendingRow {
     }
 }
 
-#[derive(sqlx::FromRow)]
-struct BodyRow {
-    id: i64,
-    platform: String,
-    message_key: String,
-    key_kind: String,
-    received_at: jiff_sqlx::Timestamp,
-    body_html: Option<String>,
+/// How many rows hold text of a mail that a version of before 2026-11-24 stored: the redacted
+/// subject and bodies of a message, and the cells of a row of a receipt that no parser rule
+/// read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredMailText {
+    /// The rows of `raw_messages` with a subject, an HTML body or a text body.
+    pub messages: u64,
+    /// The rows of `order_line_anomalies` with a cell.
+    pub anomalies: u64,
+    /// How many of the messages are receipts that no parser has read yet and that have a
+    /// stored page. The next import parses them from that page. Once the page is emptied,
+    /// they wait for an import that reads their mail again.
+    pub never_parsed: u64,
+}
+
+impl PostgresStore {
+    /// Counts the rows that still hold text of a mail. An import of today writes none
+    /// (ADR 0021), so a count above zero is of rows of before.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Database`] when the connection or a statement fails.
+    pub async fn stored_mail_text(&self) -> Result<StoredMailText, StoreError> {
+        let (messages,): (i64,) = sqlx::query_as(
+            "select count(*) from raw_messages \
+             where subject <> '' or body_html is not null or body_text is not null",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| database_error("count stored mail text", e))?;
+        let (anomalies,): (i64,) = sqlx::query_as(
+            "select count(*) from order_line_anomalies where raw_cells <> '[]'::jsonb",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| database_error("count stored anomaly cells", e))?;
+        let (never_parsed,): (i64,) = sqlx::query_as(
+            "select count(*) from raw_messages \
+             where parse_state = 'fetched' and kind = 'receipt' and body_html is not null",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| database_error("count stored pages of receipts that were never parsed", e))?;
+        Ok(StoredMailText {
+            messages: u64::try_from(messages).unwrap_or(0),
+            anomalies: u64::try_from(anomalies).unwrap_or(0),
+            never_parsed: u64::try_from(never_parsed).unwrap_or(0),
+        })
+    }
+
+    /// Sets the stored subject and bodies of each message, and the stored cells of each
+    /// anomaly, to nothing, in one transaction. The record of each message stays, with its key
+    /// and its parse state, and so does each order with its lines. Gives the number of rows
+    /// that it changed; `never_parsed` is how many of the messages were receipts that no
+    /// parser had read. A second run changes none.
+    ///
+    /// The subject and the bodies cannot be read back from the database after this. Two short
+    /// texts of older rows stay: the error of a parse attempt and the reason of an anomaly
+    /// can quote one cell, a date or the digits of an order number. The mail is in the mailbox
+    /// and in the export. The space of the old rows is free for the database after a `VACUUM`,
+    /// and a backup that was made before still holds the text.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Database`] when the connection or a statement fails; nothing is changed
+    /// then.
+    pub async fn erase_stored_mail_text(&self) -> Result<StoredMailText, StoreError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| database_error("begin", e))?;
+        let (never_parsed,): (i64,) = sqlx::query_as(
+            "select count(*) from raw_messages \
+             where parse_state = 'fetched' and kind = 'receipt' and body_html is not null",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| database_error("count stored pages of receipts that were never parsed", e))?;
+        let messages = sqlx::query(
+            "update raw_messages \
+             set subject = '', body_html = null, body_text = null, redaction_version = 0 \
+             where subject <> '' or body_html is not null or body_text is not null",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| database_error("erase stored mail text", e))?
+        .rows_affected();
+        let anomalies = sqlx::query(
+            "update order_line_anomalies set raw_cells = '[]'::jsonb \
+             where raw_cells <> '[]'::jsonb",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| database_error("erase stored anomaly cells", e))?
+        .rows_affected();
+        tx.commit().await.map_err(|e| database_error("commit", e))?;
+        Ok(StoredMailText {
+            messages,
+            anomalies,
+            never_parsed: u64::try_from(never_parsed).unwrap_or(0),
+        })
+    }
 }
 
 impl RawMessageStore for PostgresStore {
-    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError> {
-        // The unique index on message_key serves the lookup; the kind is compared on the one
-        // row that the index finds.
-        let row: Option<BodyRow> = sqlx::query_as(
-            "select id, platform, message_key, key_kind, received_at, body_html \
-             from raw_messages where message_key = $1 and key_kind = $2",
-        )
-        .bind(key.as_str())
-        .bind(key.kind().as_str())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| database_error("find message by key", e))?;
-        row.map(|row| {
-            let id = row.id;
-            let key = stored_key(id, &row.key_kind, &row.message_key)?;
-            Ok(StoredBody {
-                platform: Platform::from_str(&row.platform)
-                    .map_err(|e| invalid_row("raw_messages", id, &e))?,
-                key,
-                received_at: row.received_at.to_jiff(),
-                body_html: row.body_html,
-            })
-        })
-        .transpose()
-    }
-
     async fn newest_received_at(&self) -> Result<Option<jiff::Timestamp>, StoreError> {
         let (newest,): (Option<jiff_sqlx::Timestamp>,) =
             sqlx::query_as("select max(received_at) from raw_messages")
@@ -231,11 +300,14 @@ impl RawMessageStore for PostgresStore {
     }
 
     async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError> {
+        // The columns for the subject, the two bodies and the redaction version are of the
+        // time when the mail was stored. A new row has an empty subject, no body, and the
+        // version 0: nothing of the mail is in it.
         let row: Option<(i64,)> = sqlx::query_as(
             "insert into raw_messages \
                (platform, message_key, key_kind, received_at, subject, kind, dkim_pass, \
-                body_html, body_text, source_sha256, redaction_version) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+                source_sha256, redaction_version) \
+             values ($1, $2, $3, $4, '', $5, $6, $7, 0) \
              on conflict do nothing \
              returning id",
         )
@@ -243,13 +315,9 @@ impl RawMessageStore for PostgresStore {
         .bind(message.key.as_str())
         .bind(message.key.kind().as_str())
         .bind(message.received_at.to_sqlx())
-        .bind(&message.subject)
         .bind(message.kind.as_str())
         .bind(message.dkim_pass)
-        .bind(&message.body_html)
-        .bind(&message.body_text)
         .bind(&message.source_sha256[..])
-        .bind(message.redaction_version)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| database_error("insert raw message", e))?;
@@ -264,7 +332,8 @@ impl RawMessageStore for PostgresStore {
     async fn pending(&self, platform: Platform) -> Result<Vec<PendingMessage>, StoreError> {
         let rows: Vec<PendingRow> = sqlx::query_as(
             "select id, message_key, key_kind, kind, dkim_pass, received_at, body_html, parse_state, version \
-             from raw_messages where platform = $1 and parse_state = 'fetched' \
+             from raw_messages \
+             where platform = $1 and parse_state in ('fetched', 'partial', 'failed', 'unsupported') \
              order by received_at, id",
         )
         .bind(platform.as_str())
@@ -389,7 +458,11 @@ impl GroceryStore for PostgresStore {
                 .bind(message_id)
                 .bind(number)
                 .bind(i32::try_from(anomaly.row_index).unwrap_or(i32::MAX))
-                .bind(serde_json::Value::from(anomaly.cells.clone()))
+                // The cells of a row that no rule read are text of the mail as it came: in
+                // the real layout one such row holds the line of the payment card. The
+                // store keeps what the parser extracted, so it keeps the place and the
+                // reason of the anomaly and no cell (ADR 0021).
+                .bind(serde_json::Value::Array(Vec::new()))
                 .bind(&anomaly.reason)
                 .execute(&mut *tx)
                 .await

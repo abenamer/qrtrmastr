@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SEEDS = ROOT / "fuzz" / "seeds"
 SYNTHETIC = ROOT / "tests" / "fixtures" / "synthetic" / "input" / "freshdirect"
-TARGETS = ("takeout", "mime", "classify", "redact", "receipt", "pack", "gmail_json")
+TARGETS = ("takeout", "mime", "classify", "receipt", "pack", "gmail_json")
 
 RECEIPT_SUBJECT = "Your FreshDirect order is in the works! Here's your receipt"
 
@@ -154,23 +154,6 @@ def seeds() -> dict[str, bytes]:
             "mx.google.com;\n dkim=pass header.d=doordash.com\nother.example; dkim=pass header.d=doordash.com\n"
         ).encode(),
         "classify/no-pass": b"Thanks for your order\norders@eat.seamless.com\nmx.google.com; dkim=fail header.i=@seamless.com\n",
-        # The redactor: a receipt, and a text with each kind of term.
-        "redact/receipt": basic.encode("utf-8"),
-        "redact/text-with-terms": (
-            "Hi Pat Example, we deliver to 123 Imaginary Street Apt 4B, Brooklyn, NY 11201.\n"
-            "Call (212) 555-0199 or write to pat.example@example.com. Card ending in 4242.\n"
-            "P a t  E x a m p l e, 212.555.0199, PAT.EXAMPLE%40EXAMPLE.COM\n"
-        ).encode(),
-        "redact/markup-with-terms": (
-            '<p>Hi <b>Pat</b> <i>Example</i></p><a href="https://shop.example/u/pat.example@example.com?x=1">'
-            'account</a><img src="https://shop.example/open.gif" alt="Pat Example"><!-- Pat Example -->'
-            "<p>123&nbsp;Imaginary&#32;Street Apt 4B</p>"
-        ).encode(),
-        "redact/short-texts": (
-            "r21255501991@mail.example\nx%2125550199@mail.example\nx%123 Imaginary Street Apt 4B\n"
-            "a<pat.example@example.com>b@mail.example\n/u/Pat%20Example\n"
-        ).encode(),
-        "redact/nothing-to-redact": b"Thanks for your order. Your driver is on the way.\n",
         # The receipt parser: the two synthetic receipts.
         "receipt/basic-2026": basic.encode("utf-8"),
         "receipt/two-stores-2024": two_stores.encode("utf-8"),

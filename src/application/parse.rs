@@ -4,7 +4,7 @@
 use super::count;
 use super::ports::{
     AliasRequest, AttemptRecord, Catalog, GroceryStore, OrderWrite, ParseAttempt, ParseFinish,
-    ParserTag, PendingMessage, RawMessageStore, ReceiptParsing, StoreError,
+    ParserTag, PendingMessage, RawMessageStore, ReceiptParsing, ReceivedPages, StoreError,
 };
 use crate::domain::identity::{ALIAS_KEY_MAX_BYTES, normalize};
 use crate::domain::receipt::{Anomaly, Receipt, reconcile};
@@ -18,10 +18,12 @@ const REFUSED: ParserTag = ParserTag {
 };
 
 /// What one parse run did, as counts of messages. After a run that ends without an error,
-/// `pending` is the sum of `left_for_later`, `parsed`, `partial`, `failed` and `unsupported`.
+/// `pending` is the sum of `not_in_this_run`, `left_for_later`, `parsed`, `partial`, `failed`
+/// and `unsupported`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParseReport {
-    /// How many messages of the platform were in state `fetched` when the run started.
+    /// How many messages of the platform waited when the run started: in state `fetched`,
+    /// or with a last attempt that gave no order that reconciles.
     pub pending: usize,
     /// How many pending messages are of kind `placed`, `updated` or `unknown`. No parser
     /// reads these kinds yet; the messages stay in `fetched`.
@@ -41,6 +43,10 @@ pub struct ParseReport {
     /// attempt made before that write stays. The outcome of such an attempt is counted before the
     /// write, so the message is also in one of the four counts above.
     pub conflicts: usize,
+    /// How many waiting messages have no page in this run: the import of this run did not
+    /// read their mail, and the store holds no page. Nothing is written for them. An import
+    /// that reads the mail again gives them a new attempt.
+    pub not_in_this_run: usize,
     /// The anomalies of all the receipts counted in `parsed` and `partial`: the rows that no
     /// parser rule classified and the mismatches of the reconciliation.
     pub anomalies: usize,
@@ -68,8 +74,9 @@ where
         Self { store, parsers }
     }
 
-    /// Parses every message of `platform` in state `fetched`, oldest first. A conflict on one
-    /// message is counted and the run goes on.
+    /// Parses every waiting message of `platform` whose page this run has, oldest first: the
+    /// page comes from `pages`, which the import of the same run read, and is not stored. A
+    /// conflict on one message is counted and the run goes on.
     ///
     /// # Errors
     ///
@@ -81,12 +88,36 @@ where
     ///   a value that the domain accepts.
     ///
     /// A [`StoreError::Conflict`] is not returned; it is counted in the report.
-    pub async fn run(&self, platform: Platform) -> Result<ParseReport, StoreError> {
+    pub async fn run(
+        &self,
+        platform: Platform,
+        pages: &ReceivedPages,
+    ) -> Result<ParseReport, StoreError> {
         let mut report = ParseReport::default();
         let pending = self.store.pending(platform).await?;
         report.pending = pending.len();
         for message in &pending {
-            match self.handle(message, &mut report).await {
+            // No parser reads a kind other than a receipt, with or without its page.
+            if message.kind != MessageKind::Receipt {
+                count(&mut report.left_for_later);
+                continue;
+            }
+            // The page of the mail, from this run. A row of before 2026-11-24 has a stored
+            // page, which is read once, while the message was never parsed. A message that
+            // has neither waits for an import that reads its mail again.
+            let page = match pages.get(&message.key) {
+                Some(page) => page,
+                None if message.parse_state == ParseState::Fetched
+                    && message.body_html.is_some() =>
+                {
+                    message.body_html.as_deref()
+                }
+                None => {
+                    count(&mut report.not_in_this_run);
+                    continue;
+                }
+            };
+            match self.handle(message, page, &mut report).await {
                 Ok(()) => {}
                 Err(StoreError::Conflict { .. }) => count(&mut report.conflicts),
                 Err(other) => return Err(other),
@@ -98,6 +129,7 @@ where
     async fn handle(
         &self,
         message: &PendingMessage,
+        page: Option<&str>,
         report: &mut ParseReport,
     ) -> Result<(), StoreError> {
         match message.kind {
@@ -111,7 +143,7 @@ where
 
         // A receipt without a DKIM pass is parsed all the same: the mailbox is the maintainer's
         // own, and the order is tagged non-verified instead (ADR 0008).
-        let Some(html) = message.body_html.as_deref() else {
+        let Some(html) = page else {
             count(&mut report.failed);
             return self
                 .finish(

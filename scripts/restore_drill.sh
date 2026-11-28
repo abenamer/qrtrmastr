@@ -15,7 +15,8 @@
 # The backup is one file in `backups/`, in the custom format of `pg_dump`. `backups/` is on
 # the disk of this machine and not in the Docker volume, and git ignores it. Copy the file to
 # another disk or machine: a backup beside the data is lost with the machine. The file holds
-# the database, which is the mail after redaction; keep it as private as the mail.
+# the database: your orders, and for rows of before 2026-11-24 the redacted mail; keep it as
+# private as the mail.
 #
 # The drill starts a second PostgreSQL from the image of the first, with its data in memory
 # and without a network, restores the file into it with the command of the runbook, and

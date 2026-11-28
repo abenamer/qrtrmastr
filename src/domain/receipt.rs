@@ -162,8 +162,9 @@ pub struct Anomaly {
     /// also a header row and a department row. The use case that stores the order also
     /// records each reconciliation mismatch as an anomaly; such an anomaly is no row and has 0.
     pub row_index: usize,
-    /// The text of each cell of the row, in order. Stored as `raw_cells`. Empty for a
-    /// reconciliation mismatch.
+    /// The text of each cell of the row, in order, for the parser and its tests. Empty for
+    /// a reconciliation mismatch. It is not stored: a row that no rule read is text of the
+    /// mail as it came, and the store keeps what a parser extracted.
     pub cells: Vec<String>,
     /// Why the row is an anomaly, as a sentence for the maintainer: the rule that the row
     /// almost matched, that no rule matched, or the amounts that differ.

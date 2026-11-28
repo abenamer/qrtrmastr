@@ -168,13 +168,15 @@ fn the_token_of_the_sign_in_is_looked_for_in_the_state_directory_that_is_set() {
 }
 
 #[test]
-fn an_import_without_redaction_terms_fails_before_it_reads_a_mail() {
+fn an_import_needs_no_redaction_terms_and_goes_on_to_the_database() {
     let dir = tempfile::tempdir().expect("a directory");
-    // A configuration file with no `[redaction]` section, and a path that is not there. The
-    // error is about the terms: the command asks for them first.
+    // A configuration file of before 2026-11-24, with a `[redaction]` section and a key in
+    // it that was an error for a day. Until that day the import asked for the terms. It stores no text of a mail now, so it has
+    // nothing to redact: it goes on to the database, which this test does not have.
     std::fs::write(
         dir.path().join("config.toml"),
-        "[recommend]\nmin_purchases = 3\n",
+        "[redaction]\nnames = [\"Pat Example\"]\naddress_line = [\"12 Example Street\"]\n\
+         [recommend]\nmin_purchases = 3\n",
     )
     .expect("the file");
     let output = qm(
@@ -184,62 +186,15 @@ fn an_import_without_redaction_terms_fails_before_it_reads_a_mail() {
     );
     assert_eq!(output.status.code(), Some(1));
     let text = stderr(&output);
-    assert!(text.contains("no [redaction] section"), "{text}");
-    assert!(!text.contains("/no/such/export"), "{text}");
-    assert_eq!(stdout(&output), "");
-}
-
-#[test]
-fn an_import_with_a_redaction_section_that_lacks_a_key_fails_before_it_reads_a_mail() {
-    let dir = tempfile::tempdir().expect("a directory");
-    // Four of the five keys: `address_lines` is absent. The command asks for the terms first,
-    // so the error is about the key and not about the export that is not there.
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\ncard_last4 = []\n",
-    )
-    .expect("the file");
-    let output = qm(
-        dir.path(),
-        &[NO_DATABASE],
-        &["import", "--takeout", "/no/such/export"],
+    // The section of a file of before is not read: no key of it is an error, and no value
+    // of it is printed.
+    assert!(!text.contains("redaction"), "{text}");
+    assert!(
+        !text.contains("address_line") && !text.contains("Example"),
+        "{text}"
     );
-    assert_eq!(output.status.code(), Some(1));
-    let text = stderr(&output);
-    assert!(text.contains("has no key address_lines;"), "{text}");
-    assert!(!text.contains("Pat Example"), "{text}");
-    assert!(!text.contains("/no/such/export"), "{text}");
+    assert!(text.contains("database, connect"), "{text}");
     assert_eq!(stdout(&output), "");
-}
-
-#[test]
-fn a_key_that_is_spelled_wrongly_in_the_redaction_section_stops_a_command() {
-    let dir = tempfile::tempdir().expect("a directory");
-    // `address_line` for `address_lines`, beside the five keys.
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[redaction]\nnames = [\"Pat Example\"]\nemails = []\nphones = []\naddress_lines = []\n\
-         card_last4 = []\naddress_line = [\"12 Example Street\"]\n",
-    )
-    .expect("the file");
-    let output = qm(
-        dir.path(),
-        &[NO_DATABASE],
-        &["import", "--takeout", "/no/such/export"],
-    );
-    assert_eq!(output.status.code(), Some(1));
-    let text = stderr(&output);
-    assert!(text.contains("unknown field address_line"), "{text}");
-    assert!(!text.contains("Example Street"), "{text}");
-    assert!(!text.contains("/no/such/export"), "{text}");
-    assert_eq!(stdout(&output), "");
-    // A command that redacts nothing reads the same file and stops at the same key.
-    let due = qm(dir.path(), &[NO_DATABASE], &["due"]);
-    assert_eq!(due.status.code(), Some(1));
-    let text = stderr(&due);
-    assert!(text.contains("unknown field address_line"), "{text}");
-    assert!(!text.contains("Example Street"), "{text}");
-    assert_eq!(stdout(&due), "");
 }
 
 #[test]

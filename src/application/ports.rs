@@ -83,18 +83,6 @@ pub enum MailError {
         /// What is wrong with the message, as a fixed text.
         reason: String,
     },
-    /// Personal data survived redaction. The message is not stored.
-    #[error("message {key}: {kind} survived redaction; not stored")]
-    RedactionFailed {
-        /// The message key, written as its kind, a colon and its text.
-        key: String,
-        /// The kind of the redaction term that survived: `name`, `email`, `address`, `phone`
-        /// or `card`. Never the term.
-        kind: &'static str,
-        /// Where and how, for the report: platform, message kind, part and the assertion that
-        /// failed. It never carries the text.
-        context: String,
-    },
 }
 
 /// What a migration run did.
@@ -124,8 +112,8 @@ pub trait SchemaStore {
 /// One message as the source holds it: the raw RFC 5322 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawMail {
-    /// The whole message, headers and body, as the source delivered it. It is not redacted:
-    /// it is read once to prepare the message and is never stored.
+    /// The whole message, headers and body, as the source delivered it. It is read once to
+    /// prepare the message and is never stored.
     pub bytes: Vec<u8>,
 }
 
@@ -143,70 +131,105 @@ pub trait MailSource {
     fn messages(&self) -> MailStream;
 }
 
-/// A message after MIME parsing, classification and redaction, ready to store.
+/// What the store keeps of a mail: enough to know the mail again and to hold the state of its
+/// parse. Nothing that the mail says is in it: no subject and no body. Since 2026-11-24 the
+/// program stores what a parser extracts from a receipt and not the mail
+/// ([ADR 0021](../../docs/decisions/0021-store-the-extracted-items-and-not-the-mail.md)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewRawMessage {
     /// The platform whose configured sender address is the exact `From` address of the mail.
     pub platform: Platform,
     /// The message key: the `Message-ID` header, or the SHA-256 of the raw bytes when the
-    /// header is missing, is empty, or carries a configured name, mail address, address line
-    /// or phone number.
+    /// header is missing, is empty or is no key.
     pub key: MessageKey,
     /// The moment in the `Date` header. The sender wrote it: it is not the moment of the
     /// import, and it can be in the future.
     pub received_at: Timestamp,
-    /// The subject after redaction.
-    pub subject: String,
-    /// Which of the platform's mails this is, classified from the subject before redaction.
+    /// Which of the platform's mails this is, classified from the subject.
     pub kind: MessageKind,
     /// `true` when an `Authentication-Results` header with the server name that Gmail writes,
     /// `mx.google.com`, says a DKIM signature verified for the domain of the sender or one of
     /// its subdomains. The header is read as it stands in the mail; nothing proves who wrote
     /// it. `false` also when the mail has no such header.
     pub dkim_pass: bool,
-    /// The HTML body after redaction. For a mail with a text part only, the mail library
-    /// gives that text as HTML, so this is `None` only when the mail has neither part.
-    pub body_html: Option<String>,
-    /// The plain-text body after redaction. For a mail with an HTML part only, the mail
-    /// library gives that HTML as text, so this is `None` only when the mail has neither part.
-    pub body_text: Option<String>,
-    /// The SHA-256 of the raw bytes before redaction. The store keeps it unique, so a mail
-    /// that arrives again under another key is stored once.
+    /// The SHA-256 of the raw bytes. The store keeps it unique, so a mail that arrives again
+    /// under another key is stored once.
     pub source_sha256: [u8; 32],
-    /// The version of the redactor that made the subject and the bodies. A higher number is a
-    /// later redactor.
-    pub redaction_version: i32,
+}
+
+/// A mail of a configured sender as the reader hands it to the import: the record for the
+/// store, and the page of the mail, which stays in memory until a parser has read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedMessage {
+    /// What the store keeps of the mail.
+    pub record: NewRawMessage,
+    /// The HTML body as the mail has it. For a mail with a text part only, the mail library
+    /// gives that text as HTML, so this is `None` only when the mail has neither part. It is
+    /// never stored.
+    pub html: Option<String>,
 }
 
 /// What preparing one raw message produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Prepared {
-    /// The mail is from a configured sender and no redaction term survived: the message to
-    /// store.
-    Message(NewRawMessage),
+    /// The mail is from a configured sender.
+    Message(PreparedMessage),
     /// Not from the platform's sender; counted, never stored.
     OtherSender {
-        /// The address of the `From` header, not redacted; empty when the mail has none. The
-        /// import does not read it.
+        /// The address of the `From` header; empty when the mail has none. The import does
+        /// not read it.
         from: String,
     },
 }
 
-/// Turns raw mail into a redacted, classified message. The one implementation reads the
-/// mail of every platform; it holds the sender rules, the subject rules and the redactor.
+/// The pages of the receipts that one import run read, by message key. A parse run reads a
+/// page from here; the store has none. A page is a mail as its sender wrote it, with the name
+/// and the address of the maintainer in it, so the `Debug` form prints the count only.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ReceivedPages(std::collections::HashMap<MessageKey, Option<String>>);
+
+impl ReceivedPages {
+    /// Keeps the page of a message; `None` for a mail that has no HTML body and no text body.
+    /// A second page for the same key takes the place of the first.
+    pub fn insert(&mut self, key: MessageKey, page: Option<String>) {
+        self.0.insert(key, page);
+    }
+
+    /// The page of a message of this run: `None` when the run did not read the mail,
+    /// `Some(None)` when it did and the mail has no body.
+    pub fn get(&self, key: &MessageKey) -> Option<Option<&str>> {
+        self.0.get(key).map(Option::as_deref)
+    }
+
+    /// How many messages of this run have an entry.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the run read no receipt.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for ReceivedPages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReceivedPages({} pages, not shown)", self.0.len())
+    }
+}
+
+/// Turns raw mail into a classified message. The one implementation reads the mail of every
+/// platform; it holds the sender rules and the subject rules.
 pub trait MailReader {
-    /// Reads the headers and the bodies of one raw mail, finds its key, platform and kind,
-    /// and redacts the subject and the bodies.
+    /// Reads the headers and the HTML body of one raw mail and finds its key, platform and
+    /// kind.
     ///
     /// # Errors
     ///
     /// An error is about this one message. The import records it and reads on.
     ///
-    /// - [`MailError::Malformed`] when the bytes are not an RFC 5322 message, or when a mail
-    ///   of a configured sender has no `Date` header that reads as a date, or has a NUL
-    ///   character in its subject or in a body after redaction.
-    /// - [`MailError::RedactionFailed`] when a redaction term survives in the subject, the
-    ///   HTML part or the text part. Nothing of the message is returned.
+    /// [`MailError::Malformed`] when the bytes are not an RFC 5322 message, or when a mail of
+    /// a configured sender has no `Date` header that reads as a date.
     fn prepare(&self, raw: &RawMail) -> Result<Prepared, MailError>;
 }
 
@@ -219,7 +242,8 @@ pub enum InsertOutcome {
     AlreadyKnown,
 }
 
-/// A stored message in state `fetched`, as the parser needs it.
+/// A stored message that waits for a parser: it was never parsed, or its last attempt gave
+/// no order that reconciles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingMessage {
     /// The identity of the row in `raw_messages`.
@@ -234,8 +258,9 @@ pub struct PendingMessage {
     pub dkim_pass: bool,
     /// The moment in the `Date` header of the mail. The pending messages are ordered by it.
     pub received_at: Timestamp,
-    /// The redacted HTML body, which the parsers read. `None` when the mail had neither an
-    /// HTML part nor a text part; a receipt with `None` gets the outcome `failed`.
+    /// The HTML body that a row of before 2026-11-24 holds, as the redactor of that time left it. `None` for each row
+    /// since then: the page of a mail is not stored, and a parse run reads it from the mail
+    /// that the import of the same run read.
     pub body_html: Option<String>,
     /// The parse state when the row was read. The transition changes the row only if this
     /// and `version` still hold.
@@ -245,27 +270,11 @@ pub struct PendingMessage {
     pub version: i32,
 }
 
-/// A stored message's redacted body, for writing a local fixture.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StoredBody {
-    /// The platform of the message. The fixture goes into a folder of this name.
-    pub platform: Platform,
-    /// The message key. The file name of the fixture is made from its text.
-    pub key: MessageKey,
-    /// The moment in the `Date` header of the mail. Its year in UTC names the folder of the
-    /// fixture.
-    pub received_at: Timestamp,
-    /// The redacted HTML body. `None` when the mail had neither an HTML part nor a text
-    /// part; no fixture is written then.
-    pub body_html: Option<String>,
-}
-
 #[expect(
     async_fn_in_trait,
     reason = "a native async fn in a port (REAS-ARCH-006); each use case runs on the task of the composition root, so no caller needs the future to be Send"
 )]
-/// The raw messages: what the import writes, and what the parse step, a fetch and
-/// `qm fixture add` read.
+/// The raw messages: what the import writes, and what the parse step and a fetch read.
 pub trait RawMessageStore {
     /// The key of every stored message. The import reads the set once when it starts, and
     /// skips a message whose key is in it. Two keys are equal when their kind and their text
@@ -285,15 +294,6 @@ pub trait RawMessageStore {
     ///
     /// - [`StoreError::Database`] when the connection or the statement fails.
     async fn newest_received_at(&self) -> Result<Option<Timestamp>, StoreError>;
-    /// The redacted body stored under `key`, if any. `None` also when the text of `key` is
-    /// stored under the other kind.
-    ///
-    /// # Errors
-    ///
-    /// - [`StoreError::Database`] when the connection or the statement fails.
-    /// - [`StoreError::InvalidRow`] when the stored platform is not a value that the domain
-    ///   knows. The kind and the text of the row are those of `key`, which is valid.
-    async fn body_by_key(&self, key: &MessageKey) -> Result<Option<StoredBody>, StoreError>;
     /// Inserts unless the key or the source hash is already stored.
     ///
     /// # Errors
@@ -301,7 +301,8 @@ pub trait RawMessageStore {
     /// - [`StoreError::Database`] when the connection or the statement fails.
     /// - [`StoreError::InvalidRow`] when the identity of the new row is not positive.
     async fn insert(&self, message: &NewRawMessage) -> Result<InsertOutcome, StoreError>;
-    /// Messages of the platform in state `fetched`, oldest first.
+    /// Messages of the platform in state `fetched`, `partial`, `failed` or `unsupported`,
+    /// oldest first: each message for which a parse attempt can give a better result.
     ///
     /// # Errors
     ///
@@ -530,7 +531,7 @@ pub trait Catalog {
 /// Runs the receipt parsers over one HTML body. The registry of format adapters implements it;
 /// it is a trait so a use-case test can use a fixed double.
 pub trait ReceiptParsing {
-    /// Parses one redacted HTML body with the parser that recognizes its layout best. The
+    /// Parses the HTML body of one mail with the parser that recognizes its layout best. The
     /// call does not fail: an unknown layout and an error of the parser are variants of the
     /// result.
     fn parse(&self, html: &str) -> ParseAttempt;

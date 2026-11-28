@@ -4,7 +4,7 @@ title: Database schema
 description: Every table of the store, its purpose, and the migration that made it.
 tags: [database, schema, postgresql]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 sources:
   - id: m0001
     resource: ../../migrations/0001_raw_mail.sql
@@ -32,7 +32,7 @@ Migrations live in `migrations/` and only add. `qm migrate` applies them; SQLx r
 
 | Table or view | Purpose | Key | Migration |
 | --- | --- | --- | --- |
-| `raw_messages` | One imported mail after redaction, with its parse state and version. | `message_key` unique; `source_sha256` unique | 0001 |
+| `raw_messages` | One imported mail: its key, platform, kind, date, DKIM result and source hash, with its parse state and version. Since 2026-11-24 the columns `subject`, `body_html` and `body_text` of a new row are empty and `redaction_version` is 0; a row of before holds redacted text. | `message_key` unique; `source_sha256` unique | 0001 |
 | `parse_attempts` | One row per parser run over a message: parser, version, outcome, error, anomaly count. | identity | 0001 |
 | `grocery_orders` | One order as the receipt states it, with its totals and whether it reconciled. | `order_number` | 0002 |
 | `products` | One product identity: display name, size, sold by each or weight, department. | identity | 0002 |

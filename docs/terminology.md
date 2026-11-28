@@ -4,7 +4,7 @@ title: Project terminology
 description: Project-specific technical terms used in this bundle and in the code.
 tags: [terminology, ste]
 generated: { by: "process:claude-code", at: "2026-11-13T18:00:00Z" }
-updated: 2026-11-22
+updated: 2026-11-27
 sources:
   - id: reas-terms
     resource: https://github.com/abenamer/reas/blob/main/standard/terminology.md
@@ -30,16 +30,16 @@ These are project-specific technical terms. They are not a reproduction of the A
 | Gap rule | `qm due --gap`: an item is overdue when more days than its usual gap have passed since its last purchase, and due soon when the next order would pass the gap. |
 | Habit rule | The default rule of `qm due`: products ranked by how many of the latest 20 orders hold them, then of the latest 50. |
 | Kind (message) | Which of a platform's mails a message is: `placed`, `updated`, `receipt`, or `unknown`. Classified from the subject; `unknown` is stored, never skipped. |
-| Local fixture | A real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. Tests use it when present. |
+| Local fixture | Until 2026-11-27: a real receipt, redacted and written to `tests/fixtures/local/`, which git ignores. No command writes one now. |
 | Message key | What a raw message is stored under and deduplicated on: the `Message-ID` header, or the SHA-256 of the raw bytes when the header is missing, is empty or carries a configured name, mail address, address line or phone number. A key has a kind, `message_id` or `sha256`, and a text; the store keeps them in two columns, and the text is unique whatever its kind. Written with its kind, a key is `message_id:<text>` or `sha256:<text>`. `domain::ids::MessageKey`. |
 | Order number | FreshDirect's identifier of an order: 11 digits until August 2026, 13 after. Text, never a number. The primary key of `grocery_orders`. |
 | Order cadence | The median gap, in days, between all distinct delivery dates: how often you order at all. The horizon of "due soon". |
 | Parse state | The lifecycle of a raw message: `fetched`, then one of `parsed`, `partial`, `failed`, `unsupported` after an attempt. `domain::states::ParseState`, with a transition function per legal change. |
 | Platform | Where a message came from: `freshdirect`, or a restaurant platform (`seamless`, `grubhub`, `toast`, `square`, `clover`, `doordash`). Found from the exact sender address. Another source adds a value, not a table. |
 | Purchase | One line of one order, read through its alias to a product: product, delivery date, billed quantity and price. The `purchases` view. |
-| Raw message | One imported mail after redaction: its key, kind, redacted HTML and text, and parse state. Stored in `raw_messages`. |
+| Raw message | The record of one imported mail: its key, platform, kind, date and parse state, and no text of the mail. Stored in `raw_messages`. A row of before 2026-11-24 also holds the redacted subject and bodies. |
 | Reconciled | The receipt of an order agrees with itself within one cent in three checks: the line prices sum to the subtotal; the subtotal, tax, bottle deposit, delivery fee, service fee and tip sum to the total; each line with a unit price is that price times its billed quantity, except a line with an options price or the special-price flag, which is not checked. Stored as `reconciled` on the order. |
-| Redaction term | A text the redactor removes before storage: an address line, a phone number, a card's last four digits, a name, an email address. Kept in configuration outside the repository. |
+| Redaction term | Until 2026-11-24: a text that the redactor removed before storage. The program has no redactor now ([ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md)). The local privacy canary still reads your terms from `canary-terms.txt`. |
 | Reminder | A product in at least 3 orders of the history and in none of the latest 20, shown under "remember this?". Picked by a shuffle with a seed. |
 | Restore drill | A run of `scripts/restore_drill.sh`: a new backup is restored into a PostgreSQL container that is thrown away, and each table is compared with the database. Its record goes into the log. |
 | Seed | A committed input of a fuzz target, in `fuzz/seeds/`, written by `scripts/fuzz_seeds.py` from the synthetic fixtures. A fuzz run starts from the seeds. |

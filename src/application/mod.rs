@@ -3,7 +3,6 @@
 //! A use case takes its adapters as type parameters bound by a port trait (REAS-ARCH-006), so
 //! the concrete adapter is visible where it is constructed, in `src/main.rs`.
 
-pub mod fixture;
 pub mod import;
 pub mod list;
 pub mod migrate;

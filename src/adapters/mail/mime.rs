@@ -4,10 +4,10 @@
 use jiff::Timestamp;
 use mail_parser::MessageParser;
 
-/// What the importer reads from one message, before redaction. Every text here can carry
-/// personal data. The subject and the bodies are redacted before they are stored. The
-/// `Message-ID` becomes the message key as it is, unless it carries a configured name, mail
-/// address, address line or phone number; the key is stored and printed in the import report.
+/// What the importer reads from one message. Every text here can carry personal data. The
+/// subject and the bodies are not stored: the subject gives the kind of the message, and the
+/// HTML body goes to the receipt parser in memory. The `Message-ID` becomes the message key
+/// as it is; the key is stored and printed in the import report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMail {
     /// The `Message-ID` header without its angle brackets. `None` when the message has none;

@@ -4,10 +4,14 @@ title: Redaction before storage
 description: What the redactor removes, in what order, why a surviving term refuses the message, and why the export stays the durable original.
 tags: [decision, privacy, redaction]
 generated: { by: "process:claude-code", at: "2026-11-13T21:00:00Z" }
-updated: 2026-11-21
+updated: 2026-11-24
 ---
 
 # ADR 0004 — Redaction before storage
+
+## Status
+
+Replaced on 2026-11-24 by [ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md) for each mail that is imported from that day on: the store keeps no text of a mail. This record still describes the rows of before.
 
 ## Context
 

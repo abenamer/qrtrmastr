@@ -218,7 +218,7 @@ domain_may_use=" hex jiff regex rust_decimal thiserror unicode_normalization pro
 application_may_use=" jiff thiserror tokio proptest rstest "
 dependencies=$(awk '/^\[/{on=($0=="[dependencies]"||$0=="[dev-dependencies]")} on&&/^[A-Za-z0-9_-]+ *=/{sub(/ *=.*/,"");gsub(/-/,"_");print}' Cargo.toml)
 # The floors are written here a second time too: a floor that is lowered fails this test.
-for floor in DOMAIN_FLOOR=10 APPLICATION_FLOOR=8 DEPENDENCY_FLOOR=30; do
+for floor in DOMAIN_FLOOR=10 APPLICATION_FLOOR=7 DEPENDENCY_FLOOR=30; do
   cases=$((cases + 1))
   if ! grep -qx "$floor" scripts/check.sh; then
     echo "FAIL: scripts/check.sh does not hold the line $floor" >&2
@@ -543,7 +543,7 @@ fresh_targets
 rm -rf "$package"
 expect 1 "differ" targets
 # The list is written here a second time, with its floor and the toolchain.
-for line in 'FUZZ_TARGETS=(takeout mime classify redact receipt pack gmail_json)' 'FUZZ_FLOOR=7' 'FUZZ_TOOLCHAIN=nightly-2026-11-15'; do
+for line in 'FUZZ_TARGETS=(takeout mime classify receipt pack gmail_json)' 'FUZZ_FLOOR=6' 'FUZZ_TOOLCHAIN=nightly-2026-11-15'; do
   cases=$((cases + 1))
   if ! grep -qxF "$line" scripts/check.sh; then
     echo "FAIL: scripts/check.sh does not hold the line $line" >&2
@@ -590,10 +590,10 @@ if grep -q ' fuzz run ' "$asked"; then
   echo "FAIL: case $cases: a target ran with a budget that is no number" >&2
   failed=1
 fi
-# Each of the seven targets is run, from the found inputs and from the seeds, for the budget.
+# Each of the six targets is run, from the found inputs and from the seeds, for the budget.
 : > "$asked"
-expect 0 "PASS: 7 fuzz targets ran for 30 seconds each without a failure" with_stand_in env -u QM_FUZZ_SECONDS
-for target in takeout mime classify redact receipt pack gmail_json; do
+expect 0 "PASS: 6 fuzz targets ran for 30 seconds each without a failure" with_stand_in env -u QM_FUZZ_SECONDS
+for target in takeout mime classify receipt pack gmail_json; do
   cases=$((cases + 1))
   if ! grep -qxF -- "+nightly-2026-11-15 fuzz run --target a-host-platform $target fuzz/corpus/$target fuzz/seeds/$target -- -max_total_time=30 -rss_limit_mb=2048 -print_final_stats=1" "$asked"; then
     echo "FAIL: case $cases: the fuzz group did not run $target as expected; it asked for:" >&2
@@ -602,10 +602,10 @@ for target in takeout mime classify redact receipt pack gmail_json; do
   fi
 done
 : > "$asked"
-expect 0 "PASS: 7 fuzz targets ran for 7 seconds each" with_stand_in env QM_FUZZ_SECONDS=7
+expect 0 "PASS: 6 fuzz targets ran for 7 seconds each" with_stand_in env QM_FUZZ_SECONDS=7
 cases=$((cases + 1))
-if [ "$(grep -c -- ' -max_total_time=7 ' "$asked")" != 7 ]; then
-  echo "FAIL: case $cases: not seven runs with the budget of 7 seconds" >&2
+if [ "$(grep -c -- ' -max_total_time=7 ' "$asked")" != 6 ]; then
+  echo "FAIL: case $cases: not six runs with the budget of 7 seconds" >&2
   failed=1
 fi
 # The targets are built first, for the platform that cargo names; a build that fails is said to
@@ -642,7 +642,7 @@ expect 1 "FAIL: mime failed on the input fuzz/artifacts/mime/crash-planted-by-th
 : > "$asked"
 expect 1 "$(base64 -w 76 fuzz/artifacts/mime/crash-planted-by-the-test)" with_stand_in env QM_STAND_IN_FAILS=mime
 cases=$((cases + 1))
-if [ "$(grep -c ' fuzz run ' "$asked")" != 7 ]; then
+if [ "$(grep -c ' fuzz run ' "$asked")" != 6 ]; then
   echo "FAIL: case $cases: the targets after the failed one did not run" >&2
   failed=1
 fi

@@ -2,7 +2,7 @@ name: Fuzz
 # The fuzz targets (REAS-TEST-003): one for each reader of bytes that another party wrote.
 # scripts/check.sh fuzz runs each target for a time budget; the budget of each stage is here:
 #
-#   pull request   30 seconds for each of the seven targets
+#   pull request   30 seconds for each of the six targets
 #   nightly        300 seconds for each target, once a day on the default branch, and by hand
 #   release        no stage: the project publishes no release (ADR 0017)
 #

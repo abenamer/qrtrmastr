@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The privacy canary, half of the redaction guarantee (docs/concepts/privacy.md). Two modes:
+# The privacy canary: no personal data in a tracked file (docs/concepts/privacy.md). Two modes:
 #
 #   scripts/pii_canary.sh                 shape mode, what CI runs: no tracked file under
 #                                         tests/fixtures/local or backups (except .gitkeep), and

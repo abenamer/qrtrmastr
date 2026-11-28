@@ -88,15 +88,13 @@ async fn a_message_with_an_unknown_kind_is_refused_by_the_check_constraint(pool:
 // ---------------------------------------------------------------------------------------------
 
 use qrtrmastr::adapters::mail::PlatformMail;
-use qrtrmastr::adapters::mail::redact::{RedactionTerms, Redactor};
 use qrtrmastr::adapters::receipts::registry::Registry;
-use qrtrmastr::application::fixture::ExportFixture;
 use qrtrmastr::application::import::ImportMail;
 use qrtrmastr::application::parse::ParsePending;
 use qrtrmastr::application::ports::{
     AliasId, AttemptRecord, GroceryStore, InsertOutcome, MailSource, MailStream, NewRawMessage,
     OrderWrite, ParseAttempt, ParseFinish, ParserTag, PendingMessage, RawMail, RawMessageStore,
-    ReceiptParsing, StoreError,
+    ReceiptParsing, ReceivedPages, StoreError,
 };
 use qrtrmastr::application::recommend::{Due, DueOptions};
 use qrtrmastr::domain::ids::{IdError, MessageKey};
@@ -107,19 +105,6 @@ use qrtrmastr::domain::states::{
 use std::collections::HashSet;
 
 const FIXTURE: &str = include_str!("fixtures/synthetic/input/freshdirect/2026/receipt-basic.html");
-
-fn terms() -> RedactionTerms {
-    RedactionTerms {
-        names: vec!["Pat Example".to_owned(), "Pat".to_owned()],
-        emails: vec!["pat.example@example.com".to_owned()],
-        phones: vec!["2125550199".to_owned()],
-        address_lines: vec![
-            "123 Imaginary Street Apt 4B".to_owned(),
-            "Brooklyn, NY 11201".to_owned(),
-        ],
-        card_last4: vec!["4242".to_owned()],
-    }
-}
 
 /// A receipt mail for `order` delivered on `date`, built from the synthetic fixture.
 fn receipt_mail(order: &str, date: &str, message_id: &str) -> RawMail {
@@ -191,55 +176,7 @@ async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPo
         HashSet::from([from_header.clone(), from_bytes.clone()])
     );
 
-    // The use case of `qm fixture add` gives the same body, and none for a key that is not
-    // stored.
-    let export = ExportFixture::new(store.clone());
-    let exported = export
-        .run(&from_header)
-        .await
-        .expect("the lookup")
-        .expect("the imported message");
-    assert_eq!(exported.key, from_header);
-    assert!(
-        exported
-            .body_html
-            .is_some_and(|html| html.contains("12345678901"))
-    );
-    let absent = MessageKey::from_message_id("<absent@mail.example>").expect("a key");
-    assert!(export.run(&absent).await.expect("the lookup").is_none());
-
-    let body = store
-        .body_by_key(&from_header)
-        .await
-        .expect("the lookup")
-        .expect("the imported message");
-    assert_eq!(body.key, from_header);
-    assert_eq!(body.platform, Platform::Freshdirect);
-    assert!(
-        body.body_html
-            .is_some_and(|html| html.contains("12345678901"))
-    );
-    let body = store
-        .body_by_key(&from_bytes)
-        .await
-        .expect("the lookup")
-        .expect("the row with the digest");
-    assert_eq!(body.key, from_bytes);
-    assert_eq!(body.body_html.as_deref(), Some("<p>stored</p>"));
-
-    // A text that is stored under the other kind is not that key, and a text that is not
-    // stored is no key at all.
     let digest_as_header = MessageKey::from_parts(KeyKind::MessageId, &digest).expect("a key");
-    assert_eq!(
-        store
-            .body_by_key(&digest_as_header)
-            .await
-            .expect("the lookup"),
-        None
-    );
-    let absent = MessageKey::from_message_id("<r2@mail.example>").expect("a key");
-    assert_eq!(store.body_by_key(&absent).await.expect("the lookup"), None);
-
     // The text is unique in the table whatever its kind, so the insert of the same text
     // under the other kind stores nothing and says that the message is known.
     let outcome = store
@@ -247,13 +184,9 @@ async fn a_stored_message_is_found_by_its_key_and_only_under_its_kind(pool: PgPo
             platform: Platform::Freshdirect,
             key: digest_as_header,
             received_at: jiff::Timestamp::UNIX_EPOCH,
-            subject: "subject".to_owned(),
             kind: MessageKind::Receipt,
             dkim_pass: true,
-            body_html: None,
-            body_text: None,
             source_sha256: [7; 32],
-            redaction_version: 1,
         })
         .await
         .expect("the insert");
@@ -292,7 +225,7 @@ async fn a_receipt_whose_amounts_cannot_be_added_is_a_failed_attempt_and_no_orde
     assert_eq!(imported.inserted, 2);
 
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
     assert_eq!(
@@ -323,12 +256,25 @@ async fn a_receipt_whose_amounts_cannot_be_added_is_a_failed_attempt_and_no_orde
             "the amounts of the receipt cannot be checked: an amount of money is outside the range of 99,999,999.99"
         )
     );
-    // The message left the queue: a second run has nothing to do.
+    // A run that did not read the mail again has no page for the message. The message
+    // waits, and nothing is written for it.
     let again = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &ReceivedPages::default())
         .await
         .expect("parse");
-    assert_eq!(again.pending, 0);
+    assert_eq!(
+        (again.pending, again.not_in_this_run, again.failed),
+        (1, 1, 0)
+    );
+    // The two attempts of the first run: one for each receipt.
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 2);
+    // A run that reads the mail again gives it a new attempt, from the mail.
+    let retried = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &imported.pages)
+        .await
+        .expect("parse");
+    assert_eq!((retried.pending, retried.failed), (1, 1));
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 3);
 }
 
 #[sqlx::test(migrations = false)]
@@ -342,13 +288,13 @@ async fn a_price_that_no_column_holds_does_not_stop_the_messages_after_it(pool: 
         receipt_mail_with_two_prices("12345678901", "too-big", "$100,000,000.00"),
         receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
     ]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
 
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("the run goes on after the receipt with the price");
     assert_eq!(
@@ -428,13 +374,13 @@ async fn a_product_name_that_no_index_holds_does_not_stop_the_messages_after_it(
         },
         receipt_mail("12345678902", "Tuesday, March 10, 2026", "after"),
     ]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
 
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("the run goes on after the receipt with the name");
     // The row with the name is a row that the parser cannot read: an order of five lines
@@ -518,13 +464,13 @@ async fn a_name_too_long_for_an_alias_from_any_parser_is_a_failed_attempt(pool: 
         receipt_mail("12345678901", "Tuesday, March 3, 2026", "r1"),
         receipt_mail("12345678902", "Tuesday, March 10, 2026", "r2"),
     ]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
 
     let parsed = ParsePending::new(store.clone(), ParserWithoutTheLimit)
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("the use case has the limit too");
     assert_eq!(
@@ -564,15 +510,17 @@ async fn a_name_too_long_for_an_alias_from_any_parser_is_a_failed_attempt(pool: 
         "Tuesday, March 17, 2026",
         "r3",
     )]);
-    ImportMail::new(more, reader(), store.clone())
+    let imported = ImportMail::new(more, reader(), store.clone())
         .run()
         .await
         .expect("import");
     let real = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
-    assert_eq!((real.pending, real.parsed), (1, 1));
+    // The two messages of the first run failed and wait for their mail; this run has the
+    // page of the third only.
+    assert_eq!((real.pending, real.not_in_this_run, real.parsed), (3, 2, 1));
 }
 
 #[sqlx::test(migrations = false)]
@@ -622,11 +570,12 @@ async fn a_message_id_that_no_index_holds_is_stored_under_the_hash(pool: PgPool)
 }
 
 #[sqlx::test(migrations = false)]
-async fn a_mail_with_a_nul_character_is_one_refused_message_and_the_import_goes_on(pool: PgPool) {
+async fn a_mail_with_a_nul_character_in_its_body_does_not_stop_the_import(pool: PgPool) {
     let store = PostgresStore::from_pool(pool.clone());
     Migrate::new(store.clone()).run().await.expect("migrations");
     // PostgreSQL holds no NUL character in a text. Before 2026-11-21 the insert of such a
-    // mail failed and the import stopped at it on each run, so no later mail was stored.
+    // mail failed and the import stopped at it on each run. Until 2026-11-24 the mail was
+    // refused. Now no text of a mail is stored, so the character has no place to go.
     let with_nul = |message_id: &str, body: &str| {
         let mail = receipt_mail("12345678901", "Tuesday, March 3, 2026", message_id);
         let text = String::from_utf8(mail.bytes).expect("the mail is text");
@@ -646,29 +595,189 @@ async fn a_mail_with_a_nul_character_is_one_refused_message_and_the_import_goes_
         .await
         .expect("the import goes on after the two mails");
     assert_eq!(first.read, 3);
-    assert_eq!((first.inserted, first.malformed.len()), (1, 2), "{first:?}");
-    for line in &first.malformed {
-        assert!(line.ends_with("a NUL character in the text body"), "{line}");
-    }
-    // The mail after them is stored, and no stored text holds the character: a text with
-    // one cannot be in the table, so the rows are counted.
-    assert_eq!(
-        count(
-            &pool,
-            "select count(*) from raw_messages where message_key = 'after@mail.example'"
-        )
-        .await,
-        1
-    );
-    let stored = count(&pool, "select count(*) from raw_messages").await;
-    assert_eq!(usize::try_from(stored).expect("a count"), first.inserted);
-    // A second run gives the same refusals and stores nothing new.
+    assert_eq!((first.inserted, first.malformed.len()), (3, 0), "{first:?}");
+    assert_eq!(count(&pool, "select count(*) from raw_messages").await, 3);
+    // A second run knows the three.
     let second = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
-    assert_eq!(second.inserted, 0);
-    assert_eq!(second.malformed, first.malformed);
+    assert_eq!(
+        (second.inserted, second.already_known),
+        (0, 3),
+        "{second:?}"
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn a_row_of_before_with_a_stored_page_is_parsed_from_it_once(pool: PgPool) {
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // A row as the program stored it until 2026-11-24: never parsed, with its redacted
+    // page. No import of this run read its mail.
+    insert_raw_row(&pool, "message_id", "old@mail.example", b"an older row").await;
+    let none = ReceivedPages::default();
+    let first = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &none)
+        .await
+        .expect("parse");
+    // The stored page is read: `<p>stored</p>` is a layout that no parser knows.
+    assert_eq!(
+        (first.pending, first.unsupported, first.not_in_this_run),
+        (1, 1, 0)
+    );
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 1);
+    // After that attempt the row waits for its mail, as a row of today does: the stored
+    // page is not read on each run.
+    let second = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &none)
+        .await
+        .expect("parse");
+    assert_eq!(
+        (second.pending, second.unsupported, second.not_in_this_run),
+        (1, 0, 1)
+    );
+    assert_eq!(count(&pool, "select count(*) from parse_attempts").await, 1);
+}
+
+#[sqlx::test(migrations = false)]
+async fn the_stored_text_of_older_rows_is_emptied_and_the_orders_stay(pool: PgPool) {
+    use qrtrmastr::adapters::postgres::StoredMailText;
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // An import of today: a receipt with its order, and no text of the mail.
+    let imported = ImportMail::new(
+        Mails(vec![receipt_mail(
+            "12345678901",
+            "Tuesday, March 3, 2026",
+            "r1",
+        )]),
+        reader(),
+        store.clone(),
+    )
+    .run()
+    .await
+    .expect("import");
+    ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &imported.pages)
+        .await
+        .expect("parse");
+    let nothing = StoredMailText {
+        messages: 0,
+        anomalies: 0,
+        never_parsed: 0,
+    };
+    assert_eq!(store.stored_mail_text().await.expect("count"), nothing);
+
+    // Two rows as a version of before stored them, with a subject and a body, and each
+    // anomaly of the order with its cells.
+    insert_raw_row(&pool, "message_id", "old-1@mail.example", b"old one").await;
+    insert_raw_row(&pool, "message_id", "old-2@mail.example", b"old two").await;
+    let anomalies = sqlx::query("update order_line_anomalies set raw_cells = '[\"Credit Card\"]'")
+        .execute(&pool)
+        .await
+        .expect("the cells")
+        .rows_affected();
+    assert!(anomalies > 0, "the fixture has a row that no rule reads");
+    // The two rows of before are receipts in state `fetched` with a page: no parser has
+    // read them. A third row holds a text part and no page.
+    sqlx::query(
+        "insert into raw_messages \
+           (message_key, key_kind, received_at, subject, kind, dkim_pass, body_text, \
+            source_sha256, redaction_version) \
+         values ('old-3@mail.example', 'message_id', now(), '', 'placed', true, 'text', \
+                 '\\x0303', 1)",
+    )
+    .execute(&pool)
+    .await
+    .expect("the row with a text part only");
+    let held = StoredMailText {
+        messages: 3,
+        anomalies,
+        never_parsed: 2,
+    };
+    assert_eq!(store.stored_mail_text().await.expect("count"), held);
+    // What the command must not change, as one text for each table: the state columns of
+    // the messages, the lines, the orders and the attempts.
+    let unchanged = [
+        "select coalesce(string_agg(concat_ws('|', message_key, key_kind, kind, parse_state, \
+           version, order_number, encode(source_sha256, 'hex')), ';' order by id), '') \
+         from raw_messages",
+        "select coalesce(string_agg(l::text, ';' order by order_number, line_no), '') \
+         from grocery_order_lines l",
+        "select coalesce(string_agg(o::text, ';' order by order_number), '') from grocery_orders o",
+        "select coalesce(string_agg(a::text, ';' order by id), '') from parse_attempts a",
+    ];
+    let mut before = Vec::new();
+    for sql in unchanged {
+        let (text,): (String,) = sqlx::query_as(sql).fetch_one(&pool).await.expect("a text");
+        assert!(!text.is_empty(), "{sql}");
+        before.push(text);
+    }
+    let orders = count(&pool, "select count(*) from grocery_orders").await;
+    let lines = count(&pool, "select count(*) from grocery_order_lines").await;
+    assert!(orders == 1 && lines > 0);
+
+    // The command: it says what it changed, and a second run changes nothing.
+    assert_eq!(store.erase_stored_mail_text().await.expect("erase"), held);
+    assert_eq!(store.stored_mail_text().await.expect("count"), nothing);
+    assert_eq!(
+        store.erase_stored_mail_text().await.expect("erase"),
+        nothing
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages \
+             where subject <> '' or body_html is not null or body_text is not null \
+                or redaction_version <> 0"
+        )
+        .await,
+        0
+    );
+    // What stays, to the letter: the state columns of each message, each line, each order and
+    // each attempt.
+    for (sql, was) in unchanged.into_iter().zip(&before) {
+        let (text,): (String,) = sqlx::query_as(sql).fetch_one(&pool).await.expect("a text");
+        assert_eq!(&text, was, "{sql}");
+    }
+    assert_eq!(count(&pool, "select count(*) from raw_messages").await, 4);
+    // A receipt whose page is emptied before a parser read it waits for its mail: a parse
+    // run writes no attempt for it and leaves its state.
+    let attempts = count(&pool, "select count(*) from parse_attempts").await;
+    let waiting = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &ReceivedPages::default())
+        .await
+        .expect("parse");
+    assert_eq!(
+        (waiting.not_in_this_run, waiting.failed),
+        (2, 0),
+        "{waiting:?}"
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from parse_attempts").await,
+        attempts
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where message_key like 'old-%@mail.example'"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_orders").await,
+        orders
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_order_lines").await,
+        lines
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from order_line_anomalies").await,
+        i64::try_from(anomalies).expect("a count")
+    );
 }
 
 #[sqlx::test(migrations = false)]
@@ -750,13 +859,10 @@ impl MailSource for Mails {
 }
 
 fn reader() -> PlatformMail {
-    PlatformMail::new(
-        vec![
-            ("service@freshdirect.com".to_owned(), Platform::Freshdirect),
-            ("orders@eat.seamless.com".to_owned(), Platform::Seamless),
-        ],
-        Redactor::new(terms()).expect("terms"),
-    )
+    PlatformMail::new(vec![
+        ("service@freshdirect.com".to_owned(), Platform::Freshdirect),
+        ("orders@eat.seamless.com".to_owned(), Platform::Seamless),
+    ])
 }
 
 async fn count(pool: &PgPool, sql: &'static str) -> i64 {
@@ -779,9 +885,8 @@ async fn importing_the_same_export_twice_stores_everything_once(pool: PgPool) {
         .await
         .expect("import");
     assert_eq!((first.read, first.inserted, first.already_known), (3, 3, 0));
-    assert!(first.redaction_failures.is_empty(), "{first:?}");
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &first.pages)
         .await
         .expect("parse");
     assert_eq!(
@@ -826,14 +931,38 @@ async fn importing_the_same_export_twice_stores_everything_once(pool: PgPool) {
         3
     );
 
-    // Nothing personal reached the store: the configured terms are absent from every body.
-    let leaks = count(
+    // Nothing that a mail says reached the table of the messages: no row has a subject or
+    // a body, and each row says so with the redaction version 0. The receipts of the
+    // fixture hold the name, the address, the phone number and the card of a made-up person.
+    assert!(count(&pool, "select count(*) from raw_messages").await > 0);
+    let with_text = count(
         &pool,
-        "select count(*) from raw_messages where body_html ilike '%Imaginary Street%' \
-           or body_html ilike '%555-0199%' or body_html ilike '%4242%' or body_html ilike '%pat.example@%'",
+        "select count(*) from raw_messages \
+         where subject <> '' or body_html is not null or body_text is not null \
+            or redaction_version <> 0",
     )
     .await;
-    assert_eq!(leaks, 0);
+    assert_eq!(with_text, 0);
+    // And what the parser extracted holds none of it: the lines are products.
+    let personal = count(
+        &pool,
+        "select count(*) from grocery_order_lines \
+         where raw_name ilike '%Imaginary Street%' or raw_name ilike '%555-0199%' \
+            or raw_name ilike '%pat.example@%' or raw_name ilike '%Pat Example%'",
+    )
+    .await;
+    assert_eq!(personal, 0);
+    // A row of a receipt that no rule of the parser read is text of the mail as it came. Its
+    // place and the reason are stored, and no cell of it. The fixture has such rows.
+    assert!(count(&pool, "select count(*) from order_line_anomalies").await > 0);
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from order_line_anomalies where raw_cells <> '[]'::jsonb"
+        )
+        .await,
+        0
+    );
 
     let second = ImportMail::new(mails.clone(), reader(), store.clone())
         .run()
@@ -844,7 +973,7 @@ async fn importing_the_same_export_twice_stores_everything_once(pool: PgPool) {
         (3, 0, 3)
     );
     let parsed_again = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &second.pages)
         .await
         .expect("parse again");
     assert_eq!(parsed_again.pending, 0);
@@ -864,12 +993,12 @@ async fn the_gap_rule_reads_the_stored_purchases(pool: PgPool) {
         receipt_mail("12345678902", "Tuesday, March 10, 2026", "r2"),
         receipt_mail("12345678903", "Tuesday, March 17, 2026", "r3"),
     ]);
-    ImportMail::new(mails.clone(), reader(), store.clone())
+    let imported = ImportMail::new(mails.clone(), reader(), store.clone())
         .run()
         .await
         .expect("import");
     ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
 
@@ -924,12 +1053,12 @@ async fn the_simple_rule_names_the_product_that_the_last_order_lacks(pool: PgPoo
                 .into_bytes(),
         },
     ]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
     assert_eq!((parsed.pending, parsed.parsed), (3, 3));
@@ -980,12 +1109,12 @@ async fn a_muted_product_is_in_no_report_and_each_row_has_the_label_of_its_produ
                 .into_bytes(),
         },
     ]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
     ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
 
@@ -1110,12 +1239,12 @@ async fn a_muted_product_is_not_among_the_reminders(pool: PgPool) {
             }
         })
         .collect();
-    ImportMail::new(Mails(mails), reader(), store.clone())
+    let imported = ImportMail::new(Mails(mails), reader(), store.clone())
         .run()
         .await
         .expect("import");
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
     assert_eq!((parsed.pending, parsed.parsed), (24, 24), "{parsed:?}");
@@ -1332,7 +1461,7 @@ async fn a_write_that_fails_late_in_the_transaction_leaves_nothing_of_it(pool: P
         "Tuesday, March 3, 2026",
         "r1",
     )]);
-    ImportMail::new(mails, reader(), store.clone())
+    let imported = ImportMail::new(mails, reader(), store.clone())
         .run()
         .await
         .expect("import");
@@ -1389,7 +1518,7 @@ async fn a_write_that_fails_late_in_the_transaction_leaves_nothing_of_it(pool: P
     // The control: the same message, still at the version that was read, is parsed by the
     // use case, which makes the aliases first. The failed write left nothing in its way.
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
     assert_eq!((parsed.pending, parsed.parsed), (1, 1));
@@ -1429,7 +1558,7 @@ async fn a_restaurant_receipt_is_stored_under_its_platform_and_waits_for_a_parse
         std::collections::BTreeMap::from([(Platform::Freshdirect, 1), (Platform::Seamless, 1)])
     );
     let parsed = ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &report.pages)
         .await
         .expect("parse");
     assert_eq!(parsed.pending, 1, "the parse step reads FreshDirect only");
@@ -1437,9 +1566,8 @@ async fn a_restaurant_receipt_is_stored_under_its_platform_and_waits_for_a_parse
     let waiting = store.pending(Platform::Seamless).await.expect("pending");
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].parse_state, ParseState::Fetched);
-    let html = waiting[0].body_html.as_deref().expect("html");
-    assert!(html.contains("Dan Dan Noodles"), "{html}");
-    assert!(!html.contains("Imaginary Street"), "{html}");
+    // The record of the mail is there. Its page is not: no parser reads this platform.
+    assert_eq!(waiting[0].body_html, None);
 
     let unknown = sqlx::query(
         "insert into raw_messages \
@@ -1470,12 +1598,12 @@ async fn a_receipt_without_a_dkim_pass_is_parsed_and_its_order_is_tagged_non_ver
         )
         .into_bytes(),
     };
-    ImportMail::new(Mails(vec![signed, unsigned]), reader(), store.clone())
+    let imported = ImportMail::new(Mails(vec![signed, unsigned]), reader(), store.clone())
         .run()
         .await
         .expect("import");
     let parsed = ParsePending::new(store, Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
     assert_eq!((parsed.parsed, parsed.failed), (2, 0), "{parsed:?}");
@@ -1508,12 +1636,12 @@ async fn an_addition_keeps_its_reason_and_is_listed_until_a_later_order(pool: Pg
         "Tuesday, March 3, 2026",
         "r1",
     )]);
-    ImportMail::new(mails.clone(), reader(), store.clone())
+    let imported = ImportMail::new(mails.clone(), reader(), store.clone())
         .run()
         .await
         .expect("import");
     ParsePending::new(store.clone(), Registry::default())
-        .run(Platform::Freshdirect)
+        .run(Platform::Freshdirect, &imported.pages)
         .await
         .expect("parse");
 
