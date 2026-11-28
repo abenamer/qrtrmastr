@@ -132,6 +132,15 @@ pub enum Command {
         #[arg(value_name = "NUMBER")]
         id: i64,
     },
+    /// Empty the mail text that an earlier version stored: the redacted subject and body of
+    /// each message. Your orders and their items stay. Without --yes it only counts the rows.
+    /// The subject and the body cannot be read back afterwards; the mail stays in Gmail and
+    /// in your export. Run an import one time before it.
+    EraseStoredMail {
+        /// Do it. Without this flag the command counts the rows and changes nothing.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// The actions of `qm gmail`.
@@ -557,6 +566,14 @@ mod tests {
             assert!(
                 matches!(cli.command, Command::Import { takeout } if takeout == *"/tmp/export")
             );
+        }
+        // The command that empties stored mail text does nothing without its flag.
+        for (arguments, expected) in [
+            (vec!["qm", "erase-stored-mail"], false),
+            (vec!["qm", "erase-stored-mail", "--yes"], true),
+        ] {
+            let cli = Cli::try_parse_from(arguments).expect("valid");
+            assert!(matches!(cli.command, Command::EraseStoredMail { yes } if yes == expected));
         }
         // The command of before 2026-11-24 that wrote a stored mail to a file is gone.
         assert!(Cli::try_parse_from(["qm", "fixture", "add", "abc@mail.example"]).is_err());

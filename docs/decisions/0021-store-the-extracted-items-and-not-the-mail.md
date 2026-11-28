@@ -4,7 +4,7 @@ title: The store keeps the items of a receipt and not the mail
 description: Why the import parses a receipt while it reads it and stores no subject and no body of a mail, what follows for a parser that gets better, and what happens to the mail that is stored.
 tags: [decision, privacy, import]
 generated: { by: "process:claude-code", at: "2026-11-24T23:30:00Z" }
-updated: 2026-11-24
+updated: 2026-11-27
 sources:
   - id: import
     resource: ../../src/application/import.rs
@@ -21,7 +21,7 @@ sources:
 
 ## Status
 
-Accepted by the maintainer on 2026-11-24. It replaces [ADR 0004](/decisions/0004-redaction-before-storage.md), redaction before storage, for each mail that is imported from that day on. Steps 1 and 2 of three are done.
+Accepted by the maintainer on 2026-11-24. It replaces [ADR 0004](/decisions/0004-redaction-before-storage.md), redaction before storage, for each mail that is imported from that day on. The three steps are done in the code since 2026-11-27. The maintainer runs the command of step 3 one time on the database.
 
 ## Context
 
@@ -46,14 +46,16 @@ Three steps, each its own pull request:
 
 1. The import parses while it reads and stores no text of a mail. This record. Nothing that is stored is removed.
 2. What is no longer used goes: the redactor, the `[redaction]` section of the configuration, `qm fixture add`, their tests, their fuzz target and their documents.
-3. A command that the maintainer runs one time sets the stored subject and bodies of each older row to nothing and keeps the orders. The maintainer chose this on 2026-11-24, over an empty database and over rows that stay.
+3. A command that the maintainer runs one time, `qm erase-stored-mail --yes`, sets the stored subject and bodies of each older row, and the stored cells of each older anomaly, to nothing in one transaction, and keeps the orders. Without `--yes` it counts the rows and changes nothing. The maintainer chose this on 2026-11-24, over an empty database and over rows that stay.
 
 ## Consequences
 
 * An import of today writes no subject and no body of a mail. What it writes of a receipt is what the parser extracted: the order number, the dates, the totals, and for each line the name of the product as the receipt prints it, its department, its quantities and prices, and the path of its link.
 * The parser now reads the page as the sender wrote it, where it read a redacted page before. Two things follow from the review of this change. A row that no rule read was stored cell by cell, and in the real layout one such row holds the line of the payment card: the cells are no longer stored. A cell that stands alone was a department when it was short and had no dollar sign: a cell with four digits in a row is none now. Limits: a department, a product name and the path of a product link are stored as the receipt has them, and a sender that puts a token of the recipient into the path of a link puts it into the store.
 * Since step 2 (2026-11-27) the program has no redactor, no `[redaction]` section and no `qm fixture add`. A section of that name in a file of before is not read.
-* A row of before 2026-11-24 keeps its redacted subject and bodies until step 3. A row that was never parsed is parsed one time from its stored page.
+* A row of before 2026-11-24 keeps its redacted subject and bodies until the maintainer runs the command of step 3. A row that was never parsed is parsed one time from its stored page; after the command it waits for its mail.
+* The command does not reach a backup that was made before it, and the database keeps the old text in its files until a `VACUUM FULL` or until it reuses the space. It leaves the error of each older parse attempt and the reason of each older anomaly, which can quote one cell of a receipt, a date or the digits of an order number.
+* A receipt that was stored and never parsed loses its stored page with the command. The command counts such receipts and says to run an import first.
 * A message that was stored under the hash of its bytes, because its `Message-ID` held a redaction term, does not get a new attempt from a later import: the import of today files its page under the `Message-ID`. A new attempt that fails for a message whose earlier attempt stored an order leaves that order; this needs a parser that changed.
 * A receipt that a parser could not read, or whose order does not reconcile, gets a new attempt only when its mail is imported again. `qm fetch` asks Gmail for the mail since the newest stored one, so it does not bring an old receipt back; a Takeout import does.
 * Each import of a whole export parses again each receipt that has no order that reconciles, and writes one attempt row for each.

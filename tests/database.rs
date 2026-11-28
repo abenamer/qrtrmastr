@@ -641,6 +641,146 @@ async fn a_row_of_before_with_a_stored_page_is_parsed_from_it_once(pool: PgPool)
 }
 
 #[sqlx::test(migrations = false)]
+async fn the_stored_text_of_older_rows_is_emptied_and_the_orders_stay(pool: PgPool) {
+    use qrtrmastr::adapters::postgres::StoredMailText;
+    let store = PostgresStore::from_pool(pool.clone());
+    Migrate::new(store.clone()).run().await.expect("migrations");
+    // An import of today: a receipt with its order, and no text of the mail.
+    let imported = ImportMail::new(
+        Mails(vec![receipt_mail(
+            "12345678901",
+            "Tuesday, March 3, 2026",
+            "r1",
+        )]),
+        reader(),
+        store.clone(),
+    )
+    .run()
+    .await
+    .expect("import");
+    ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &imported.pages)
+        .await
+        .expect("parse");
+    let nothing = StoredMailText {
+        messages: 0,
+        anomalies: 0,
+        never_parsed: 0,
+    };
+    assert_eq!(store.stored_mail_text().await.expect("count"), nothing);
+
+    // Two rows as a version of before stored them, with a subject and a body, and each
+    // anomaly of the order with its cells.
+    insert_raw_row(&pool, "message_id", "old-1@mail.example", b"old one").await;
+    insert_raw_row(&pool, "message_id", "old-2@mail.example", b"old two").await;
+    let anomalies = sqlx::query("update order_line_anomalies set raw_cells = '[\"Credit Card\"]'")
+        .execute(&pool)
+        .await
+        .expect("the cells")
+        .rows_affected();
+    assert!(anomalies > 0, "the fixture has a row that no rule reads");
+    // The two rows of before are receipts in state `fetched` with a page: no parser has
+    // read them. A third row holds a text part and no page.
+    sqlx::query(
+        "insert into raw_messages \
+           (message_key, key_kind, received_at, subject, kind, dkim_pass, body_text, \
+            source_sha256, redaction_version) \
+         values ('old-3@mail.example', 'message_id', now(), '', 'placed', true, 'text', \
+                 '\\x0303', 1)",
+    )
+    .execute(&pool)
+    .await
+    .expect("the row with a text part only");
+    let held = StoredMailText {
+        messages: 3,
+        anomalies,
+        never_parsed: 2,
+    };
+    assert_eq!(store.stored_mail_text().await.expect("count"), held);
+    // What the command must not change, as one text for each table: the state columns of
+    // the messages, the lines, the orders and the attempts.
+    let unchanged = [
+        "select coalesce(string_agg(concat_ws('|', message_key, key_kind, kind, parse_state, \
+           version, order_number, encode(source_sha256, 'hex')), ';' order by id), '') \
+         from raw_messages",
+        "select coalesce(string_agg(l::text, ';' order by order_number, line_no), '') \
+         from grocery_order_lines l",
+        "select coalesce(string_agg(o::text, ';' order by order_number), '') from grocery_orders o",
+        "select coalesce(string_agg(a::text, ';' order by id), '') from parse_attempts a",
+    ];
+    let mut before = Vec::new();
+    for sql in unchanged {
+        let (text,): (String,) = sqlx::query_as(sql).fetch_one(&pool).await.expect("a text");
+        assert!(!text.is_empty(), "{sql}");
+        before.push(text);
+    }
+    let orders = count(&pool, "select count(*) from grocery_orders").await;
+    let lines = count(&pool, "select count(*) from grocery_order_lines").await;
+    assert!(orders == 1 && lines > 0);
+
+    // The command: it says what it changed, and a second run changes nothing.
+    assert_eq!(store.erase_stored_mail_text().await.expect("erase"), held);
+    assert_eq!(store.stored_mail_text().await.expect("count"), nothing);
+    assert_eq!(
+        store.erase_stored_mail_text().await.expect("erase"),
+        nothing
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages \
+             where subject <> '' or body_html is not null or body_text is not null \
+                or redaction_version <> 0"
+        )
+        .await,
+        0
+    );
+    // What stays, to the letter: the state columns of each message, each line, each order and
+    // each attempt.
+    for (sql, was) in unchanged.into_iter().zip(&before) {
+        let (text,): (String,) = sqlx::query_as(sql).fetch_one(&pool).await.expect("a text");
+        assert_eq!(&text, was, "{sql}");
+    }
+    assert_eq!(count(&pool, "select count(*) from raw_messages").await, 4);
+    // A receipt whose page is emptied before a parser read it waits for its mail: a parse
+    // run writes no attempt for it and leaves its state.
+    let attempts = count(&pool, "select count(*) from parse_attempts").await;
+    let waiting = ParsePending::new(store.clone(), Registry::default())
+        .run(Platform::Freshdirect, &ReceivedPages::default())
+        .await
+        .expect("parse");
+    assert_eq!(
+        (waiting.not_in_this_run, waiting.failed),
+        (2, 0),
+        "{waiting:?}"
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from parse_attempts").await,
+        attempts
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from raw_messages where message_key like 'old-%@mail.example'"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_orders").await,
+        orders
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from grocery_order_lines").await,
+        lines
+    );
+    assert_eq!(
+        count(&pool, "select count(*) from order_line_anomalies").await,
+        i64::try_from(anomalies).expect("a count")
+    );
+}
+
+#[sqlx::test(migrations = false)]
 async fn a_stored_key_that_does_not_fit_its_kind_is_an_invalid_row(pool: PgPool) {
     let store = PostgresStore::from_pool(pool.clone());
     Migrate::new(store.clone()).run().await.expect("migrations");

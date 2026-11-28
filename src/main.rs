@@ -312,6 +312,41 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 anyhow::bail!("no addition has the number {id}")
             }
         }
+        Command::EraseStoredMail { yes } => {
+            let store = connect(&settings).await?;
+            if yes {
+                let erased = store.erase_stored_mail_text().await?;
+                println!(
+                    "emptied the stored subject and body of {} message(s) and the stored cells of \
+                     {} anomaly row(s); the orders and their lines are as they were",
+                    erased.messages, erased.anomalies
+                );
+                if erased.never_parsed > 0 {
+                    println!(
+                        "{} of the messages were receipts that no parser had read; they get an \
+                         order when you import their mail again",
+                        erased.never_parsed
+                    );
+                }
+            } else {
+                let held = store.stored_mail_text().await?;
+                println!(
+                    "{} message(s) hold a stored subject or body, and {} anomaly row(s) hold \
+                     stored cells; nothing is changed. Run `qm erase-stored-mail --yes` to empty \
+                     them. The subject and the body cannot be read back afterwards.",
+                    held.messages, held.anomalies
+                );
+                if held.never_parsed > 0 {
+                    println!(
+                        "{} of the messages are receipts that no parser has read yet. Run \
+                         `qm import` or `qm fetch` one time first: it parses them from their \
+                         stored page. After `--yes` they wait for a new import of their mail.",
+                        held.never_parsed
+                    );
+                }
+            }
+            Ok(())
+        }
     }
 }
 

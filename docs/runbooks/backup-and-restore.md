@@ -69,7 +69,7 @@ If the script prints `FAIL`, do not copy its output into the log, an issue or a 
 
 Copy the file that the last line of the drill names to another disk or another machine. The backup in `backups/` protects you from a lost volume. It does not protect you from a lost machine.
 
-The file holds the database: what you bought and when, and for each row of before 2026-11-24 the redacted mail, until the one-time command of [ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md) empties those rows. Keep the file as private as the mail. Do not put it into a repository.
+The file holds the database: what you bought and when, and for each row of before 2026-11-24 the redacted mail, until `qm erase-stored-mail --yes` empties those rows ([ADR 0021](/decisions/0021-store-the-extracted-items-and-not-the-mail.md)). A backup that was made before that command still holds the redacted mail. Keep the file as private as the mail. Do not put it into a repository.
 
 ## 3. A backup without the proof
 
